@@ -1,24 +1,20 @@
-import { fetch } from "wix-fetch";
-import { getSecret } from "wix-secrets-backend";
+export async function getCatalogItems(options = {}, context = {}) {
+  const request = normalizeCatalogRequest(options, context);
 
-const LITE_API_SECRET_NAME = "LITEAPI_KEY";
-const LITE_BOOK_API_BASE_URL = "https://book.liteapi.travel/v3.0";
-
-export async function getCatalogItems(options = {}) {
   console.log(
     "liteApiCatalog getCatalogItems called",
-    JSON.stringify(options, null, 2)
+    JSON.stringify(request, null, 2)
   );
 
-  const catalogReferences = Array.isArray(options?.catalogReferences)
-    ? options.catalogReferences
+  const catalogReferences = Array.isArray(request?.catalogReferences)
+    ? request.catalogReferences
     : [];
 
   const catalogItems = [];
 
   for (const item of catalogReferences) {
     const catalogReference = item?.catalogReference || item;
-    const catalogItem = await resolveCatalogItem(catalogReference);
+    const catalogItem = resolveCatalogItem(catalogReference, request);
 
     if (catalogItem) {
       catalogItems.push(catalogItem);
@@ -28,7 +24,30 @@ export async function getCatalogItems(options = {}) {
   return { catalogItems };
 }
 
-async function resolveCatalogItem(rawCatalogReference) {
+function normalizeCatalogRequest(options, context) {
+  const request =
+    options && typeof options === "object" ? { ...options } : {};
+
+  if (context && typeof context === "object") {
+    request.__context = context;
+
+    if (!request.currency && context.currency) {
+      request.currency = context.currency;
+    }
+
+    if (!request.requestId && context.requestId) {
+      request.requestId = context.requestId;
+    }
+
+    if (!request.languages && context.languages) {
+      request.languages = context.languages;
+    }
+  }
+
+  return request;
+}
+
+function resolveCatalogItem(rawCatalogReference, request) {
   try {
     const catalogReference =
       rawCatalogReference?.catalogReference || rawCatalogReference;
@@ -38,25 +57,42 @@ async function resolveCatalogItem(rawCatalogReference) {
       JSON.stringify(catalogReference, null, 2)
     );
 
-    const prebookId = extractPrebookId(catalogReference);
-
-    if (!prebookId) {
-      console.warn("liteApiCatalog missing prebookId in catalogReference");
+    if (!catalogReference || typeof catalogReference !== "object") {
+      console.warn("liteApiCatalog missing catalogReference");
       return null;
     }
 
-    const livePrebook = await getPrebookById(prebookId);
+    const shell = getShellOptions(catalogReference);
+    const snapshotRoot = extractSnapshotRoot(shell?.prebookSnapshot);
 
-    console.log(
-      "liteApiCatalog livePrebook result",
-      JSON.stringify(livePrebook, null, 2)
+    if (!snapshotRoot) {
+      console.warn("liteApiCatalog missing prebookSnapshot in catalogReference");
+      return null;
+    }
+
+    const firstRate = getFirstRate(snapshotRoot);
+    const sourceCurrency = extractSourceCurrency(firstRate, snapshotRoot);
+    const requestCurrency = normalizeCurrencyCode(
+      request?.currency || request?.__context?.currency
     );
 
-    if (!livePrebook) {
-      return null;
+    if (sourceCurrency && requestCurrency && sourceCurrency !== requestCurrency) {
+      console.warn(
+        "liteApiCatalog currency mismatch (price phase 1: no conversion)",
+        JSON.stringify(
+          {
+            requestCurrency,
+            sourceCurrency,
+            catalogItemId: String(catalogReference?.catalogItemId || ""),
+            requestId: request?.requestId || null
+          },
+          null,
+          2
+        )
+      );
     }
 
-    const catalogItem = buildCatalogItem(catalogReference, livePrebook);
+    const catalogItem = buildCatalogItem(catalogReference, shell, snapshotRoot, firstRate);
 
     console.log(
       "liteApiCatalog built catalogItem",
@@ -74,74 +110,12 @@ async function resolveCatalogItem(rawCatalogReference) {
   }
 }
 
-function extractPrebookId(catalogReference) {
-  const options = catalogReference?.options || {};
-
-  const directPrebookId = String(options?.prebookId || "").trim();
-  if (directPrebookId) {
-    return directPrebookId;
-  }
-
-  const snapshotRoot = extractSnapshotRoot(options?.prebookSnapshot);
-  const snapshotPrebookId = String(snapshotRoot?.prebookId || "").trim();
-
-  return snapshotPrebookId;
-}
-
-async function getPrebookById(prebookId) {
-  try {
-    const response = await liteApiRequest(
-      `${LITE_BOOK_API_BASE_URL}/prebooks/${encodeURIComponent(prebookId)}`,
-      {
-        method: "GET"
-      }
-    );
-
-    const json = await parseJson(response);
-
-    if (!response.ok) {
-      console.warn(
-        "liteApiCatalog getPrebookById non-ok response",
-        JSON.stringify(
-          {
-            prebookId,
-            status: response.status,
-            body: json
-          },
-          null,
-          2
-        )
-      );
-      return null;
-    }
-
-    return extractSnapshotRoot(json);
-  } catch (error) {
-    console.error(
-      "liteApiCatalog getPrebookById failed",
-      error,
-      JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
-    );
-    return null;
-  }
-}
-
-function buildCatalogItem(catalogReference, livePrebook) {
-  const shell = catalogReference?.options || {};
-  const firstRoomType = Array.isArray(livePrebook?.roomTypes)
-    ? livePrebook.roomTypes[0]
-    : null;
-  const firstRate = Array.isArray(firstRoomType?.rates)
-    ? firstRoomType.rates[0]
-    : null;
-
-  const hotelName = String(shell?.hotelName || "").trim() || "Hotel";
-  const rateName = String(firstRate?.name || "").trim();
+function buildCatalogItem(catalogReference, shell, snapshotRoot, firstRate) {
+  const hotelName = normalizeText(shell?.hotelName) || "Hotel";
+  const rateName = normalizeText(firstRate?.name);
   const productName = rateName ? `${hotelName} — ${rateName}` : hotelName;
 
-  const media = String(
-    shell?.hotelMainImage || shell?.roomMainImage || ""
-  ).trim();
+  const media = normalizeText(shell?.hotelMainImage || shell?.roomMainImage);
 
   const data = {
     productName: {
@@ -150,8 +124,8 @@ function buildCatalogItem(catalogReference, livePrebook) {
     itemType: {
       preset: "PHYSICAL"
     },
-    price: extractPriceValue(firstRate, livePrebook),
-    descriptionLines: buildDescriptionLines(shell, livePrebook, firstRate),
+    price: extractPriceValue(firstRate, snapshotRoot),
+    descriptionLines: buildDescriptionLines(shell, snapshotRoot, firstRate),
     physicalProperties: {
       shippable: false
     },
@@ -168,15 +142,83 @@ function buildCatalogItem(catalogReference, livePrebook) {
   };
 }
 
-function buildDescriptionLines(shell, livePrebook, firstRate) {
+function getShellOptions(catalogReference) {
+  const rawOptions = catalogReference?.options || {};
+
+  if (rawOptions.options && typeof rawOptions.options === "object") {
+    return rawOptions.options;
+  }
+
+  return rawOptions;
+}
+
+function extractSnapshotRoot(value) {
+  if (value?.data && typeof value.data === "object" && value.data) {
+    return value.data;
+  }
+
+  if (value && typeof value === "object") {
+    return value;
+  }
+
+  return null;
+}
+
+function getFirstRate(snapshotRoot) {
+  const firstRoomType = Array.isArray(snapshotRoot?.roomTypes)
+    ? snapshotRoot.roomTypes[0]
+    : null;
+
+  const firstRate = Array.isArray(firstRoomType?.rates)
+    ? firstRoomType.rates[0]
+    : null;
+
+  if (!firstRate || typeof firstRate !== "object") {
+    throw new Error(
+      "prebookSnapshot.data.roomTypes[0].rates[0] is required."
+    );
+  }
+
+  return firstRate;
+}
+
+function extractSourceCurrency(firstRate, snapshotRoot) {
+  const retailCurrency = normalizeCurrencyCode(
+    firstRate?.retailRate?.total?.[0]?.currency
+  );
+
+  if (retailCurrency) {
+    return retailCurrency;
+  }
+
+  return normalizeCurrencyCode(snapshotRoot?.currency);
+}
+
+function extractPriceValue(firstRate, snapshotRoot) {
+  const retailAmount = firstRate?.retailRate?.total?.[0]?.amount;
+
+  if (Number.isFinite(Number(retailAmount))) {
+    return toPriceString(retailAmount);
+  }
+
+  const fallbackAmount = snapshotRoot?.price;
+
+  if (Number.isFinite(Number(fallbackAmount))) {
+    return toPriceString(fallbackAmount);
+  }
+
+  return "0";
+}
+
+function buildDescriptionLines(shell, snapshotRoot, firstRate) {
   const lines = [];
 
   pushDescriptionLine(lines, shell?.hotelStars);
   pushDescriptionLine(lines, shell?.hotelReview);
   pushDescriptionLine(lines, shell?.hotelAddress);
 
-  const checkin = String(livePrebook?.checkin || "").trim();
-  const checkout = String(livePrebook?.checkout || "").trim();
+  const checkin = normalizeText(snapshotRoot?.checkin);
+  const checkout = normalizeText(snapshotRoot?.checkout);
 
   if (checkin && checkout) {
     const nights = getNightCount(checkin, checkout);
@@ -186,8 +228,8 @@ function buildDescriptionLines(shell, livePrebook, firstRate) {
     );
   }
 
-  const adultCount = Number(firstRate?.adultCount || 0);
-  const childCount = Number(firstRate?.childCount || 0);
+  const adultCount = normalizeCount(firstRate?.adultCount);
+  const childCount = normalizeCount(firstRate?.childCount);
 
   if (adultCount > 0 || childCount > 0) {
     const guestParts = [];
@@ -203,7 +245,7 @@ function buildDescriptionLines(shell, livePrebook, firstRate) {
     pushDescriptionLine(lines, `Guests: ${guestParts.join(", ")}`);
   }
 
-  const boardName = String(firstRate?.boardName || "").trim();
+  const boardName = normalizeText(firstRate?.boardName);
   if (boardName) {
     pushDescriptionLine(lines, `Board: ${boardName}`);
   }
@@ -211,6 +253,7 @@ function buildDescriptionLines(shell, livePrebook, firstRate) {
   const refundableText = formatRefundableTag(
     firstRate?.cancellationPolicies?.refundableTag
   );
+
   if (refundableText) {
     pushDescriptionLine(lines, `Refundability: ${refundableText}`);
   }
@@ -219,7 +262,8 @@ function buildDescriptionLines(shell, livePrebook, firstRate) {
 }
 
 function pushDescriptionLine(lines, text) {
-  const normalizedText = String(text || "").trim();
+  const normalizedText = normalizeText(text);
+
   if (!normalizedText) {
     return;
   }
@@ -231,31 +275,18 @@ function pushDescriptionLine(lines, text) {
   });
 }
 
-function extractPriceValue(firstRate, livePrebook) {
-  const retailAmount = firstRate?.retailRate?.total?.[0]?.amount;
-  if (Number.isFinite(Number(retailAmount))) {
-    return toPriceString(retailAmount);
-  }
-
-  const fallbackAmount = livePrebook?.price;
-  if (Number.isFinite(Number(fallbackAmount))) {
-    return toPriceString(fallbackAmount);
-  }
-
-  return "0";
-}
-
 function toPriceString(value) {
   const numericValue = Number(value);
+
   if (!Number.isFinite(numericValue)) {
     return "0";
   }
 
-  return String(Number(numericValue.toFixed(2)));
+  return numericValue.toFixed(2);
 }
 
 function formatRefundableTag(value) {
-  const normalized = String(value || "").trim().toUpperCase();
+  const normalized = normalizeText(value).toUpperCase();
 
   if (normalized === "RFN") {
     return "Refundable";
@@ -266,18 +297,6 @@ function formatRefundableTag(value) {
   }
 
   return normalized;
-}
-
-function extractSnapshotRoot(value) {
-  if (value?.data && typeof value.data === "object" && value.data) {
-    return value.data;
-  }
-
-  if (value && typeof value === "object") {
-    return value;
-  }
-
-  return null;
 }
 
 function getNightCount(checkin, checkout) {
@@ -297,37 +316,20 @@ function getNightCount(checkin, checkout) {
   return nights > 0 ? nights : 1;
 }
 
-async function liteApiRequest(url, options = {}) {
-  const apiKey = await getSecret(LITE_API_SECRET_NAME);
+function normalizeCount(value) {
+  const parsed = Number(value);
 
-  if (!apiKey) {
-    throw new Error(
-      `Missing secret "${LITE_API_SECRET_NAME}". Add your LiteAPI key to Wix Secrets Manager.`
-    );
+  if (!Number.isFinite(parsed)) {
+    return 0;
   }
 
-  const headers = {
-    "X-API-Key": apiKey,
-    accept: "application/json"
-  };
-
-  const requestOptions = {
-    method: options.method || "GET",
-    headers
-  };
-
-  if (options.body) {
-    requestOptions.headers["content-type"] = "application/json";
-    requestOptions.body = JSON.stringify(options.body);
-  }
-
-  return fetch(url, requestOptions);
+  return Math.max(0, Math.floor(parsed));
 }
 
-async function parseJson(response) {
-  try {
-    return await response.json();
-  } catch (error) {
-    return null;
-  }
+function normalizeText(value) {
+  return String(value || "").trim();
+}
+
+function normalizeCurrencyCode(value) {
+  return normalizeText(value).toUpperCase();
 }

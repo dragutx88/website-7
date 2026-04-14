@@ -9,8 +9,8 @@ import {
 } from "./liteApiTransforms";
 
 const LITE_API_BASE_URL = "https://api.liteapi.travel/v3.0";
-const DEFAULT_CURRENCY = "USD";
-const DEFAULT_GUEST_NATIONALITY = "US";
+const DEFAULT_CURRENCY = "TRY";
+const DEFAULT_GUEST_NATIONALITY = "TR";
 
 export async function searchPlacesHandler(textQuery) {
   const query = String(textQuery || "").trim();

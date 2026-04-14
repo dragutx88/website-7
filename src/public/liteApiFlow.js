@@ -19,7 +19,7 @@ export const PAGE_PATHS = Object.freeze({
 });
 
 export const DEFAULT_LANGUAGE = "en";
-export const DEFAULT_CURRENCY = "USD";
+export const DEFAULT_CURRENCY = "TRY";
 
 const DEFAULT_FLOW_TTL_MS = 1000 * 60 * 60 * 12;
 const LONG_FLOW_TTL_MS = 1000 * 60 * 60 * 24;
@@ -540,27 +540,45 @@ export function formatRefundableTag(value) {
   return normalized;
 }
 
-export function formatPrice(priceObject) {
-  if (!priceObject || typeof priceObject !== "object") {
+export function formatPrice(price) {
+  if (!price || typeof price !== "object") {
     return "";
   }
 
-  const amount = Number(priceObject.amount);
-  const currency = String(priceObject.currency || "").trim();
+  const amount = Number(price?.amount);
+  const currency = String(price?.currency || DEFAULT_CURRENCY)
+    .trim()
+    .toUpperCase();
 
-  if (!Number.isFinite(amount) || !currency) {
+  if (!Number.isFinite(amount)) {
     return "";
   }
 
   try {
+    if (currency === "TRY") {
+      return new Intl.NumberFormat("tr-TR", {
+        style: "currency",
+        currency: "TRY",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }).format(amount);
+    }
+
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
-      minimumFractionDigits: 0,
+      minimumFractionDigits: 2,
       maximumFractionDigits: 2
     }).format(amount);
   } catch (error) {
-    return `${currency} ${amount}`;
+    const fixed = amount.toFixed(2);
+
+    if (currency === "TRY") {
+      const [whole, fraction] = fixed.split(".");
+      return `₺${Number(whole).toLocaleString("tr-TR")},${fraction}`;
+    }
+
+    return `${currency} ${fixed}`;
   }
 }
 

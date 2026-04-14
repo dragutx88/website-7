@@ -79,7 +79,7 @@ async function initializeHotelPage() {
         checkIn: currentCtx.checkin,
         checkOut: currentCtx.checkout,
         occupancy: buildOccupancyFromCtx(currentCtx),
-        currency: currentCtx.currency || "USD"
+        currency: currentCtx.currency || "TRY"
       })
     ]);
 
