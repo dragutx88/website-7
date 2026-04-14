@@ -8,6 +8,7 @@ import {
   getHotelDetails,
   getHotelRatesByHotelId
 } from "backend/liteApi.web";
+import { importCatalogImages } from "backend/wix.web";
 import {
   buildCheckoutPageUrl,
   buildOccupancyFromCtx,
@@ -418,11 +419,11 @@ function bindOfferSlot($item, slotNumber, offer, roomItemData) {
         ctx: currentCtx
       });
     } catch (error) {
-     console.error(
-      "HOTEL PAGE offer selection failed",
-      error,
-      JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
-     );
+      console.error(
+        "HOTEL PAGE offer selection failed",
+        error,
+        JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
+      );
     }
   });
 }
@@ -517,15 +518,34 @@ async function handleWixCartFlow(selectedOfferPayload) {
     throw new Error("Prebook snapshot could not be resolved.");
   }
 
+  const prebookId = extractPrebookIdFromSnapshot(prebookSnapshot);
+
+  const importedImageRefs = await resolveCatalogImageRefs({
+    hotelMainImage: selectedOfferPayload.hotelMainPhoto,
+    roomMainImage: selectedOfferPayload.roomImage,
+    hotelName: selectedOfferPayload.hotelName,
+    mappedRoomName:
+      selectedOfferPayload.roomName || selectedOfferPayload.mappedRoomId
+  });
+
   selectedOfferPayload.prebookSnapshot = prebookSnapshot;
+  selectedOfferPayload.prebookId = prebookId;
+  selectedOfferPayload.wixHotelMainImageRef =
+    importedImageRefs.wixHotelMainImageRef || "";
+  selectedOfferPayload.wixRoomMainImageRef =
+    importedImageRefs.wixRoomMainImageRef || "";
+
   persistSelectedOfferPayload(selectedOfferPayload);
 
   const lineItem = buildWixCatalogLineItem({
     mappedRoomId,
+    prebookId,
     prebookSnapshot,
     hotelName: selectedOfferPayload.hotelName,
     hotelMainImage: selectedOfferPayload.hotelMainPhoto,
     roomMainImage: selectedOfferPayload.roomImage,
+    wixHotelMainImageRef: importedImageRefs.wixHotelMainImageRef,
+    wixRoomMainImageRef: importedImageRefs.wixRoomMainImageRef,
     hotelStars: formatHotelStarsText(selectedOfferPayload.hotelStars),
     hotelReview: buildHotelReviewText(
       selectedOfferPayload.hotelGuestRating,
@@ -571,10 +591,13 @@ function handleLiteApiDirectCheckout(selectedOfferPayload) {
 
 function buildWixCatalogLineItem({
   mappedRoomId,
+  prebookId,
   prebookSnapshot,
   hotelName,
   hotelMainImage,
   roomMainImage,
+  wixHotelMainImageRef,
+  wixRoomMainImageRef,
   hotelStars,
   hotelReview,
   hotelAddress
@@ -585,16 +608,71 @@ function buildWixCatalogLineItem({
       appId: LITEAPI_CATALOG_APP_ID,
       catalogItemId: String(mappedRoomId || "").trim(),
       options: {
+        prebookId: String(prebookId || "").trim(),
         prebookSnapshot,
         hotelName: String(hotelName || "").trim(),
         hotelMainImage: String(hotelMainImage || "").trim(),
         roomMainImage: String(roomMainImage || "").trim(),
+        wixHotelMainImageRef: String(wixHotelMainImageRef || "").trim(),
+        wixRoomMainImageRef: String(wixRoomMainImageRef || "").trim(),
         hotelStars: String(hotelStars || "").trim(),
         hotelReview: String(hotelReview || "").trim(),
         hotelAddress: String(hotelAddress || "").trim()
       }
     }
   };
+}
+
+async function resolveCatalogImageRefs({
+  hotelMainImage,
+  roomMainImage,
+  hotelName,
+  mappedRoomName
+}) {
+  const hasAnyImage = Boolean(
+    String(hotelMainImage || "").trim() || String(roomMainImage || "").trim()
+  );
+
+  if (!hasAnyImage) {
+    return {
+      wixHotelMainImageRef: "",
+      wixRoomMainImageRef: ""
+    };
+  }
+
+  try {
+    const result = await importCatalogImages({
+      hotelMainImage: String(hotelMainImage || "").trim(),
+      roomMainImage: String(roomMainImage || "").trim(),
+      hotelName: String(hotelName || "").trim(),
+      mappedRoomName: String(mappedRoomName || "").trim()
+    });
+
+    return {
+      wixHotelMainImageRef: String(result?.wixHotelMainImageRef || "").trim(),
+      wixRoomMainImageRef: String(result?.wixRoomMainImageRef || "").trim()
+    };
+  } catch (error) {
+    console.error(
+      "HOTEL PAGE importCatalogImages failed",
+      error,
+      JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
+    );
+
+    return {
+      wixHotelMainImageRef: "",
+      wixRoomMainImageRef: ""
+    };
+  }
+}
+
+function extractPrebookIdFromSnapshot(prebookSnapshot) {
+  const snapshotRoot =
+    prebookSnapshot?.data && typeof prebookSnapshot.data === "object"
+      ? prebookSnapshot.data
+      : prebookSnapshot;
+
+  return String(snapshotRoot?.prebookId || "").trim();
 }
 
 function setCartReturnUrl() {

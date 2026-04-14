@@ -28,7 +28,51 @@ export async function createPrebookSessionHandler(payload) {
   const json = await parseJson(response);
 
   if (!response.ok) {
-    throw buildLiteApiError(json, "Prebook request failed.");
+    const error = buildLiteApiError(json, "Prebook request failed.");
+    error.statusCode = response.status;
+    throw error;
+  }
+
+  return {
+    raw: json,
+    normalizedPrebook: normalizePrebookResponse(
+      json?.data || null,
+      await getLiteApiPaymentEnvironment()
+    )
+  };
+}
+
+export async function getPrebookByIdHandler(payload) {
+  const prebookId = String(
+    typeof payload === "string" ? payload : payload?.prebookId || ""
+  ).trim();
+
+  const includeCreditBalance =
+    typeof payload === "object" && payload?.includeCreditBalance !== undefined
+      ? String(payload.includeCreditBalance).trim()
+      : "";
+
+  if (!prebookId) {
+    throw new Error("prebookId is required.");
+  }
+
+  const querySuffix = includeCreditBalance
+    ? `?includeCreditBalance=${encodeURIComponent(includeCreditBalance)}`
+    : "";
+
+  const response = await liteApiRequest(
+    `${LITE_BOOK_API_BASE_URL}/prebooks/${encodeURIComponent(prebookId)}${querySuffix}`,
+    {
+      method: "GET"
+    }
+  );
+
+  const json = await parseJson(response);
+
+  if (!response.ok) {
+    const error = buildLiteApiError(json, "Get prebook request failed.");
+    error.statusCode = response.status;
+    throw error;
   }
 
   return {
@@ -68,7 +112,9 @@ export async function completeBookingHandler(payload) {
     };
   }
 
-  throw buildLiteApiError(json, "Booking request failed.");
+  const error = buildLiteApiError(json, "Booking request failed.");
+  error.statusCode = response.status;
+  throw error;
 }
 
 function buildCompleteBookingPayload(payload) {
