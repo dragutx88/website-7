@@ -14,8 +14,8 @@ async function initializeThankYouFlow() {
   const progressBar = getElement("#bookingProgressBar");
 
   initializeProgressBar(progressBar);
-  hideProgressBar(progressBar);
-  showManagedThankYouPage(thankYouPage);
+  await collapseProgressBar(progressBar);
+  await expandThankYouPage(thankYouPage);
 
   if (!thankYouPage || typeof thankYouPage.getOrder !== "function") {
     console.warn("THANK YOU PAGE element #thankYouPage1 is missing or invalid.");
@@ -34,24 +34,23 @@ async function initializeThankYouFlow() {
         paymentStatus: normalizeText(order?.paymentStatus).toUpperCase(),
         lineItemsCount: Array.isArray(order?.lineItems) ? order.lineItems.length : 0,
         lineItemOptionsSummary: summarizeOrderLineItemOptions(order),
-        decision,
-        order
+        decision
       })
     );
 
     if (!decision.shouldStartBooking) {
-      showManagedThankYouPage(thankYouPage);
-      hideProgressBar(progressBar);
+      await collapseProgressBar(progressBar);
+      await expandThankYouPage(thankYouPage);
       return;
     }
 
-    hideManagedThankYouPage(thankYouPage);
-    showProgressBar(progressBar);
+    await collapseThankYouPage(thankYouPage);
+    await expandProgressBar(progressBar);
 
-    setProgress(progressBar, 15, "Checking order...");
+    setProgress(progressBar, 15);
     await sleep(250);
 
-    setProgress(progressBar, 35, "Starting reservation...");
+    setProgress(progressBar, 35);
     await sleep(250);
 
     const bookingResult = await completeBooking({
@@ -67,20 +66,22 @@ async function initializeThankYouFlow() {
       })
     );
 
-    setProgress(progressBar, 80, "Reservation completed. Finalizing...");
-    await sleep(300);
+    setProgress(progressBar, 75);
+    await sleep(250);
 
-    setProgress(progressBar, 100, "Booking completed");
+    setProgress(progressBar, 100);
     await sleep(500);
 
-    showManagedThankYouPage(thankYouPage);
+    await collapseProgressBar(progressBar);
+    await expandThankYouPage(thankYouPage);
   } catch (error) {
     console.error("THANK YOU PAGE booking failed", error, safeJson(error));
 
-    setProgress(progressBar, 100, "Booking failed");
-    await sleep(500);
+    setProgress(progressBar, 100);
+    await sleep(400);
 
-    showManagedThankYouPage(thankYouPage);
+    await collapseProgressBar(progressBar);
+    await expandThankYouPage(thankYouPage);
   }
 }
 
@@ -177,6 +178,9 @@ function summarizeOrderLineItemOptions(order) {
 
   return lineItems.map((lineItem, index) => ({
     index,
+    lineItemId: normalizeText(
+      lineItem?._id || lineItem?.id || lineItem?.lineItemId || lineItem?._lineItemId
+    ),
     name: normalizeText(
       lineItem?.name ||
         lineItem?.productName?.translated ||
@@ -207,13 +211,9 @@ function initializeProgressBar(progressBar) {
   try {
     progressBar.value = 0;
   } catch (error) {}
-
-  try {
-    progressBar.label = "";
-  } catch (error) {}
 }
 
-function setProgress(progressBar, value, labelText) {
+function setProgress(progressBar, value) {
   if (!progressBar) {
     return;
   }
@@ -221,105 +221,77 @@ function setProgress(progressBar, value, labelText) {
   try {
     progressBar.value = Number(value || 0);
   } catch (error) {}
-
-  try {
-    progressBar.label = normalizeText(labelText);
-  } catch (error) {}
 }
 
-function showManagedThankYouPage(element) {
+async function expandThankYouPage(element) {
   if (!element) {
     return;
   }
 
   try {
     if (typeof element.show === "function") {
-      element.show();
+      await Promise.resolve(element.show());
     }
   } catch (error) {}
 
   try {
     if (typeof element.expand === "function") {
-      element.expand();
+      await Promise.resolve(element.expand());
     }
-  } catch (error) {}
-
-  try {
-    element.hidden = false;
-  } catch (error) {}
-
-  try {
-    element.collapsed = false;
   } catch (error) {}
 }
 
-function hideManagedThankYouPage(element) {
+async function collapseThankYouPage(element) {
   if (!element) {
     return;
   }
 
   try {
     if (typeof element.hide === "function") {
-      element.hide();
+      await Promise.resolve(element.hide());
     }
   } catch (error) {}
 
   try {
     if (typeof element.collapse === "function") {
-      element.collapse();
+      await Promise.resolve(element.collapse());
     }
-  } catch (error) {}
-
-  try {
-    element.hidden = true;
   } catch (error) {}
 }
 
-function showProgressBar(progressBar) {
+async function expandProgressBar(progressBar) {
   if (!progressBar) {
     return;
   }
 
   try {
     if (typeof progressBar.show === "function") {
-      progressBar.show();
+      await Promise.resolve(progressBar.show());
     }
   } catch (error) {}
 
   try {
     if (typeof progressBar.expand === "function") {
-      progressBar.expand();
+      await Promise.resolve(progressBar.expand());
     }
-  } catch (error) {}
-
-  try {
-    progressBar.hidden = false;
-  } catch (error) {}
-
-  try {
-    progressBar.collapsed = false;
   } catch (error) {}
 }
 
-function hideProgressBar(progressBar) {
+async function collapseProgressBar(progressBar) {
   if (!progressBar) {
     return;
   }
 
   try {
     if (typeof progressBar.hide === "function") {
-      progressBar.hide();
+      await Promise.resolve(progressBar.hide());
     }
   } catch (error) {}
 
   try {
     if (typeof progressBar.collapse === "function") {
-      progressBar.collapse();
+      await Promise.resolve(progressBar.collapse());
     }
-  } catch (error) {}
-
-  try {
-    progressBar.hidden = true;
   } catch (error) {}
 }
 

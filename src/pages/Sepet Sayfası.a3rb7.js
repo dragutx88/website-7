@@ -45,16 +45,24 @@ function bindReservationDateTypeControls() {
 async function hydrateReservationDateTypeUi() {
   try {
     const cart = await currentCart.getCurrentCart();
-    const liteApiLineItem = findLiteApiLineItem(cart);
+    const resolved = resolveSingleLiteApiCartLineItem(cart);
 
     console.log("CART PAGE currentCart", safeJson(cart));
 
-    if (!liteApiLineItem) {
+    if (!resolved.lineItem) {
       setSwitchChecked(false);
+
+      console.warn(
+        "CART PAGE hydrateReservationDateTypeUi unresolved target",
+        safeJson({
+          reason: resolved.reason,
+          candidates: resolved.candidates.map(buildCandidateSummary)
+        })
+      );
       return;
     }
 
-    const optionsState = readLineItemOptionsState(liteApiLineItem);
+    const optionsState = readLineItemOptionsState(resolved.lineItem);
     const reservationDateType = normalizeText(
       optionsState?.shellOptions?.[RESERVATION_DATE_TYPE_KEY]
     ).toLowerCase();
@@ -66,8 +74,8 @@ async function hydrateReservationDateTypeUi() {
     console.log(
       "CART PAGE hydrateReservationDateTypeUi",
       safeJson({
-        lineItemId: normalizeText(liteApiLineItem?._id),
-        catalogItemId: normalizeText(liteApiLineItem?.catalogReference?.catalogItemId),
+        lineItemId: normalizeText(resolved.lineItem?._id),
+        catalogItemId: normalizeText(resolved.lineItem?.catalogReference?.catalogItemId),
         prebookId: normalizeText(optionsState?.shellOptions?.prebookId),
         reservationDateType,
         isFlexible
@@ -93,22 +101,24 @@ async function applyReservationDateType(isFlexible, source) {
     setSwitchChecked(isFlexible);
 
     const cart = await currentCart.getCurrentCart();
-    const liteApiLineItem = findLiteApiLineItem(cart);
+    const resolved = resolveSingleLiteApiCartLineItem(cart);
 
-    if (!liteApiLineItem) {
+    if (!resolved.lineItem) {
       console.warn(
-        "CART PAGE applyReservationDateType skipped: LiteAPI line item not found",
+        "CART PAGE applyReservationDateType skipped: unresolved LiteAPI line item",
         safeJson({
           source,
-          cartId: normalizeText(cart?._id || cart?.id || cart?.checkoutId),
-          isFlexible
+          isFlexible,
+          reason: resolved.reason,
+          candidates: resolved.candidates.map(buildCandidateSummary)
         })
       );
       return;
     }
 
-    const catalogReference = liteApiLineItem?.catalogReference || {};
-    const optionsState = readLineItemOptionsState(liteApiLineItem);
+    const lineItem = resolved.lineItem;
+    const catalogReference = lineItem?.catalogReference || {};
+    const optionsState = readLineItemOptionsState(lineItem);
     const shellOptions = { ...optionsState.shellOptions };
 
     const currentReservationDateType = normalizeText(
@@ -139,8 +149,8 @@ async function applyReservationDateType(isFlexible, source) {
     const updatePayload = {
       lineItems: [
         {
-          _id: liteApiLineItem?._id,
-          quantity: Number(liteApiLineItem?.quantity) || 1,
+          _id: lineItem?._id,
+          quantity: Number(lineItem?.quantity) || 1,
           catalogReference: {
             appId: normalizeText(catalogReference?.appId),
             catalogItemId: normalizeText(catalogReference?.catalogItemId),
@@ -155,6 +165,8 @@ async function applyReservationDateType(isFlexible, source) {
       safeJson({
         source,
         isFlexible,
+        lineItemId: normalizeText(lineItem?._id),
+        prebookId: normalizeText(optionsState?.shellOptions?.prebookId),
         updatePayload
       })
     );
@@ -174,21 +186,64 @@ async function applyReservationDateType(isFlexible, source) {
   }
 }
 
-function findLiteApiLineItem(cart) {
+function resolveSingleLiteApiCartLineItem(cart) {
+  const candidates = collectLiteApiCartLineItemCandidates(cart);
+
+  if (candidates.length === 0) {
+    return {
+      lineItem: null,
+      reason: "no-candidate",
+      candidates
+    };
+  }
+
+  if (candidates.length > 1) {
+    return {
+      lineItem: null,
+      reason: "ambiguous-candidates",
+      candidates
+    };
+  }
+
+  return {
+    lineItem: candidates[0].lineItem,
+    reason: "resolved",
+    candidates
+  };
+}
+
+function collectLiteApiCartLineItemCandidates(cart) {
   const lineItems = Array.isArray(cart?.lineItems) ? cart.lineItems : [];
 
-  return (
-    lineItems.find((lineItem) => {
+  return lineItems
+    .map((lineItem) => {
       const catalogReference = lineItem?.catalogReference || {};
       const optionsState = readLineItemOptionsState(lineItem);
 
-      return (
-        normalizeText(catalogReference?.appId) === LITEAPI_CATALOG_APP_ID &&
-        normalizeText(catalogReference?.catalogItemId) &&
-        normalizeText(optionsState?.shellOptions?.prebookId)
-      );
-    }) || null
-  );
+      const lineItemId = normalizeText(lineItem?._id);
+      const appId = normalizeText(catalogReference?.appId);
+      const catalogItemId = normalizeText(catalogReference?.catalogItemId);
+      const prebookId = normalizeText(optionsState?.shellOptions?.prebookId);
+
+      const looksLikeLiteApiItem = appId === LITEAPI_CATALOG_APP_ID;
+      const isUsableCandidate =
+        looksLikeLiteApiItem &&
+        Boolean(lineItemId) &&
+        Boolean(prebookId) &&
+        Boolean(catalogItemId);
+
+      if (!isUsableCandidate) {
+        return null;
+      }
+
+      return {
+        lineItem,
+        lineItemId,
+        catalogItemId,
+        prebookId
+      };
+    })
+    .filter(Boolean);
 }
 
 function readLineItemOptionsState(lineItem) {
@@ -225,6 +280,14 @@ function buildCatalogReferenceOptions(optionsState, nextShellOptions) {
   }
 
   return nextShellOptions;
+}
+
+function buildCandidateSummary(candidate) {
+  return {
+    lineItemId: normalizeText(candidate?.lineItemId),
+    catalogItemId: normalizeText(candidate?.catalogItemId),
+    prebookId: normalizeText(candidate?.prebookId)
+  };
 }
 
 function setSwitchChecked(checked) {

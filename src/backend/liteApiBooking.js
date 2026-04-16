@@ -24,7 +24,6 @@ const BOOKING_FLOW_MODES = Object.freeze({
 });
 
 const elevatedGetOrder = elevate(orders.getOrder);
-const elevatedUpdateOrder = elevate(orders.updateOrder);
 
 export async function createPrebookSessionHandler(payload) {
   const offerId = normalizeText(payload?.offerId);
@@ -147,17 +146,18 @@ async function completeWalletBookingHandler(payload) {
   const order = await elevatedGetOrder(orderId);
   const resolvedOrderId = resolveOrderId(order) || orderId;
 
-  const liteApiLineItem = resolveLiteApiOrderLineItem(order);
-  if (!liteApiLineItem) {
+  const bookingCandidate = resolveSingleLiteApiOrderLineItem(order);
+  if (!bookingCandidate) {
     throw new Error("LiteAPI booking line item was not found in the order.");
   }
 
-  const orderLineItemId = normalizeText(liteApiLineItem?.orderLineItemId);
+  const orderLineItemId = normalizeText(bookingCandidate.orderLineItemId);
+  const prebookId = normalizeText(bookingCandidate.prebookId);
+
   if (!orderLineItemId) {
     throw new Error("order line item id is missing from the order.");
   }
 
-  const prebookId = normalizeText(liteApiLineItem?.prebookId);
   if (!prebookId) {
     throw new Error("prebookId is missing from the order.");
   }
@@ -188,14 +188,16 @@ async function completeWalletBookingHandler(payload) {
           extractGuestDetailsFromOrder(order)
         ),
         persistence: {
-          status: "cache-hit",
-          recordId: normalizeText(existingRecord.record?._id)
+          cms: {
+            status: "cache-hit",
+            recordId: normalizeText(existingRecord.record?._id)
+          }
         }
       };
     }
 
     console.warn(
-      "LITEAPI WALLET booking existing record found without bookingId, continuing live booking",
+      "LITEAPI WALLET existing record found without bookingId; continuing live booking",
       stringifyForLog({
         orderId: resolvedOrderId,
         orderLineItemId,
@@ -207,8 +209,14 @@ async function completeWalletBookingHandler(payload) {
   const guestDetails = extractGuestDetailsFromOrder(order);
   validateGuestDetails(guestDetails);
 
-  const requestBody = buildWalletBookingPayload({
+  const clientReference = buildWalletClientReference({
     orderId: resolvedOrderId,
+    orderLineItemId,
+    prebookId
+  });
+
+  const requestBody = buildWalletBookingPayload({
+    clientReference,
     prebookId,
     guestDetails
   });
@@ -218,9 +226,9 @@ async function completeWalletBookingHandler(payload) {
     stringifyForLog({
       orderId: resolvedOrderId,
       orderLineItemId,
-      bookingFlowMode: BOOKING_FLOW_MODES.WALLET,
       prebookId,
-      clientReference: resolvedOrderId,
+      clientReference,
+      bookingFlowMode: BOOKING_FLOW_MODES.WALLET,
       paymentMethod: BOOKING_FLOW_MODES.WALLET
     })
   );
@@ -249,18 +257,18 @@ async function completeWalletBookingHandler(payload) {
       orderId: resolvedOrderId,
       orderLineItemId,
       prebookId,
+      clientReference,
       bookingId: normalizedBooking?.bookingId,
       hotelConfirmationCode: normalizedBooking?.hotelConfirmationCode,
       status: normalizedBooking?.status
     })
   );
 
-  const persistence = await persistWalletBookingArtifacts({
+  const persistence = await persistWalletBookingRecord({
     orderId: resolvedOrderId,
     orderLineItemId,
-    clientReference: resolvedOrderId,
-    rawBookingObject: json,
-    bookingId: normalizedBooking?.bookingId
+    clientReference,
+    rawBookingObject: json
   });
 
   return {
@@ -270,20 +278,16 @@ async function completeWalletBookingHandler(payload) {
   };
 }
 
-async function persistWalletBookingArtifacts({
+async function persistWalletBookingRecord({
   orderId,
   orderLineItemId,
   clientReference,
-  rawBookingObject,
-  bookingId
+  rawBookingObject
 }) {
   const persistence = {
     cms: {
       status: "not-started",
       recordId: ""
-    },
-    attribution: {
-      status: "not-started"
     }
   };
 
@@ -319,47 +323,6 @@ async function persistWalletBookingArtifacts({
       stringifyForLog({
         orderId,
         orderLineItemId,
-        error
-      })
-    );
-  }
-
-  if (!normalizeText(bookingId)) {
-    persistence.attribution = {
-      status: "skipped",
-      reason: "missing-booking-id"
-    };
-
-    return persistence;
-  }
-
-  try {
-    await elevatedUpdateOrder(orderId, {
-      attributionSource: `liteapi:${normalizeText(bookingId)}`
-    });
-
-    persistence.attribution = {
-      status: "updated"
-    };
-
-    console.log(
-      "LITEAPI WALLET order attributionSource updated",
-      stringifyForLog({
-        orderId,
-        bookingId: normalizeText(bookingId)
-      })
-    );
-  } catch (error) {
-    persistence.attribution = {
-      status: "failed",
-      error: serializeError(error)
-    };
-
-    console.warn(
-      "LITEAPI WALLET booking attributionSource update failed",
-      stringifyForLog({
-        orderId,
-        bookingId: normalizeText(bookingId),
         error
       })
     );
@@ -421,7 +384,7 @@ function buildTransactionBookingPayload(payload) {
   };
 }
 
-function buildWalletBookingPayload({ orderId, prebookId, guestDetails }) {
+function buildWalletBookingPayload({ clientReference, prebookId, guestDetails }) {
   const holder = {
     firstName: guestDetails.firstName,
     lastName: guestDetails.lastName,
@@ -445,13 +408,21 @@ function buildWalletBookingPayload({ orderId, prebookId, guestDetails }) {
 
   return {
     prebookId,
-    clientReference: orderId,
+    clientReference,
     holder,
     guests: [guest],
     payment: {
       method: BOOKING_FLOW_MODES.WALLET
     }
   };
+}
+
+function buildWalletClientReference({ orderId, orderLineItemId, prebookId }) {
+  return [
+    `order_id=${normalizeText(orderId)}`,
+    `order_line_item_id=${normalizeText(orderLineItemId)}`,
+    `item_prebook_id=${normalizeText(prebookId)}`
+  ].join("|");
 }
 
 function validateGuestDetails(guestDetails) {
@@ -511,30 +482,57 @@ function extractGuestDetailsFromOrder(order) {
   };
 }
 
-function resolveLiteApiOrderLineItem(order) {
-  const lineItems = Array.isArray(order?.lineItems) ? order.lineItems : [];
+function resolveSingleLiteApiOrderLineItem(order) {
+  const candidates = collectLiteApiOrderLineItemCandidates(order);
 
-  for (const lineItem of lineItems) {
-    const appId = normalizeText(deepFindFirstValueByKey(lineItem, "appId"));
-    const prebookId = normalizeText(deepFindFirstValueByKey(lineItem, "prebookId"));
-    const orderLineItemId = resolveOrderLineItemId(lineItem);
-
-    const looksLikeLiteApiItem =
-      appId === LITEAPI_CATALOG_APP_ID || Boolean(prebookId);
-
-    if (!looksLikeLiteApiItem) {
-      continue;
-    }
-
-    return {
-      lineItem,
-      appId,
-      prebookId,
-      orderLineItemId
-    };
+  if (candidates.length === 0) {
+    return null;
   }
 
-  return null;
+  if (candidates.length > 1) {
+    const summary = candidates.map((candidate) => ({
+      orderLineItemId: candidate.orderLineItemId,
+      prebookId: candidate.prebookId,
+      appId: candidate.appId
+    }));
+
+    throw new Error(
+      `Multiple LiteAPI booking line items found in order: ${JSON.stringify(summary)}`
+    );
+  }
+
+  return candidates[0];
+}
+
+function collectLiteApiOrderLineItemCandidates(order) {
+  const lineItems = Array.isArray(order?.lineItems) ? order.lineItems : [];
+
+  return lineItems
+    .map((lineItem) => {
+      const appId = normalizeText(deepFindFirstValueByKey(lineItem, "appId"));
+      const prebookId = normalizeText(deepFindFirstValueByKey(lineItem, "prebookId"));
+      const orderLineItemId = resolveOrderLineItemId(lineItem);
+
+      const looksLikeLiteApiItem =
+        appId === LITEAPI_CATALOG_APP_ID || Boolean(prebookId);
+
+      const isUsableCandidate =
+        looksLikeLiteApiItem &&
+        Boolean(orderLineItemId) &&
+        Boolean(prebookId);
+
+      if (!isUsableCandidate) {
+        return null;
+      }
+
+      return {
+        lineItem,
+        appId,
+        prebookId,
+        orderLineItemId
+      };
+    })
+    .filter(Boolean);
 }
 
 function resolveOrderLineItemId(lineItem) {
@@ -542,8 +540,7 @@ function resolveOrderLineItemId(lineItem) {
     lineItem?._id ||
       lineItem?.id ||
       lineItem?.lineItemId ||
-      lineItem?._lineItemId ||
-      lineItem?.catalogReference?.catalogItemId
+      lineItem?._lineItemId
   );
 }
 
