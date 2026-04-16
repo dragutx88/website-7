@@ -1,3 +1,6 @@
+import wixData from "wix-data";
+import { elevate } from "wix-auth";
+import { orders } from "wix-ecom-backend";
 import {
   buildLiteApiError,
   getLiteApiPaymentEnvironment,
@@ -7,9 +10,20 @@ import {
 import { getBeforePriceObject, getCurrentPriceObject } from "./liteApiTransforms";
 
 const LITE_BOOK_API_BASE_URL = "https://book.liteapi.travel/v3.0";
+const LITEAPI_CATALOG_APP_ID = "e7f94f4b-7e6a-41c6-8ee1-52c1d5f31cf4";
+const BOOKING_RECORDS_COLLECTION_ID = "circles_program_order";
+const BOOKING_RECORD_FIELD_KEY = "item_booking_full_record";
+
+const BOOKING_FLOW_MODES = Object.freeze({
+  WALLET: "WALLET",
+  TRANSACTION: "TRANSACTION"
+});
+
+const elevatedGetOrder = elevate(orders.getOrder);
+const elevatedUpdateOrder = elevate(orders.updateOrder);
 
 export async function createPrebookSessionHandler(payload) {
-  const offerId = String(payload?.offerId || "").trim();
+  const offerId = normalizeText(payload?.offerId);
   const usePaymentSdk =
     typeof payload?.usePaymentSdk === "boolean" ? payload.usePaymentSdk : true;
 
@@ -43,13 +57,13 @@ export async function createPrebookSessionHandler(payload) {
 }
 
 export async function getPrebookByIdHandler(payload) {
-  const prebookId = String(
-    typeof payload === "string" ? payload : payload?.prebookId || ""
-  ).trim();
+  const prebookId = normalizeText(
+    typeof payload === "string" ? payload : payload?.prebookId
+  );
 
   const includeCreditBalance =
     typeof payload === "object" && payload?.includeCreditBalance !== undefined
-      ? String(payload.includeCreditBalance).trim()
+      ? normalizeText(payload.includeCreditBalance)
       : "";
 
   if (!prebookId) {
@@ -85,15 +99,93 @@ export async function getPrebookByIdHandler(payload) {
 }
 
 export async function completeBookingHandler(payload) {
-  const bookingPayload = buildCompleteBookingPayload(payload);
+  const bookingFlowMode = normalizeBookingFlowMode(payload);
 
-  const requestBody = {
-    ...bookingPayload,
-    payment: {
-      method: "TRANSACTION_ID",
-      transactionId: bookingPayload.payment.transactionId
-    }
+  if (bookingFlowMode === BOOKING_FLOW_MODES.WALLET) {
+    return completeWalletBookingHandler(payload);
+  }
+
+  return completeTransactionBookingHandler(payload);
+}
+
+async function completeTransactionBookingHandler(payload) {
+  const bookingPayload = buildTransactionBookingPayload(payload);
+
+  const response = await liteApiRequest(`${LITE_BOOK_API_BASE_URL}/rates/book`, {
+    method: "POST",
+    body: bookingPayload
+  });
+
+  const json = await parseJson(response);
+
+  if (!response.ok) {
+    const error = buildLiteApiError(json, "Booking request failed.");
+    error.statusCode = response.status;
+    throw error;
+  }
+
+  return {
+    raw: json,
+    normalizedBooking: normalizeCompletedBookingResponse(
+      json?.data || json,
+      payload?.guestDetails || {}
+    )
   };
+}
+
+async function completeWalletBookingHandler(payload) {
+  const orderId = normalizeText(payload?.orderId);
+
+  if (!orderId) {
+    throw new Error("orderId is required for WALLET booking.");
+  }
+
+  const existingRawBooking = await loadExistingRawBookingRecord(orderId);
+  if (existingRawBooking && resolveBookingIdFromRaw(existingRawBooking)) {
+    return {
+      raw: existingRawBooking,
+      normalizedBooking: normalizeCompletedBookingResponse(
+        existingRawBooking?.data || existingRawBooking,
+        {}
+      )
+    };
+  }
+
+  const order = await elevatedGetOrder(orderId);
+  const resolvedOrderId = resolveOrderId(order) || orderId;
+
+  const liteApiLineItem = resolveLiteApiOrderLineItem(order);
+  if (!liteApiLineItem) {
+    throw new Error("LiteAPI booking line item was not found in the order.");
+  }
+
+  const prebookId =
+    normalizeText(liteApiLineItem?.prebookId) ||
+    normalizeText(deepFindFirstValueByKey(liteApiLineItem?.lineItem, "prebookId"));
+
+  if (!prebookId) {
+    throw new Error("prebookId is missing from the order.");
+  }
+
+  const guestDetails = extractGuestDetailsFromOrder(order);
+  validateGuestDetails(guestDetails);
+
+  const requestBody = buildWalletBookingPayload({
+    orderId: resolvedOrderId,
+    prebookId,
+    guestDetails
+  });
+
+  console.log(
+    "LITEAPI WALLET booking request",
+    stringifyForLog({
+      orderId: resolvedOrderId,
+      bookingFlowMode: BOOKING_FLOW_MODES.WALLET,
+      prebookId,
+      clientReference: resolvedOrderId,
+      paymentMethod: BOOKING_FLOW_MODES.WALLET
+    })
+  );
 
   const response = await liteApiRequest(`${LITE_BOOK_API_BASE_URL}/rates/book`, {
     method: "POST",
@@ -102,29 +194,40 @@ export async function completeBookingHandler(payload) {
 
   const json = await parseJson(response);
 
-  if (response.ok) {
-    return {
-      raw: json,
-      normalizedBooking: normalizeCompletedBookingResponse(
-        json?.data || json,
-        payload
-      )
-    };
+  if (!response.ok) {
+    const error = buildLiteApiError(json, "Wallet booking request failed.");
+    error.statusCode = response.status;
+    throw error;
   }
 
-  const error = buildLiteApiError(json, "Booking request failed.");
-  error.statusCode = response.status;
-  throw error;
+  await saveRawBookingRecord(resolvedOrderId, json);
+
+  const normalizedBooking = normalizeCompletedBookingResponse(
+    json?.data || json,
+    guestDetails
+  );
+
+  await tryUpdateOrderAttributionSource(
+    resolvedOrderId,
+    normalizedBooking?.bookingId
+  );
+
+  return {
+    raw: json,
+    normalizedBooking
+  };
 }
 
-function buildCompleteBookingPayload(payload) {
-  const prebookId = String(payload?.prebookId || "").trim();
-  const transactionId = String(payload?.transactionId || "").trim();
+function buildTransactionBookingPayload(payload) {
+  const prebookId = normalizeText(payload?.prebookId);
+  const transactionId = normalizeText(payload?.transactionId);
 
-  const firstName = String(payload?.guestDetails?.firstName || "").trim();
-  const lastName = String(payload?.guestDetails?.lastName || "").trim();
-  const email = String(payload?.guestDetails?.email || "").trim();
-  const phone = String(payload?.guestDetails?.phone || "").trim();
+  const guestDetails = {
+    firstName: normalizeText(payload?.guestDetails?.firstName),
+    lastName: normalizeText(payload?.guestDetails?.lastName),
+    email: normalizeText(payload?.guestDetails?.email),
+    phone: normalizeText(payload?.guestDetails?.phone)
+  };
 
   if (!prebookId) {
     throw new Error("prebookId is required.");
@@ -134,36 +237,232 @@ function buildCompleteBookingPayload(payload) {
     throw new Error("transactionId is required.");
   }
 
-  if (!firstName || !lastName || !email) {
-    throw new Error("Guest first name, last name, and email are required.");
-  }
+  validateGuestDetails(guestDetails);
 
   const holder = {
-    firstName,
-    lastName,
-    email
+    firstName: guestDetails.firstName,
+    lastName: guestDetails.lastName,
+    email: guestDetails.email
   };
 
-  if (phone) {
-    holder.phone = phone;
+  if (guestDetails.phone) {
+    holder.phone = guestDetails.phone;
+  }
+
+  const guest = {
+    occupancyNumber: 1,
+    firstName: guestDetails.firstName,
+    lastName: guestDetails.lastName,
+    email: guestDetails.email
+  };
+
+  if (guestDetails.phone) {
+    guest.phone = guestDetails.phone;
   }
 
   return {
     prebookId,
     holder,
+    guests: [guest],
     payment: {
-      method: "TRANSACTION_ID",
+      method: BOOKING_FLOW_MODES.TRANSACTION,
       transactionId
-    },
-    guests: [
-      {
-        occupancyNumber: 1,
-        firstName,
-        lastName,
-        email
-      }
-    ]
+    }
   };
+}
+
+function buildWalletBookingPayload({ orderId, prebookId, guestDetails }) {
+  const holder = {
+    firstName: guestDetails.firstName,
+    lastName: guestDetails.lastName,
+    email: guestDetails.email
+  };
+
+  if (guestDetails.phone) {
+    holder.phone = guestDetails.phone;
+  }
+
+  const guest = {
+    occupancyNumber: 1,
+    firstName: guestDetails.firstName,
+    lastName: guestDetails.lastName,
+    email: guestDetails.email
+  };
+
+  if (guestDetails.phone) {
+    guest.phone = guestDetails.phone;
+  }
+
+  return {
+    prebookId,
+    clientReference: orderId,
+    holder,
+    guests: [guest],
+    payment: {
+      method: BOOKING_FLOW_MODES.WALLET
+    }
+  };
+}
+
+function validateGuestDetails(guestDetails) {
+  if (!guestDetails?.firstName || !guestDetails?.lastName || !guestDetails?.email) {
+    throw new Error(
+      "Guest first name, last name, and email are required for booking."
+    );
+  }
+}
+
+function extractGuestDetailsFromOrder(order) {
+  const billingInfo = order?.billingInfo || {};
+  const buyerInfo = order?.buyerInfo || {};
+  const recipientInfo = order?.recipientInfo || {};
+
+  const billingContact = billingInfo?.contactDetails || {};
+  const buyerContact = buyerInfo?.contactDetails || {};
+  const recipientContact = recipientInfo?.contactDetails || {};
+
+  const firstName =
+    normalizeText(billingInfo?.firstName) ||
+    normalizeText(billingContact?.firstName) ||
+    normalizeText(buyerInfo?.firstName) ||
+    normalizeText(buyerContact?.firstName) ||
+    normalizeText(recipientInfo?.firstName) ||
+    normalizeText(recipientContact?.firstName);
+
+  const lastName =
+    normalizeText(billingInfo?.lastName) ||
+    normalizeText(billingContact?.lastName) ||
+    normalizeText(buyerInfo?.lastName) ||
+    normalizeText(buyerContact?.lastName) ||
+    normalizeText(recipientInfo?.lastName) ||
+    normalizeText(recipientContact?.lastName);
+
+  const email =
+    normalizeText(billingInfo?.email) ||
+    normalizeText(billingContact?.email) ||
+    normalizeText(buyerInfo?.email) ||
+    normalizeText(buyerContact?.email) ||
+    normalizeText(recipientInfo?.email) ||
+    normalizeText(recipientContact?.email);
+
+  const phone =
+    normalizeText(billingInfo?.phone) ||
+    normalizeText(billingContact?.phone) ||
+    normalizeText(buyerInfo?.phone) ||
+    normalizeText(buyerContact?.phone) ||
+    normalizeText(recipientInfo?.phone) ||
+    normalizeText(recipientContact?.phone);
+
+  return {
+    firstName,
+    lastName,
+    email,
+    phone
+  };
+}
+
+function resolveLiteApiOrderLineItem(order) {
+  const lineItems = Array.isArray(order?.lineItems) ? order.lineItems : [];
+
+  for (const lineItem of lineItems) {
+    const appId = normalizeText(deepFindFirstValueByKey(lineItem, "appId"));
+    const prebookId = normalizeText(deepFindFirstValueByKey(lineItem, "prebookId"));
+    const reservationMode = normalizeText(
+      deepFindFirstValueByKey(lineItem, "reservationMode")
+    ).toLowerCase();
+
+    const looksLikeLiteApiItem =
+      appId === LITEAPI_CATALOG_APP_ID || Boolean(prebookId);
+
+    if (!looksLikeLiteApiItem) {
+      continue;
+    }
+
+    return {
+      lineItem,
+      appId,
+      prebookId,
+      reservationMode
+    };
+  }
+
+  return null;
+}
+
+async function loadExistingRawBookingRecord(orderId) {
+  try {
+    const record = await wixData.get(BOOKING_RECORDS_COLLECTION_ID, orderId);
+    const rawBookingObject = record?.[BOOKING_RECORD_FIELD_KEY];
+
+    if (rawBookingObject && typeof rawBookingObject === "object") {
+      return rawBookingObject;
+    }
+
+    return null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function saveRawBookingRecord(orderId, rawBookingObject) {
+  await wixData.save(BOOKING_RECORDS_COLLECTION_ID, {
+    _id: orderId,
+    [BOOKING_RECORD_FIELD_KEY]: rawBookingObject
+  });
+}
+
+async function tryUpdateOrderAttributionSource(orderId, bookingId) {
+  const normalizedBookingId = normalizeText(bookingId);
+  if (!normalizedBookingId) {
+    return;
+  }
+
+  try {
+    await elevatedUpdateOrder(orderId, {
+      attributionSource: `liteapi:${normalizedBookingId}`
+    });
+  } catch (error) {
+    console.warn(
+      "LITEAPI booking attributionSource update failed",
+      stringifyForLog({
+        orderId,
+        bookingId: normalizedBookingId,
+        error
+      })
+    );
+  }
+}
+
+function normalizeBookingFlowMode(payload) {
+  const normalizedMode = normalizeText(payload?.bookingFlowMode).toUpperCase();
+
+  if (normalizedMode === BOOKING_FLOW_MODES.WALLET) {
+    return BOOKING_FLOW_MODES.WALLET;
+  }
+
+  if (normalizedMode === BOOKING_FLOW_MODES.TRANSACTION) {
+    return BOOKING_FLOW_MODES.TRANSACTION;
+  }
+
+  if (normalizeText(payload?.orderId) && !normalizeText(payload?.transactionId)) {
+    return BOOKING_FLOW_MODES.WALLET;
+  }
+
+  return BOOKING_FLOW_MODES.TRANSACTION;
+}
+
+function resolveOrderId(order) {
+  return normalizeText(order?.id || order?._id);
+}
+
+function resolveBookingIdFromRaw(rawBookingObject) {
+  const bookingRoot = rawBookingObject?.data || rawBookingObject;
+  return normalizeText(
+    bookingRoot?.bookingId ||
+      bookingRoot?.id ||
+      bookingRoot?.booking?.bookingId ||
+      bookingRoot?.booking?.id
+  );
 }
 
 function normalizePrebookResponse(data, paymentEnvironment) {
@@ -175,10 +474,10 @@ function normalizePrebookResponse(data, paymentEnvironment) {
   const firstRate = Array.isArray(firstRoomType?.rates) ? firstRoomType.rates[0] : null;
 
   const fallbackPrice =
-    Number.isFinite(Number(data?.price)) && String(data?.currency || "").trim()
+    Number.isFinite(Number(data?.price)) && normalizeText(data?.currency)
       ? {
           amount: Number(data.price),
-          currency: String(data.currency).trim()
+          currency: normalizeText(data.currency)
         }
       : null;
 
@@ -186,21 +485,21 @@ function normalizePrebookResponse(data, paymentEnvironment) {
   const beforePrice = getBeforePriceObject(firstRate, currentPrice, firstRoomType);
 
   return {
-    prebookId: String(data?.prebookId || ""),
-    offerId: String(data?.offerId || ""),
-    hotelId: String(data?.hotelId || ""),
-    transactionId: String(data?.transactionId || ""),
-    secretKey: String(data?.secretKey || ""),
+    prebookId: normalizeText(data?.prebookId),
+    offerId: normalizeText(data?.offerId),
+    hotelId: normalizeText(data?.hotelId),
+    transactionId: normalizeText(data?.transactionId),
+    secretKey: normalizeText(data?.secretKey),
     paymentTypes: Array.isArray(data?.paymentTypes) ? data.paymentTypes : [],
     paymentEnvironment,
     currentPrice,
     beforePrice,
     refundableTag:
-      String(firstRate?.cancellationPolicies?.refundableTag || "").trim() || null
+      normalizeText(firstRate?.cancellationPolicies?.refundableTag) || null
   };
 }
 
-function normalizeCompletedBookingResponse(rawBooking, payload) {
+function normalizeCompletedBookingResponse(rawBooking, guestDetails) {
   const booking = rawBooking || {};
 
   const cancellationPolicies = normalizeCancellationPolicies(
@@ -211,32 +510,30 @@ function normalizeCompletedBookingResponse(rawBooking, payload) {
   );
 
   return {
-    bookingId: String(
+    bookingId: normalizeText(
       booking?.bookingId ||
         booking?.id ||
         booking?.booking?.bookingId ||
-        booking?.booking?.id ||
-        ""
-    ).trim(),
-    hotelConfirmationCode: String(
+        booking?.booking?.id
+    ),
+    hotelConfirmationCode: normalizeText(
       booking?.hotelConfirmationCode ||
         booking?.confirmationCode ||
         booking?.hotel_confirmation_code ||
         booking?.reference ||
-        booking?.booking?.hotelConfirmationCode ||
-        ""
-    ).trim(),
-    status: String(
+        booking?.booking?.hotelConfirmationCode
+    ),
+    status: normalizeText(
       booking?.status ||
         booking?.bookingStatus ||
         booking?.booking?.status ||
         "confirmed"
-    ).trim(),
+    ),
     cancellationPolicies,
     guest: {
-      firstName: String(payload?.guestDetails?.firstName || "").trim(),
-      lastName: String(payload?.guestDetails?.lastName || "").trim(),
-      email: String(payload?.guestDetails?.email || "").trim()
+      firstName: normalizeText(guestDetails?.firstName),
+      lastName: normalizeText(guestDetails?.lastName),
+      email: normalizeText(guestDetails?.email)
     }
   };
 }
@@ -256,9 +553,9 @@ function normalizeCancellationPolicies(value) {
         return "";
       }
 
-      const from = String(item?.from || item?.date || "").trim();
+      const from = normalizeText(item?.from || item?.date);
       const amount = Number(item?.amount);
-      const currency = String(item?.currency || "").trim();
+      const currency = normalizeText(item?.currency);
 
       if (from && Number.isFinite(amount) && currency) {
         return `From ${from}: ${currency} ${amount}`;
@@ -272,7 +569,95 @@ function normalizeCancellationPolicies(value) {
         return `${currency} ${amount}`;
       }
 
-      return String(item?.description || item?.policy || "").trim();
+      return normalizeText(item?.description || item?.policy);
     })
     .filter(Boolean);
+}
+
+function deepFindFirstValueByKey(input, targetKey) {
+  const visited = new WeakSet();
+
+  function walk(value) {
+    if (value === null || value === undefined) {
+      return "";
+    }
+
+    if (typeof value !== "object") {
+      return "";
+    }
+
+    if (visited.has(value)) {
+      return "";
+    }
+
+    visited.add(value);
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const foundInArray = walk(item);
+        if (foundInArray !== "") {
+          return foundInArray;
+        }
+      }
+
+      return "";
+    }
+
+    if (Object.prototype.hasOwnProperty.call(value, targetKey)) {
+      return value[targetKey];
+    }
+
+    for (const nestedValue of Object.values(value)) {
+      const found = walk(nestedValue);
+      if (found !== "") {
+        return found;
+      }
+    }
+
+    return "";
+  }
+
+  return walk(input);
+}
+
+function normalizeText(value) {
+  return String(value || "").trim();
+}
+
+function stringifyForLog(value) {
+  try {
+    const visited = new WeakSet();
+
+    return JSON.stringify(
+      value,
+      (key, currentValue) => {
+        if (currentValue instanceof Error) {
+          const errorPayload = {
+            name: currentValue.name,
+            message: currentValue.message,
+            stack: currentValue.stack
+          };
+
+          Object.getOwnPropertyNames(currentValue).forEach((propName) => {
+            errorPayload[propName] = currentValue[propName];
+          });
+
+          return errorPayload;
+        }
+
+        if (currentValue && typeof currentValue === "object") {
+          if (visited.has(currentValue)) {
+            return "[circular]";
+          }
+
+          visited.add(currentValue);
+        }
+
+        return currentValue;
+      },
+      2
+    );
+  } catch (error) {
+    return `[unserializable: ${String(error?.message || error)}]`;
+  }
 }

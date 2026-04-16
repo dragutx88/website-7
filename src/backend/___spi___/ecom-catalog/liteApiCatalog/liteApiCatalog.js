@@ -1,5 +1,10 @@
 import { getPrebookByIdHandler } from "../../../liteApiBooking";
 
+const RESERVATION_DATE_TYPE_KEY = "reservationDateType";
+const RESERVATION_DATE_TYPE_LABEL = "Reservation Date Type";
+const FLEXIBLE_RESERVATION_DATE_TYPE_VALUE = "flexible";
+const FLEXIBLE_RESERVATION_DATE_TYPE_DISPLAY = "Flexible";
+
 export async function getCatalogItems(options = {}, context = {}) {
   const request = normalizeCatalogRequest(options, context);
 
@@ -234,6 +239,7 @@ function buildCatalogItem(catalogReference, shell, snapshotRoot, firstRate) {
     price,
     descriptionLineCount: descriptionLines.length,
     descriptionLinesPreview: descriptionLines.map((line) => ({
+      name: line?.name?.original || "",
       plainText: line?.plainText?.original || ""
     }))
   });
@@ -400,12 +406,40 @@ function buildDescriptionLines(shell, snapshotRoot, firstRate) {
     pushDescriptionLine(lines, `Refundability: ${refundableText}`);
   }
 
+  pushReservationDateTypeDescriptionLine(lines, shell?.[RESERVATION_DATE_TYPE_KEY]);
+
   logInfo("liteApiCatalog descriptionLines built", {
     count: lines.length,
-    lines: lines.map((line) => line?.plainText?.original || "")
+    lines: lines.map((line) => ({
+      name: line?.name?.original || "",
+      plainText: line?.plainText?.original || ""
+    }))
   });
 
   return lines;
+}
+
+function pushReservationDateTypeDescriptionLine(lines, reservationDateType) {
+  const normalizedReservationDateType = normalizeText(reservationDateType).toLowerCase();
+
+  if (!normalizedReservationDateType) {
+    return;
+  }
+
+  if (normalizedReservationDateType === FLEXIBLE_RESERVATION_DATE_TYPE_VALUE) {
+    pushNamedDescriptionLine(
+      lines,
+      RESERVATION_DATE_TYPE_LABEL,
+      FLEXIBLE_RESERVATION_DATE_TYPE_DISPLAY
+    );
+    return;
+  }
+
+  pushNamedDescriptionLine(
+    lines,
+    RESERVATION_DATE_TYPE_LABEL,
+    normalizeReservationDateTypeDisplay(normalizedReservationDateType)
+  );
 }
 
 function pushDescriptionLine(lines, text) {
@@ -420,6 +454,32 @@ function pushDescriptionLine(lines, text) {
       original: normalizedText
     }
   });
+}
+
+function pushNamedDescriptionLine(lines, name, text) {
+  const normalizedName = normalizeText(name);
+  const normalizedText = normalizeText(text);
+
+  if (!normalizedName || !normalizedText) {
+    return;
+  }
+
+  lines.push({
+    name: {
+      original: normalizedName
+    },
+    plainText: {
+      original: normalizedText
+    }
+  });
+}
+
+function normalizeReservationDateTypeDisplay(value) {
+  return value
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function toPriceString(value) {
@@ -594,6 +654,7 @@ function buildShellSummary(shell) {
     hotelReview: normalizeText(shell?.hotelReview),
     hotelAddress: normalizeText(shell?.hotelAddress),
     prebookId: normalizeText(shell?.prebookId),
+    reservationDateType: normalizeText(shell?.[RESERVATION_DATE_TYPE_KEY]),
     hotelMainImage: normalizeText(shell?.hotelMainImage),
     roomMainImage: normalizeText(shell?.roomMainImage),
     wixHotelMainImageRef: normalizeText(shell?.wixHotelMainImageRef),
