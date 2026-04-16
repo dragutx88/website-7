@@ -11,8 +11,12 @@ import { getBeforePriceObject, getCurrentPriceObject } from "./liteApiTransforms
 
 const LITE_BOOK_API_BASE_URL = "https://book.liteapi.travel/v3.0";
 const LITEAPI_CATALOG_APP_ID = "e7f94f4b-7e6a-41c6-8ee1-52c1d5f31cf4";
+
 const BOOKING_RECORDS_COLLECTION_ID = "circles_program_order";
 const BOOKING_RECORD_FIELD_KEY = "item_booking_full_record";
+const BOOKING_RECORD_CLIENT_REFERENCE_FIELD_KEY = "item_client_reference";
+const BOOKING_RECORD_ORDER_ID_FIELD_KEY = "order_id";
+const BOOKING_RECORD_ORDER_LINE_ITEM_ID_FIELD_KEY = "order_line_item_id";
 
 const BOOKING_FLOW_MODES = Object.freeze({
   WALLET: "WALLET",
@@ -140,17 +144,6 @@ async function completeWalletBookingHandler(payload) {
     throw new Error("orderId is required for WALLET booking.");
   }
 
-  const existingRawBooking = await loadExistingRawBookingRecord(orderId);
-  if (existingRawBooking && resolveBookingIdFromRaw(existingRawBooking)) {
-    return {
-      raw: existingRawBooking,
-      normalizedBooking: normalizeCompletedBookingResponse(
-        existingRawBooking?.data || existingRawBooking,
-        {}
-      )
-    };
-  }
-
   const order = await elevatedGetOrder(orderId);
   const resolvedOrderId = resolveOrderId(order) || orderId;
 
@@ -159,12 +152,56 @@ async function completeWalletBookingHandler(payload) {
     throw new Error("LiteAPI booking line item was not found in the order.");
   }
 
-  const prebookId =
-    normalizeText(liteApiLineItem?.prebookId) ||
-    normalizeText(deepFindFirstValueByKey(liteApiLineItem?.lineItem, "prebookId"));
+  const orderLineItemId = normalizeText(liteApiLineItem?.orderLineItemId);
+  if (!orderLineItemId) {
+    throw new Error("order line item id is missing from the order.");
+  }
 
+  const prebookId = normalizeText(liteApiLineItem?.prebookId);
   if (!prebookId) {
     throw new Error("prebookId is missing from the order.");
+  }
+
+  const existingRecord = await loadExistingRawBookingRecord({
+    orderId: resolvedOrderId,
+    orderLineItemId
+  });
+
+  if (existingRecord?.rawBookingObject) {
+    const existingBookingId = resolveBookingIdFromRaw(existingRecord.rawBookingObject);
+
+    if (existingBookingId) {
+      console.log(
+        "LITEAPI WALLET booking cache hit",
+        stringifyForLog({
+          orderId: resolvedOrderId,
+          orderLineItemId,
+          recordId: existingRecord.record?._id,
+          bookingId: existingBookingId
+        })
+      );
+
+      return {
+        raw: existingRecord.rawBookingObject,
+        normalizedBooking: normalizeCompletedBookingResponse(
+          existingRecord.rawBookingObject?.data || existingRecord.rawBookingObject,
+          extractGuestDetailsFromOrder(order)
+        ),
+        persistence: {
+          status: "cache-hit",
+          recordId: normalizeText(existingRecord.record?._id)
+        }
+      };
+    }
+
+    console.warn(
+      "LITEAPI WALLET booking existing record found without bookingId, continuing live booking",
+      stringifyForLog({
+        orderId: resolvedOrderId,
+        orderLineItemId,
+        recordId: existingRecord.record?._id
+      })
+    );
   }
 
   const guestDetails = extractGuestDetailsFromOrder(order);
@@ -180,6 +217,7 @@ async function completeWalletBookingHandler(payload) {
     "LITEAPI WALLET booking request",
     stringifyForLog({
       orderId: resolvedOrderId,
+      orderLineItemId,
       bookingFlowMode: BOOKING_FLOW_MODES.WALLET,
       prebookId,
       clientReference: resolvedOrderId,
@@ -200,22 +238,134 @@ async function completeWalletBookingHandler(payload) {
     throw error;
   }
 
-  await saveRawBookingRecord(resolvedOrderId, json);
-
   const normalizedBooking = normalizeCompletedBookingResponse(
     json?.data || json,
     guestDetails
   );
 
-  await tryUpdateOrderAttributionSource(
-    resolvedOrderId,
-    normalizedBooking?.bookingId
+  console.log(
+    "LITEAPI WALLET booking supplier success",
+    stringifyForLog({
+      orderId: resolvedOrderId,
+      orderLineItemId,
+      prebookId,
+      bookingId: normalizedBooking?.bookingId,
+      hotelConfirmationCode: normalizedBooking?.hotelConfirmationCode,
+      status: normalizedBooking?.status
+    })
   );
+
+  const persistence = await persistWalletBookingArtifacts({
+    orderId: resolvedOrderId,
+    orderLineItemId,
+    clientReference: resolvedOrderId,
+    rawBookingObject: json,
+    bookingId: normalizedBooking?.bookingId
+  });
 
   return {
     raw: json,
-    normalizedBooking
+    normalizedBooking,
+    persistence
   };
+}
+
+async function persistWalletBookingArtifacts({
+  orderId,
+  orderLineItemId,
+  clientReference,
+  rawBookingObject,
+  bookingId
+}) {
+  const persistence = {
+    cms: {
+      status: "not-started",
+      recordId: ""
+    },
+    attribution: {
+      status: "not-started"
+    }
+  };
+
+  try {
+    const insertResult = await insertRawBookingRecord({
+      orderId,
+      orderLineItemId,
+      clientReference,
+      rawBookingObject
+    });
+
+    persistence.cms = {
+      status: "inserted",
+      recordId: normalizeText(insertResult?._id)
+    };
+
+    console.log(
+      "LITEAPI WALLET booking record inserted",
+      stringifyForLog({
+        orderId,
+        orderLineItemId,
+        recordId: insertResult?._id
+      })
+    );
+  } catch (error) {
+    persistence.cms = {
+      status: "failed",
+      error: serializeError(error)
+    };
+
+    console.warn(
+      "LITEAPI WALLET booking record insert failed",
+      stringifyForLog({
+        orderId,
+        orderLineItemId,
+        error
+      })
+    );
+  }
+
+  if (!normalizeText(bookingId)) {
+    persistence.attribution = {
+      status: "skipped",
+      reason: "missing-booking-id"
+    };
+
+    return persistence;
+  }
+
+  try {
+    await elevatedUpdateOrder(orderId, {
+      attributionSource: `liteapi:${normalizeText(bookingId)}`
+    });
+
+    persistence.attribution = {
+      status: "updated"
+    };
+
+    console.log(
+      "LITEAPI WALLET order attributionSource updated",
+      stringifyForLog({
+        orderId,
+        bookingId: normalizeText(bookingId)
+      })
+    );
+  } catch (error) {
+    persistence.attribution = {
+      status: "failed",
+      error: serializeError(error)
+    };
+
+    console.warn(
+      "LITEAPI WALLET booking attributionSource update failed",
+      stringifyForLog({
+        orderId,
+        bookingId: normalizeText(bookingId),
+        error
+      })
+    );
+  }
+
+  return persistence;
 }
 
 function buildTransactionBookingPayload(payload) {
@@ -367,9 +517,7 @@ function resolveLiteApiOrderLineItem(order) {
   for (const lineItem of lineItems) {
     const appId = normalizeText(deepFindFirstValueByKey(lineItem, "appId"));
     const prebookId = normalizeText(deepFindFirstValueByKey(lineItem, "prebookId"));
-    const reservationMode = normalizeText(
-      deepFindFirstValueByKey(lineItem, "reservationMode")
-    ).toLowerCase();
+    const orderLineItemId = resolveOrderLineItemId(lineItem);
 
     const looksLikeLiteApiItem =
       appId === LITEAPI_CATALOG_APP_ID || Boolean(prebookId);
@@ -382,55 +530,80 @@ function resolveLiteApiOrderLineItem(order) {
       lineItem,
       appId,
       prebookId,
-      reservationMode
+      orderLineItemId
     };
   }
 
   return null;
 }
 
-async function loadExistingRawBookingRecord(orderId) {
+function resolveOrderLineItemId(lineItem) {
+  return normalizeText(
+    lineItem?._id ||
+      lineItem?.id ||
+      lineItem?.lineItemId ||
+      lineItem?._lineItemId ||
+      lineItem?.catalogReference?.catalogItemId
+  );
+}
+
+async function loadExistingRawBookingRecord({ orderId, orderLineItemId }) {
   try {
-    const record = await wixData.get(BOOKING_RECORDS_COLLECTION_ID, orderId);
+    const result = await wixData
+      .query(BOOKING_RECORDS_COLLECTION_ID)
+      .eq(BOOKING_RECORD_ORDER_ID_FIELD_KEY, orderId)
+      .eq(BOOKING_RECORD_ORDER_LINE_ITEM_ID_FIELD_KEY, orderLineItemId)
+      .limit(1)
+      .find({
+        suppressAuth: true,
+        consistentRead: true
+      });
+
+    const record = Array.isArray(result?.items) ? result.items[0] || null : null;
     const rawBookingObject = record?.[BOOKING_RECORD_FIELD_KEY];
 
-    if (rawBookingObject && typeof rawBookingObject === "object") {
-      return rawBookingObject;
-    }
-
-    return null;
-  } catch (error) {
-    return null;
-  }
-}
-
-async function saveRawBookingRecord(orderId, rawBookingObject) {
-  await wixData.save(BOOKING_RECORDS_COLLECTION_ID, {
-    _id: orderId,
-    [BOOKING_RECORD_FIELD_KEY]: rawBookingObject
-  });
-}
-
-async function tryUpdateOrderAttributionSource(orderId, bookingId) {
-  const normalizedBookingId = normalizeText(bookingId);
-  if (!normalizedBookingId) {
-    return;
-  }
-
-  try {
-    await elevatedUpdateOrder(orderId, {
-      attributionSource: `liteapi:${normalizedBookingId}`
-    });
+    return {
+      record,
+      rawBookingObject:
+        rawBookingObject && typeof rawBookingObject === "object"
+          ? rawBookingObject
+          : null
+    };
   } catch (error) {
     console.warn(
-      "LITEAPI booking attributionSource update failed",
+      "LITEAPI WALLET booking record lookup failed",
       stringifyForLog({
         orderId,
-        bookingId: normalizedBookingId,
+        orderLineItemId,
         error
       })
     );
+
+    return {
+      record: null,
+      rawBookingObject: null
+    };
   }
+}
+
+async function insertRawBookingRecord({
+  orderId,
+  orderLineItemId,
+  clientReference,
+  rawBookingObject
+}) {
+  return wixData.insert(
+    BOOKING_RECORDS_COLLECTION_ID,
+    {
+      [BOOKING_RECORD_ORDER_ID_FIELD_KEY]: orderId,
+      [BOOKING_RECORD_ORDER_LINE_ITEM_ID_FIELD_KEY]: orderLineItemId,
+      [BOOKING_RECORD_CLIENT_REFERENCE_FIELD_KEY]: clientReference,
+      [BOOKING_RECORD_FIELD_KEY]: rawBookingObject
+    },
+    {
+      suppressAuth: true
+    }
+  );
 }
 
 function normalizeBookingFlowMode(payload) {
@@ -457,6 +630,7 @@ function resolveOrderId(order) {
 
 function resolveBookingIdFromRaw(rawBookingObject) {
   const bookingRoot = rawBookingObject?.data || rawBookingObject;
+
   return normalizeText(
     bookingRoot?.bookingId ||
       bookingRoot?.id ||
@@ -622,6 +796,19 @@ function deepFindFirstValueByKey(input, targetKey) {
 
 function normalizeText(value) {
   return String(value || "").trim();
+}
+
+function serializeError(error) {
+  return {
+    name: normalizeText(error?.name),
+    message: normalizeText(error?.message),
+    stack: normalizeText(error?.stack),
+    code: normalizeText(error?.code),
+    details:
+      error?.details && typeof error.details === "object"
+        ? error.details
+        : error?.details ?? null
+  };
 }
 
 function stringifyForLog(value) {
