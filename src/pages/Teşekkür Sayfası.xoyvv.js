@@ -1,6 +1,10 @@
 import { completeBooking } from "backend/liteApi.web";
 
 const BOOKING_FLOW_MODE = "WALLET";
+const THANK_YOU_FLOW_STATE_BOX_ID = "#thankYouFlowStateBox";
+const THANK_YOU_PAGE_STATE_ID = "thankYouPageState";
+const BOOKING_PROGRESS_STATE_ID = "bookingProgressState";
+
 const RESERVATION_DATE_TYPE_LABEL = "Reservation Date Type";
 const FLEXIBLE_RESERVATION_DATE_TYPE_DISPLAY = "Flexible";
 const ACCEPTED_PAYMENT_STATUSES = new Set(["PAID", "NOT_PAID"]);
@@ -10,16 +14,25 @@ $w.onReady(async function () {
 });
 
 async function initializeThankYouFlow() {
+  const thankYouFlowStateBox = getElement(THANK_YOU_FLOW_STATE_BOX_ID);
   const thankYouPage = getElement("#thankYouPage1");
   const progressBar = getElement("#bookingProgressBar");
 
   initializeProgressBar(progressBar);
-  await collapseProgressBar(progressBar);
-  await expandThankYouPage(thankYouPage);
+  await changeFlowState(thankYouFlowStateBox, THANK_YOU_PAGE_STATE_ID);
+
+  if (!thankYouFlowStateBox) {
+    console.warn(`THANK YOU PAGE element ${THANK_YOU_FLOW_STATE_BOX_ID} is missing.`);
+    return;
+  }
 
   if (!thankYouPage || typeof thankYouPage.getOrder !== "function") {
     console.warn("THANK YOU PAGE element #thankYouPage1 is missing or invalid.");
     return;
+  }
+
+  if (!progressBar) {
+    console.warn("THANK YOU PAGE element #bookingProgressBar is missing.");
   }
 
   try {
@@ -39,13 +52,15 @@ async function initializeThankYouFlow() {
     );
 
     if (!decision.shouldStartBooking) {
-      await collapseProgressBar(progressBar);
-      await expandThankYouPage(thankYouPage);
+      await changeFlowState(thankYouFlowStateBox, THANK_YOU_PAGE_STATE_ID);
       return;
     }
 
-    await collapseThankYouPage(thankYouPage);
-    await expandProgressBar(progressBar);
+    console.log("THANK YOU PAGE switching to bookingProgressState");
+
+    setProgress(progressBar, 1);
+    await changeFlowState(thankYouFlowStateBox, BOOKING_PROGRESS_STATE_ID);
+    await sleep(180);
 
     setProgress(progressBar, 15);
     await sleep(250);
@@ -72,16 +87,18 @@ async function initializeThankYouFlow() {
     setProgress(progressBar, 100);
     await sleep(500);
 
-    await collapseProgressBar(progressBar);
-    await expandThankYouPage(thankYouPage);
+    console.log("THANK YOU PAGE switching to thankYouPageState");
+
+    await changeFlowState(thankYouFlowStateBox, THANK_YOU_PAGE_STATE_ID);
   } catch (error) {
     console.error("THANK YOU PAGE booking failed", error, safeJson(error));
 
     setProgress(progressBar, 100);
     await sleep(400);
 
-    await collapseProgressBar(progressBar);
-    await expandThankYouPage(thankYouPage);
+    console.log("THANK YOU PAGE switching to thankYouPageState after failure");
+
+    await changeFlowState(thankYouFlowStateBox, THANK_YOU_PAGE_STATE_ID);
   }
 }
 
@@ -195,8 +212,23 @@ function summarizeOrderLineItemOptions(order) {
   }));
 }
 
-function resolveOrderId(order) {
-  return normalizeText(order?.id || order?._id);
+async function changeFlowState(stateBox, stateId) {
+  if (!stateBox || !stateId) {
+    return null;
+  }
+
+  try {
+    return await Promise.resolve(stateBox.changeState(stateId));
+  } catch (error) {
+    console.warn(
+      "THANK YOU PAGE changeFlowState failed",
+      safeJson({
+        stateId,
+        error
+      })
+    );
+    return null;
+  }
 }
 
 function initializeProgressBar(progressBar) {
@@ -223,76 +255,8 @@ function setProgress(progressBar, value) {
   } catch (error) {}
 }
 
-async function expandThankYouPage(element) {
-  if (!element) {
-    return;
-  }
-
-  try {
-    if (typeof element.show === "function") {
-      await Promise.resolve(element.show());
-    }
-  } catch (error) {}
-
-  try {
-    if (typeof element.expand === "function") {
-      await Promise.resolve(element.expand());
-    }
-  } catch (error) {}
-}
-
-async function collapseThankYouPage(element) {
-  if (!element) {
-    return;
-  }
-
-  try {
-    if (typeof element.hide === "function") {
-      await Promise.resolve(element.hide());
-    }
-  } catch (error) {}
-
-  try {
-    if (typeof element.collapse === "function") {
-      await Promise.resolve(element.collapse());
-    }
-  } catch (error) {}
-}
-
-async function expandProgressBar(progressBar) {
-  if (!progressBar) {
-    return;
-  }
-
-  try {
-    if (typeof progressBar.show === "function") {
-      await Promise.resolve(progressBar.show());
-    }
-  } catch (error) {}
-
-  try {
-    if (typeof progressBar.expand === "function") {
-      await Promise.resolve(progressBar.expand());
-    }
-  } catch (error) {}
-}
-
-async function collapseProgressBar(progressBar) {
-  if (!progressBar) {
-    return;
-  }
-
-  try {
-    if (typeof progressBar.hide === "function") {
-      await Promise.resolve(progressBar.hide());
-    }
-  } catch (error) {}
-
-  try {
-    if (typeof progressBar.collapse === "function") {
-      await Promise.resolve(progressBar.collapse());
-    }
-  } catch (error) {}
+function resolveOrderId(order) {
+  return normalizeText(order?.id || order?._id);
 }
 
 function getElement(selector) {
