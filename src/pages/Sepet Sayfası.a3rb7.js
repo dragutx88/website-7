@@ -1,15 +1,26 @@
+import wixLocationFrontend from "wix-location-frontend";
+import { session } from "wix-storage-frontend";
 import { currentCart } from "wix-ecom-backend";
-import { refreshCart } from "wix-ecom-frontend";
+import { onCartChange, refreshCart } from "wix-ecom-frontend";
 
 const LITEAPI_CATALOG_APP_ID = "e7f94f4b-7e6a-41c6-8ee1-52c1d5f31cf4";
 const RESERVATION_DATE_TYPE_KEY = "reservationDateType";
 const FLEXIBLE_RESERVATION_DATE_TYPE_VALUE = "flexible";
+const CART_RETURN_URL_STORAGE_KEY = "liteapi.cartReturnUrl.v1";
 
 let isApplyingReservationDateType = false;
 let isProgrammaticSwitchUpdate = false;
+let isRedirectInFlight = false;
 
 $w.onReady(async function () {
   bindReservationDateTypeControls();
+  bindCartChangeListener();
+
+  const redirected = await redirectIfCartEmpty();
+  if (redirected) {
+    return;
+  }
+
   await hydrateReservationDateTypeUi();
 });
 
@@ -42,9 +53,24 @@ function bindReservationDateTypeControls() {
   }
 }
 
+function bindCartChangeListener() {
+  try {
+    onCartChange(async () => {
+      const redirected = await redirectIfCartEmpty();
+      if (redirected) {
+        return;
+      }
+
+      await hydrateReservationDateTypeUi();
+    });
+  } catch (error) {
+    console.warn("CART PAGE onCartChange binding failed", safeJson(error));
+  }
+}
+
 async function hydrateReservationDateTypeUi() {
   try {
-    const cart = await currentCart.getCurrentCart();
+    const cart = await getCurrentCartSafe();
     const resolved = resolveSingleLiteApiCartLineItem(cart);
 
     console.log("CART PAGE currentCart", safeJson(cart));
@@ -100,7 +126,7 @@ async function applyReservationDateType(isFlexible, source) {
   try {
     setSwitchChecked(isFlexible);
 
-    const cart = await currentCart.getCurrentCart();
+    const cart = await getCurrentCartSafe();
     const resolved = resolveSingleLiteApiCartLineItem(cart);
 
     if (!resolved.lineItem) {
@@ -184,6 +210,50 @@ async function applyReservationDateType(isFlexible, source) {
   } finally {
     isApplyingReservationDateType = false;
   }
+}
+
+async function redirectIfCartEmpty() {
+  if (isRedirectInFlight) {
+    return true;
+  }
+
+  try {
+    const cart = await getCurrentCartSafe();
+
+    if (Array.isArray(cart?.lineItems) && cart.lineItems.length > 0) {
+      return false;
+    }
+
+    return redirectToStoredReturnUrl();
+  } catch (error) {
+    console.error("CART PAGE redirectIfCartEmpty failed", error, safeJson(error));
+    return false;
+  }
+}
+
+async function getCurrentCartSafe() {
+  try {
+    return await currentCart.getCurrentCart();
+  } catch (error) {
+    if (isCurrentCartMissingError(error)) {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+function redirectToStoredReturnUrl() {
+  const returnUrl = normalizeText(session.getItem(CART_RETURN_URL_STORAGE_KEY));
+
+  if (!returnUrl) {
+    console.warn("CART PAGE redirect skipped: missing stored return URL");
+    return false;
+  }
+
+  isRedirectInFlight = true;
+  wixLocationFrontend.to(returnUrl);
+  return true;
 }
 
 function resolveSingleLiteApiCartLineItem(cart) {
@@ -315,6 +385,20 @@ function getElement(selector) {
   } catch (error) {
     return null;
   }
+}
+
+function isCurrentCartMissingError(error) {
+  const status =
+    Number(error?.status) ||
+    Number(error?.statusCode) ||
+    Number(error?.httpStatus);
+
+  if (status === 404) {
+    return true;
+  }
+
+  const message = normalizeText(error?.message).toLowerCase();
+  return message.includes("404");
 }
 
 function normalizeText(value) {

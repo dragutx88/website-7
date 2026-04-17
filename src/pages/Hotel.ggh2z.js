@@ -502,6 +502,7 @@ async function handleWixCartFlow(selectedOfferPayload) {
   }
 
   setCartReturnUrl();
+  await removePrebookItemsIfCartExists();
 
   const prebookResult = await createPrebookSession({
     offerId,
@@ -577,6 +578,94 @@ async function handleWixCartFlow(selectedOfferPayload) {
 
   wixEcomFrontend.refreshCart();
   wixLocationFrontend.to(CART_PAGE_PATH);
+}
+
+async function removePrebookItemsIfCartExists() {
+  let cart = null;
+
+  try {
+    cart = await currentCart.getCurrentCart();
+  } catch (error) {
+    if (isMissingCurrentCartError(error)) {
+      return;
+    }
+    throw error;
+  }
+
+  const lineItems = Array.isArray(cart?.lineItems) ? cart.lineItems : [];
+  if (!lineItems.length) {
+    return;
+  }
+
+  const lineItemIdsToRemove = lineItems
+    .map((lineItem) => {
+      const rawOptions = lineItem?.catalogReference?.options || {};
+      const shellOptions =
+        rawOptions &&
+        typeof rawOptions === "object" &&
+        !Array.isArray(rawOptions) &&
+        rawOptions.options &&
+        typeof rawOptions.options === "object" &&
+        !Array.isArray(rawOptions.options)
+          ? rawOptions.options
+          : rawOptions;
+
+      const prebookId = String(shellOptions?.prebookId || "").trim();
+      if (!prebookId) {
+        return "";
+      }
+
+      return String(
+        lineItem?._id ||
+          lineItem?.id ||
+          lineItem?.lineItemId ||
+          lineItem?._lineItemId ||
+          ""
+      ).trim();
+    })
+    .filter(Boolean);
+
+  if (!lineItemIdsToRemove.length) {
+    return;
+  }
+
+  console.log(
+    "HOTEL PAGE removing existing prebook line items",
+    JSON.stringify(lineItemIdsToRemove, null, 2)
+  );
+
+  await currentCart.removeLineItemsFromCurrentCart(lineItemIdsToRemove);
+  wixEcomFrontend.refreshCart();
+}
+
+function isMissingCurrentCartError(error) {
+  const status =
+    Number(error?.status) ||
+    Number(error?.statusCode) ||
+    Number(error?.httpStatus);
+
+  if (status === 404) {
+    return true;
+  }
+
+  const code = String(
+    error?.details?.applicationError?.code ||
+      error?.applicationError?.code ||
+      error?.code ||
+      ""
+  ).toUpperCase();
+
+  if (code === "OWNED_CART_NOT_FOUND") {
+    return true;
+  }
+
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    message.includes("404") ||
+    message.includes("cart not found") ||
+    message.includes("no active current cart found") ||
+    message.includes("owned_cart_not_found")
+  );
 }
 
 function handleLiteApiDirectCheckout(selectedOfferPayload) {

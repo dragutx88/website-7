@@ -4,6 +4,9 @@ const RESERVATION_DATE_TYPE_KEY = "reservationDateType";
 const RESERVATION_DATE_TYPE_LABEL = "Reservation Date Type";
 const FLEXIBLE_RESERVATION_DATE_TYPE_VALUE = "flexible";
 const FLEXIBLE_RESERVATION_DATE_TYPE_DISPLAY = "Flexible";
+const STANDARD_RESERVATION_DATE_TYPE_DISPLAY = "Standart";
+const CHECK_IN_DATE_LABEL = "Check In Date";
+const CHECK_OUT_DATE_LABEL = "Check Out Date";
 
 export async function getCatalogItems(options = {}, context = {}) {
   const request = normalizeCatalogRequest(options, context);
@@ -365,16 +368,29 @@ function buildDescriptionLines(shell, snapshotRoot, firstRate) {
   pushDescriptionLine(lines, shell?.hotelReview);
   pushDescriptionLine(lines, shell?.hotelAddress);
 
-  const checkin = normalizeText(snapshotRoot?.checkin);
-  const checkout = normalizeText(snapshotRoot?.checkout);
+  const isFlexibleReservation = isFlexibleReservationDateType(
+    shell?.[RESERVATION_DATE_TYPE_KEY]
+  );
 
-  if (checkin && checkout) {
-    const nights = getNightCount(checkin, checkout);
-    pushDescriptionLine(
-      lines,
-      `Dates: ${checkin} → ${checkout} • ${nights} night${nights === 1 ? "" : "s"}`
-    );
-  }
+  pushNamedDescriptionLineAllowEmptyText(
+    lines,
+    RESERVATION_DATE_TYPE_LABEL,
+    isFlexibleReservation
+      ? FLEXIBLE_RESERVATION_DATE_TYPE_DISPLAY
+      : STANDARD_RESERVATION_DATE_TYPE_DISPLAY
+  );
+
+  pushNamedDescriptionLineAllowEmptyText(
+    lines,
+    CHECK_IN_DATE_LABEL,
+    isFlexibleReservation ? "" : normalizeText(snapshotRoot?.checkin)
+  );
+
+  pushNamedDescriptionLineAllowEmptyText(
+    lines,
+    CHECK_OUT_DATE_LABEL,
+    isFlexibleReservation ? "" : normalizeText(snapshotRoot?.checkout)
+  );
 
   const adultCount = normalizeCount(firstRate?.adultCount);
   const childCount = normalizeCount(firstRate?.childCount);
@@ -406,8 +422,6 @@ function buildDescriptionLines(shell, snapshotRoot, firstRate) {
     pushDescriptionLine(lines, `Refundability: ${refundableText}`);
   }
 
-  pushReservationDateTypeDescriptionLine(lines, shell?.[RESERVATION_DATE_TYPE_KEY]);
-
   logInfo("liteApiCatalog descriptionLines built", {
     count: lines.length,
     lines: lines.map((line) => ({
@@ -419,26 +433,9 @@ function buildDescriptionLines(shell, snapshotRoot, firstRate) {
   return lines;
 }
 
-function pushReservationDateTypeDescriptionLine(lines, reservationDateType) {
-  const normalizedReservationDateType = normalizeText(reservationDateType).toLowerCase();
-
-  if (!normalizedReservationDateType) {
-    return;
-  }
-
-  if (normalizedReservationDateType === FLEXIBLE_RESERVATION_DATE_TYPE_VALUE) {
-    pushNamedDescriptionLine(
-      lines,
-      RESERVATION_DATE_TYPE_LABEL,
-      FLEXIBLE_RESERVATION_DATE_TYPE_DISPLAY
-    );
-    return;
-  }
-
-  pushNamedDescriptionLine(
-    lines,
-    RESERVATION_DATE_TYPE_LABEL,
-    normalizeReservationDateTypeDisplay(normalizedReservationDateType)
+function isFlexibleReservationDateType(value) {
+  return (
+    normalizeText(value).toLowerCase() === FLEXIBLE_RESERVATION_DATE_TYPE_VALUE
   );
 }
 
@@ -456,11 +453,10 @@ function pushDescriptionLine(lines, text) {
   });
 }
 
-function pushNamedDescriptionLine(lines, name, text) {
+function pushNamedDescriptionLineAllowEmptyText(lines, name, text) {
   const normalizedName = normalizeText(name);
-  const normalizedText = normalizeText(text);
 
-  if (!normalizedName || !normalizedText) {
+  if (!normalizedName) {
     return;
   }
 
@@ -469,17 +465,9 @@ function pushNamedDescriptionLine(lines, name, text) {
       original: normalizedName
     },
     plainText: {
-      original: normalizedText
+      original: text === null || text === undefined ? "" : String(text)
     }
   });
-}
-
-function normalizeReservationDateTypeDisplay(value) {
-  return value
-    .split(/[\s_-]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 function toPriceString(value) {
@@ -504,23 +492,6 @@ function formatRefundableTag(value) {
   }
 
   return normalized;
-}
-
-function getNightCount(checkin, checkout) {
-  const checkinDate = new Date(checkin);
-  const checkoutDate = new Date(checkout);
-
-  if (
-    Number.isNaN(checkinDate.getTime()) ||
-    Number.isNaN(checkoutDate.getTime())
-  ) {
-    return 1;
-  }
-
-  const diffMs = checkoutDate.getTime() - checkinDate.getTime();
-  const nights = Math.round(diffMs / (1000 * 60 * 60 * 24));
-
-  return nights > 0 ? nights : 1;
 }
 
 async function validatePrebookWithRetry(prebookId, cache, meta = {}) {
