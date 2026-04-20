@@ -21,6 +21,7 @@ const ORDER_EXTENDED_FIELDS_BOOKING_SNAPSHOT_KEY = "bookingSnapshot";
 const ORDER_EXTENDED_FIELDS_BOOKING_CLIENT_REFERENCE_KEY =
   "bookingClientReference";
 const ORDER_EXTENDED_FIELDS_BOOKING_ID_KEY = "bookingId";
+const ORDER_EXTENDED_FIELDS_NAMESPACES_KEY = "namespaces";
 const ORDER_EXTENDED_FIELDS_NAMESPACE_KEY = "_user_fields";
 
 const BOOKING_FLOW_MODES = Object.freeze({
@@ -303,11 +304,14 @@ async function completeWalletBookingHandler(payload) {
     })
   );
 
+  const serializedCompletedBooking =
+    serializeBookingSnapshotForStorage(completedBooking);
+
   const persistence = {
     order: await persistOrderExtendedFieldsBookingSnapshot({
       orderId: resolvedOrderId,
       currentOrder,
-      bookingSnapshot: completedBooking,
+      bookingSnapshot: serializedCompletedBooking,
       bookingClientReference: clientReference,
       bookingId: normalizedBooking?.bookingId
     }),
@@ -315,7 +319,7 @@ async function completeWalletBookingHandler(payload) {
       orderId: resolvedOrderId,
       orderLineItemId,
       itemClientReference: clientReference,
-      itemBookingSnapshot: completedBooking,
+      itemBookingSnapshot: serializedCompletedBooking,
       itemBookingId: normalizedBooking?.bookingId
     })
   };
@@ -673,29 +677,47 @@ function loadOrderExtendedFieldsBookingId(currentOrder) {
 
 function readOrderExtendedFieldValue(currentOrder, fieldKey) {
   const currentExtendedFields = getOrderExtendedFieldsContainer(currentOrder);
+  const currentNamespaces =
+    currentExtendedFields?.[ORDER_EXTENDED_FIELDS_NAMESPACES_KEY] &&
+    typeof currentExtendedFields[ORDER_EXTENDED_FIELDS_NAMESPACES_KEY] === "object"
+      ? currentExtendedFields[ORDER_EXTENDED_FIELDS_NAMESPACES_KEY]
+      : {};
+
+  const currentNamespacedUserFields =
+    currentNamespaces?.[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY] &&
+    typeof currentNamespaces[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY] === "object"
+      ? currentNamespaces[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY]
+      : null;
+
+  if (
+    currentNamespacedUserFields &&
+    currentNamespacedUserFields[fieldKey] !== undefined
+  ) {
+    return currentNamespacedUserFields[fieldKey];
+  }
+
+  const legacyExtendedUserFields =
+    currentExtendedFields?.[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY] &&
+    typeof currentExtendedFields[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY] === "object"
+      ? currentExtendedFields[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY]
+      : null;
+
+  if (legacyExtendedUserFields && legacyExtendedUserFields[fieldKey] !== undefined) {
+    return legacyExtendedUserFields[fieldKey];
+  }
 
   if (currentExtendedFields[fieldKey] !== undefined) {
     return currentExtendedFields[fieldKey];
   }
 
-  const namespacedExtendedFields = currentExtendedFields?.[
-    ORDER_EXTENDED_FIELDS_NAMESPACE_KEY
-  ];
-
-  if (
-    namespacedExtendedFields &&
-    typeof namespacedExtendedFields === "object" &&
-    namespacedExtendedFields[fieldKey] !== undefined
-  ) {
-    return namespacedExtendedFields[fieldKey];
-  }
-
-  if (
+  const legacyOrderUserFields =
     currentOrder?.[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY] &&
-    typeof currentOrder[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY] === "object" &&
-    currentOrder[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY][fieldKey] !== undefined
-  ) {
-    return currentOrder[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY][fieldKey];
+    typeof currentOrder[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY] === "object"
+      ? currentOrder[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY]
+      : null;
+
+  if (legacyOrderUserFields && legacyOrderUserFields[fieldKey] !== undefined) {
+    return legacyOrderUserFields[fieldKey];
   }
 
   return null;
@@ -716,33 +738,47 @@ function buildNextOrderExtendedFields(
   { bookingSnapshot, bookingClientReference, bookingId }
 ) {
   const currentExtendedFields = getOrderExtendedFieldsContainer(currentOrder);
-  const namespacedExtendedFields =
+  const currentNamespaces =
+    currentExtendedFields?.[ORDER_EXTENDED_FIELDS_NAMESPACES_KEY] &&
+    typeof currentExtendedFields[ORDER_EXTENDED_FIELDS_NAMESPACES_KEY] === "object"
+      ? currentExtendedFields[ORDER_EXTENDED_FIELDS_NAMESPACES_KEY]
+      : {};
+
+  const currentNamespacedUserFields =
+    currentNamespaces?.[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY] &&
+    typeof currentNamespaces[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY] === "object"
+      ? currentNamespaces[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY]
+      : null;
+
+  const legacyExtendedUserFields =
     currentExtendedFields?.[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY] &&
     typeof currentExtendedFields[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY] === "object"
       ? currentExtendedFields[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY]
       : null;
 
-  if (namespacedExtendedFields) {
-    return {
-      ...currentExtendedFields,
-      [ORDER_EXTENDED_FIELDS_NAMESPACE_KEY]: {
-        ...namespacedExtendedFields,
-        [ORDER_EXTENDED_FIELDS_BOOKING_SNAPSHOT_KEY]: bookingSnapshot,
-        [ORDER_EXTENDED_FIELDS_BOOKING_CLIENT_REFERENCE_KEY]: normalizeText(
-          bookingClientReference
-        ),
-        [ORDER_EXTENDED_FIELDS_BOOKING_ID_KEY]: normalizeText(bookingId)
-      }
-    };
-  }
+  const legacyOrderUserFields =
+    currentOrder?.[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY] &&
+    typeof currentOrder[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY] === "object"
+      ? currentOrder[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY]
+      : null;
+
+  const nextUserFields = {
+    ...(legacyOrderUserFields || {}),
+    ...(legacyExtendedUserFields || {}),
+    ...(currentNamespacedUserFields || {}),
+    [ORDER_EXTENDED_FIELDS_BOOKING_ID_KEY]: normalizeText(bookingId),
+    [ORDER_EXTENDED_FIELDS_BOOKING_SNAPSHOT_KEY]: normalizeText(bookingSnapshot),
+    [ORDER_EXTENDED_FIELDS_BOOKING_CLIENT_REFERENCE_KEY]: normalizeText(
+      bookingClientReference
+    )
+  };
 
   return {
     ...currentExtendedFields,
-    [ORDER_EXTENDED_FIELDS_BOOKING_SNAPSHOT_KEY]: bookingSnapshot,
-    [ORDER_EXTENDED_FIELDS_BOOKING_CLIENT_REFERENCE_KEY]: normalizeText(
-      bookingClientReference
-    ),
-    [ORDER_EXTENDED_FIELDS_BOOKING_ID_KEY]: normalizeText(bookingId)
+    [ORDER_EXTENDED_FIELDS_NAMESPACES_KEY]: {
+      ...currentNamespaces,
+      [ORDER_EXTENDED_FIELDS_NAMESPACE_KEY]: nextUserFields
+    }
   };
 }
 
@@ -812,7 +848,7 @@ async function insertCmsBookingSnapshot({
       [ORDER_ID_FIELD_KEY]: orderId,
       [ORDER_LINE_ITEM_ID_FIELD_KEY]: orderLineItemId,
       [ITEM_CLIENT_REFERENCE_FIELD_KEY]: itemClientReference,
-      [ITEM_BOOKING_SNAPSHOT_FIELD_KEY]: itemBookingSnapshot,
+      [ITEM_BOOKING_SNAPSHOT_FIELD_KEY]: normalizeText(itemBookingSnapshot),
       [ITEM_BOOKING_ID_FIELD_KEY]: normalizeText(itemBookingId)
     },
     {
@@ -844,7 +880,10 @@ function resolveOrderId(order) {
 }
 
 function resolveBookingIdFromBookingSnapshot(bookingSnapshot) {
-  const bookingRoot = bookingSnapshot?.data || bookingSnapshot;
+  const normalizedBookingSnapshot =
+    normalizeBookingSnapshotValue(bookingSnapshot) || bookingSnapshot;
+  const bookingRoot =
+    normalizedBookingSnapshot?.data || normalizedBookingSnapshot;
 
   return normalizeText(
     bookingRoot?.bookingId ||
@@ -881,6 +920,18 @@ function normalizeBookingSnapshotValue(bookingSnapshotValue) {
   }
 
   return null;
+}
+
+function serializeBookingSnapshotForStorage(bookingSnapshot) {
+  if (!bookingSnapshot) {
+    return "";
+  }
+
+  if (typeof bookingSnapshot === "string") {
+    return bookingSnapshot;
+  }
+
+  return JSON.stringify(bookingSnapshot);
 }
 
 function normalizePrebook(prebookResponse) {

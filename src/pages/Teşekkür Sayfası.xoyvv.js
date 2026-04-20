@@ -23,26 +23,25 @@ $w.onReady(async function () {
 });
 
 async function initializeCompleteBookingFlow() {
-  const completeBookingStateBox = getElement(COMPLETE_BOOKING_STATE_BOX_SELECTOR);
   const thankYouPage = getElement(THANK_YOU_PAGE_SELECTOR);
+  const completeBookingStateBox = getElement(COMPLETE_BOOKING_STATE_BOX_SELECTOR);
   const completeBookingProgressBar = getElement(
     COMPLETE_BOOKING_PROGRESS_BAR_SELECTOR
   );
 
   initializeCompleteBookingProgressBar(completeBookingProgressBar);
 
-  if (!completeBookingStateBox) {
-    console.warn(
-      `COMPLETE BOOKING element ${COMPLETE_BOOKING_STATE_BOX_SELECTOR} is missing.`
-    );
-    return;
-  }
-
   if (!thankYouPage || typeof thankYouPage.getOrder !== "function") {
     console.warn(
       `COMPLETE BOOKING element ${THANK_YOU_PAGE_SELECTOR} is missing or invalid.`
     );
     return;
+  }
+
+  if (!completeBookingStateBox) {
+    console.warn(
+      `COMPLETE BOOKING element ${COMPLETE_BOOKING_STATE_BOX_SELECTOR} is missing.`
+    );
   }
 
   if (!completeBookingProgressBar) {
@@ -73,21 +72,14 @@ async function initializeCompleteBookingFlow() {
       return;
     }
 
+    setCompleteBookingProgress(completeBookingProgressBar, 1);
+
     console.log("COMPLETE BOOKING switching to completeBookingProgressState");
 
     await changeCompleteBookingState(
       completeBookingStateBox,
       COMPLETE_BOOKING_PROGRESS_STATE_ID
     );
-
-    setCompleteBookingProgress(completeBookingProgressBar, 1);
-    await sleep(180);
-
-    setCompleteBookingProgress(completeBookingProgressBar, 15);
-    await sleep(250);
-
-    setCompleteBookingProgress(completeBookingProgressBar, 35);
-    await sleep(250);
 
     const completeBookingResult = await completeBooking({
       bookingFlowMode: COMPLETE_BOOKING_FLOW_MODE,
@@ -102,11 +94,7 @@ async function initializeCompleteBookingFlow() {
       })
     );
 
-    setCompleteBookingProgress(completeBookingProgressBar, 75);
-    await sleep(250);
-
     setCompleteBookingProgress(completeBookingProgressBar, 100);
-    await sleep(500);
 
     console.log(
       "COMPLETE BOOKING switching to completeBookingProgressCompletedState"
@@ -120,7 +108,6 @@ async function initializeCompleteBookingFlow() {
     console.error("COMPLETE BOOKING failed", error, safeJson(error));
 
     setCompleteBookingProgress(completeBookingProgressBar, 100);
-    await sleep(400);
 
     console.log(
       "COMPLETE BOOKING switching to completeBookingProgressCompletedState after failure"
@@ -232,7 +219,10 @@ function summarizeOrderLineItemOptions(currentOrder) {
   return lineItems.map((lineItem, index) => ({
     index,
     lineItemId: normalizeText(
-      lineItem?._id || lineItem?.id || lineItem?.lineItemId || lineItem?._lineItemId
+      lineItem?._id ||
+        lineItem?.id ||
+        lineItem?.lineItemId ||
+        lineItem?._lineItemId
     ),
     name: normalizeText(
       lineItem?.name ||
@@ -333,8 +323,4 @@ function safeJson(value) {
   } catch (error) {
     return `[unserializable: ${String(error?.message || error)}]`;
   }
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
