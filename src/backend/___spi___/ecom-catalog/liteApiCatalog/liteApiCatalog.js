@@ -1,4 +1,4 @@
-import { getPrebookByIdHandler } from "../../../liteApiBooking";
+import { validatePrebook } from "../../../liteApiBooking";
 
 const RESERVATION_DATE_TYPE_KEY = "reservationDateType";
 const RESERVATION_DATE_TYPE_LABEL = "Reservation Date Type";
@@ -100,40 +100,21 @@ async function resolveCatalogItem(rawCatalogReference, request, prebookValidatio
       return null;
     }
 
-    const shell = getShellOptions(catalogReference);
-    const snapshotRoot = extractSnapshotRoot(shell?.prebookSnapshot);
+    const prebookShell = getPrebookShell(catalogReference);
 
     logInfo("liteApiCatalog shell extracted", {
       requestId,
       catalogItemId,
-      shellSummary: buildShellSummary(shell),
-      hasSnapshotRoot: Boolean(snapshotRoot)
+      shellSummary: buildShellSummary(prebookShell)
     });
 
-    if (!snapshotRoot) {
-      logWarn("liteApiCatalog missing prebookSnapshot in catalogReference", {
-        requestId,
-        catalogItemId,
-        shellSummary: buildShellSummary(shell)
-      });
-      return null;
-    }
-
-    const prebookId = extractPrebookId(shell, snapshotRoot);
-
-    logInfo("liteApiCatalog prebook resolution", {
-      requestId,
-      catalogItemId,
-      prebookId,
-      snapshotSummary: buildSnapshotSummary(snapshotRoot)
-    });
+    const prebookId = normalizeText(prebookShell?.prebookId);
 
     if (!prebookId) {
-      logWarn("liteApiCatalog missing prebookId in catalogReference options/snapshot", {
+      logWarn("liteApiCatalog missing prebookId in prebookShell", {
         requestId,
         catalogItemId,
-        shellSummary: buildShellSummary(shell),
-        snapshotSummary: buildSnapshotSummary(snapshotRoot)
+        shellSummary: buildShellSummary(prebookShell)
       });
       return null;
     }
@@ -163,39 +144,7 @@ async function resolveCatalogItem(rawCatalogReference, request, prebookValidatio
       return null;
     }
 
-    const firstRate = getFirstRate(snapshotRoot);
-
-    logInfo("liteApiCatalog firstRate extracted", {
-      requestId,
-      catalogItemId,
-      prebookId,
-      firstRateSummary: buildFirstRateSummary(firstRate)
-    });
-
-    const sourceCurrency = extractSourceCurrency(firstRate, snapshotRoot);
-    const requestCurrency = normalizeCurrencyCode(
-      request?.currency || request?.__context?.currency
-    );
-
-    logInfo("liteApiCatalog currency comparison", {
-      requestId,
-      catalogItemId,
-      prebookId,
-      sourceCurrency,
-      requestCurrency
-    });
-
-    if (sourceCurrency && requestCurrency && sourceCurrency !== requestCurrency) {
-      logWarn("liteApiCatalog currency mismatch (price phase 1: no conversion)", {
-        requestId,
-        catalogItemId,
-        prebookId,
-        requestCurrency,
-        sourceCurrency
-      });
-    }
-
-    const catalogItem = buildCatalogItem(catalogReference, shell, snapshotRoot, firstRate);
+    const catalogItem = buildCatalogItem(catalogReference, prebookShell);
 
     logInfo("liteApiCatalog built catalogItem", {
       requestId,
@@ -217,26 +166,26 @@ async function resolveCatalogItem(rawCatalogReference, request, prebookValidatio
   }
 }
 
-function buildCatalogItem(catalogReference, shell, snapshotRoot, firstRate) {
-  const hotelName = normalizeText(shell?.hotelName) || "Hotel";
-  const rateName = normalizeText(firstRate?.name);
+function buildCatalogItem(catalogReference, prebookShell) {
+  const hotelName = normalizeText(prebookShell?.hotelName) || "Hotel";
+  const rateName = normalizeText(prebookShell?.rateName);
   const productName = rateName ? `${hotelName} — ${rateName}` : hotelName;
 
   const media = normalizeText(
-    shell?.wixHotelMainImageRef || shell?.wixRoomMainImageRef
+    prebookShell?.wixHotelMainImageRef || prebookShell?.wixRoomMainImageRef
   );
 
-  const price = extractPriceValue(firstRate, snapshotRoot);
-  const descriptionLines = buildDescriptionLines(shell, snapshotRoot, firstRate);
+  const price = extractPriceValue(prebookShell);
+  const descriptionLines = buildDescriptionLines(prebookShell);
 
   logInfo("liteApiCatalog buildCatalogItem inputs", {
     productName,
     hotelName,
     rateName,
     selectedMedia: media,
-    selectedMediaSource: normalizeText(shell?.wixHotelMainImageRef)
+    selectedMediaSource: normalizeText(prebookShell?.wixHotelMainImageRef)
       ? "wixHotelMainImageRef"
-      : normalizeText(shell?.wixRoomMainImageRef)
+      : normalizeText(prebookShell?.wixRoomMainImageRef)
       ? "wixRoomMainImageRef"
       : "",
     price,
@@ -272,104 +221,39 @@ function buildCatalogItem(catalogReference, shell, snapshotRoot, firstRate) {
   };
 }
 
-function getShellOptions(catalogReference) {
+function getPrebookShell(catalogReference) {
   const rawOptions = catalogReference?.options || {};
 
-  if (rawOptions.options && typeof rawOptions.options === "object") {
-    return rawOptions.options;
-  }
-
-  return rawOptions;
+  return rawOptions && typeof rawOptions === "object" && !Array.isArray(rawOptions)
+    ? rawOptions
+    : {};
 }
 
-function extractSnapshotRoot(value) {
-  if (value?.data && typeof value.data === "object" && value.data) {
-    return value.data;
-  }
+function extractPriceValue(prebookShell) {
+  const currentPrice = Number(prebookShell?.currentPrice);
 
-  if (value && typeof value === "object") {
-    return value;
-  }
-
-  return null;
-}
-
-function extractPrebookId(shell, snapshotRoot) {
-  return normalizeText(shell?.prebookId || snapshotRoot?.prebookId);
-}
-
-function getFirstRate(snapshotRoot) {
-  const firstRoomType = Array.isArray(snapshotRoot?.roomTypes)
-    ? snapshotRoot.roomTypes[0]
-    : null;
-
-  const firstRate = Array.isArray(firstRoomType?.rates)
-    ? firstRoomType.rates[0]
-    : null;
-
-  if (!firstRate || typeof firstRate !== "object") {
-    throw new Error(
-      "prebookSnapshot.data.roomTypes[0].rates[0] is required."
-    );
-  }
-
-  return firstRate;
-}
-
-function extractSourceCurrency(firstRate, snapshotRoot) {
-  const retailCurrency = normalizeCurrencyCode(
-    firstRate?.retailRate?.total?.[0]?.currency
-  );
-
-  if (retailCurrency) {
-    return retailCurrency;
-  }
-
-  return normalizeCurrencyCode(snapshotRoot?.currency);
-}
-
-function extractPriceValue(firstRate, snapshotRoot) {
-  const retailAmount = firstRate?.retailRate?.total?.[0]?.amount;
-
-  if (Number.isFinite(Number(retailAmount))) {
-    const value = toPriceString(retailAmount);
+  if (Number.isFinite(currentPrice)) {
+    const value = toPriceString(currentPrice);
     logInfo("liteApiCatalog price source selected", {
-      source: "firstRate.retailRate.total[0].amount",
-      rawValue: retailAmount,
+      source: "prebookShell.currentPrice",
+      rawValue: currentPrice,
       normalizedValue: value
     });
     return value;
   }
 
-  const fallbackAmount = snapshotRoot?.price;
-
-  if (Number.isFinite(Number(fallbackAmount))) {
-    const value = toPriceString(fallbackAmount);
-    logWarn("liteApiCatalog price source fell back to snapshotRoot.price", {
-      source: "snapshotRoot.price",
-      rawValue: fallbackAmount,
-      normalizedValue: value
-    });
-    return value;
-  }
-
-  logWarn("liteApiCatalog price source missing; defaulting to 0", {
-    firstRateSummary: buildFirstRateSummary(firstRate),
-    snapshotSummary: buildSnapshotSummary(snapshotRoot)
-  });
-
-  return "0";
+  throw new Error("prebookShell.currentPrice is required.");
 }
 
-function buildDescriptionLines(shell, snapshotRoot, firstRate) {
+function buildDescriptionLines(prebookShell) {
   const lines = [];
 
-  pushDescriptionLine(lines, shell?.hotelStars);
-  pushDescriptionLine(lines, shell?.hotelReview);
-  pushDescriptionLine(lines, shell?.hotelAddress);
+  pushDescriptionLine(lines, prebookShell?.hotelStars);
+  pushDescriptionLine(lines, prebookShell?.hotelReview);
+  pushDescriptionLine(lines, prebookShell?.hotelAddress);
 
   const isFlexibleReservation = isFlexibleReservationDateType(
-    shell?.[RESERVATION_DATE_TYPE_KEY]
+    prebookShell?.[RESERVATION_DATE_TYPE_KEY]
   );
 
   pushNamedDescriptionLineAllowEmptyText(
@@ -383,17 +267,17 @@ function buildDescriptionLines(shell, snapshotRoot, firstRate) {
   pushNamedDescriptionLineAllowEmptyText(
     lines,
     CHECK_IN_DATE_LABEL,
-    isFlexibleReservation ? "" : normalizeText(snapshotRoot?.checkin)
+    isFlexibleReservation ? "" : normalizeText(prebookShell?.checkInDate)
   );
 
   pushNamedDescriptionLineAllowEmptyText(
     lines,
     CHECK_OUT_DATE_LABEL,
-    isFlexibleReservation ? "" : normalizeText(snapshotRoot?.checkout)
+    isFlexibleReservation ? "" : normalizeText(prebookShell?.checkOutDate)
   );
 
-  const adultCount = normalizeCount(firstRate?.adultCount);
-  const childCount = normalizeCount(firstRate?.childCount);
+  const adultCount = normalizeCount(prebookShell?.adultCount);
+  const childCount = normalizeCount(prebookShell?.childCount);
 
   if (adultCount > 0 || childCount > 0) {
     const guestParts = [];
@@ -409,14 +293,12 @@ function buildDescriptionLines(shell, snapshotRoot, firstRate) {
     pushDescriptionLine(lines, `Guests: ${guestParts.join(", ")}`);
   }
 
-  const boardName = normalizeText(firstRate?.boardName);
+  const boardName = normalizeText(prebookShell?.boardName);
   if (boardName) {
     pushDescriptionLine(lines, `Board: ${boardName}`);
   }
 
-  const refundableText = formatRefundableTag(
-    firstRate?.cancellationPolicies?.refundableTag
-  );
+  const refundableText = formatRefundableTag(prebookShell?.refundableTag);
 
   if (refundableText) {
     pushDescriptionLine(lines, `Refundability: ${refundableText}`);
@@ -516,13 +398,17 @@ async function validatePrebookWithRetry(prebookId, cache, meta = {}) {
     });
 
     try {
-      const response = await getPrebookByIdHandler({ prebookId: normalizedPrebookId });
+      const isValid = await validatePrebook(normalizedPrebookId);
 
-      logInfo("liteApiCatalog prebook validation attempt 1 success", {
+      logInfo("liteApiCatalog prebook validation attempt 1 result", {
         ...meta,
         prebookId: normalizedPrebookId,
-        responseSummary: buildPrebookValidationResponseSummary(response)
+        isValid
       });
+
+      if (!isValid) {
+        return false;
+      }
 
       return true;
     } catch (error) {
@@ -547,17 +433,15 @@ async function validatePrebookWithRetry(prebookId, cache, meta = {}) {
       });
 
       try {
-        const retryResponse = await getPrebookByIdHandler({
-          prebookId: normalizedPrebookId
-        });
+        const retryIsValid = await validatePrebook(normalizedPrebookId);
 
-        logInfo("liteApiCatalog prebook validation attempt 2 success", {
+        logInfo("liteApiCatalog prebook validation attempt 2 result", {
           ...meta,
           prebookId: normalizedPrebookId,
-          responseSummary: buildPrebookValidationResponseSummary(retryResponse)
+          isValid: retryIsValid
         });
 
-        return true;
+        return retryIsValid;
       } catch (retryError) {
         logWarn("liteApiCatalog prebook validation attempt 2 failed", {
           ...meta,
@@ -618,47 +502,31 @@ function buildRequestSummary(request) {
   };
 }
 
-function buildShellSummary(shell) {
+function buildShellSummary(prebookShell) {
   return {
-    hotelName: normalizeText(shell?.hotelName),
-    hotelStars: normalizeText(shell?.hotelStars),
-    hotelReview: normalizeText(shell?.hotelReview),
-    hotelAddress: normalizeText(shell?.hotelAddress),
-    prebookId: normalizeText(shell?.prebookId),
-    reservationDateType: normalizeText(shell?.[RESERVATION_DATE_TYPE_KEY]),
-    hotelMainImage: normalizeText(shell?.hotelMainImage),
-    roomMainImage: normalizeText(shell?.roomMainImage),
-    wixHotelMainImageRef: normalizeText(shell?.wixHotelMainImageRef),
-    wixRoomMainImageRef: normalizeText(shell?.wixRoomMainImageRef)
-  };
-}
-
-function buildSnapshotSummary(snapshotRoot) {
-  return {
-    prebookId: normalizeText(snapshotRoot?.prebookId),
-    hotelId: normalizeText(snapshotRoot?.hotelId),
-    checkin: normalizeText(snapshotRoot?.checkin),
-    checkout: normalizeText(snapshotRoot?.checkout),
-    currency: normalizeCurrencyCode(snapshotRoot?.currency),
-    price: snapshotRoot?.price ?? null,
-    roomTypesCount: Array.isArray(snapshotRoot?.roomTypes)
-      ? snapshotRoot.roomTypes.length
-      : 0
-  };
-}
-
-function buildFirstRateSummary(firstRate) {
-  return {
-    name: normalizeText(firstRate?.name),
-    mappedRoomId: String(firstRate?.mappedRoomId || ""),
-    boardName: normalizeText(firstRate?.boardName),
-    refundableTag: normalizeText(firstRate?.cancellationPolicies?.refundableTag),
-    adultCount: normalizeCount(firstRate?.adultCount),
-    childCount: normalizeCount(firstRate?.childCount),
-    retailAmount: firstRate?.retailRate?.total?.[0]?.amount ?? null,
-    retailCurrency: normalizeCurrencyCode(
-      firstRate?.retailRate?.total?.[0]?.currency
-    )
+    mappedRoomId: normalizeText(prebookShell?.mappedRoomId),
+    prebookId: normalizeText(prebookShell?.prebookId),
+    hotelName: normalizeText(prebookShell?.hotelName),
+    hotelStars: normalizeText(prebookShell?.hotelStars),
+    hotelReview: normalizeText(prebookShell?.hotelReview),
+    hotelAddress: normalizeText(prebookShell?.hotelAddress),
+    checkInDate: normalizeText(prebookShell?.checkInDate),
+    checkOutDate: normalizeText(prebookShell?.checkOutDate),
+    rateName: normalizeText(prebookShell?.rateName),
+    boardName: normalizeText(prebookShell?.boardName),
+    adultCount: normalizeCount(prebookShell?.adultCount),
+    childCount: normalizeCount(prebookShell?.childCount),
+    occupancyNumber: normalizeCount(prebookShell?.occupancyNumber),
+    refundableTag: normalizeText(prebookShell?.refundableTag),
+    currency: normalizeCurrencyCode(prebookShell?.currency),
+    currentPrice: Number(prebookShell?.currentPrice),
+    beforeCurrentPrice: Number(prebookShell?.beforeCurrentPrice),
+    reservationDateType: normalizeText(prebookShell?.[RESERVATION_DATE_TYPE_KEY]),
+    hotelMainImage: normalizeText(prebookShell?.hotelMainImage),
+    roomMainImage: normalizeText(prebookShell?.roomMainImage),
+    wixHotelMainImageRef: normalizeText(prebookShell?.wixHotelMainImageRef),
+    wixRoomMainImageRef: normalizeText(prebookShell?.wixRoomMainImageRef),
+    hasPrebookSnapshot: Boolean(normalizeText(prebookShell?.prebookSnapshot))
   };
 }
 
@@ -671,17 +539,6 @@ function buildBuiltCatalogItemSummary(catalogItem) {
       ? catalogItem.data.descriptionLines.length
       : 0,
     media: normalizeText(catalogItem?.data?.media)
-  };
-}
-
-function buildPrebookValidationResponseSummary(response) {
-  return {
-    hasRaw: Boolean(response?.raw),
-    hasNormalizedPrebook: Boolean(response?.normalizedPrebook),
-    rawPrebookId: normalizeText(response?.raw?.data?.prebookId),
-    normalizedPrebookId: normalizeText(response?.normalizedPrebook?.prebookId),
-    rawHotelId: normalizeText(response?.raw?.data?.hotelId),
-    rawOfferId: normalizeText(response?.raw?.data?.offerId)
   };
 }
 

@@ -109,6 +109,9 @@ function hydrateReservationDateTypeUi(cart) {
           lineItemId: resolveLineItemId(lineItem),
           catalogItemId: String(lineItem?.catalogReference?.catalogItemId || "").trim(),
           prebookId: String(shellOptions?.prebookId || "").trim(),
+          hasPrebookSnapshot: Boolean(
+            String(shellOptions?.prebookSnapshot || "").trim()
+          ),
           reservationDateType: String(
             shellOptions?.[RESERVATION_DATE_TYPE_KEY] || ""
           ).trim().toLowerCase()
@@ -146,7 +149,6 @@ async function applyReservationDateType(isFlexible, source) {
         const appId = String(catalogReference?.appId || "").trim();
         const catalogItemId = String(catalogReference?.catalogItemId || "").trim();
         const quantity = Number(lineItem?.quantity) || 1;
-        const rawOptions = catalogReference?.options || {};
         const shellOptions = { ...getLineItemShellOptions(lineItem) };
         const currentReservationDateType = String(
           shellOptions?.[RESERVATION_DATE_TYPE_KEY] || ""
@@ -170,25 +172,12 @@ async function applyReservationDateType(isFlexible, source) {
           delete shellOptions[RESERVATION_DATE_TYPE_KEY];
         }
 
-        const nextOptions =
-          rawOptions &&
-          typeof rawOptions === "object" &&
-          !Array.isArray(rawOptions) &&
-          rawOptions.options &&
-          typeof rawOptions.options === "object" &&
-          !Array.isArray(rawOptions.options)
-            ? {
-                ...rawOptions,
-                options: shellOptions
-              }
-            : shellOptions;
-
         return {
           quantity,
           catalogReference: {
             appId,
             catalogItemId,
-            options: nextOptions
+            options: shellOptions
           }
         };
       })
@@ -219,9 +208,7 @@ async function applyReservationDateType(isFlexible, source) {
           appId: String(lineItem?.catalogReference?.appId || "").trim(),
           catalogItemId: String(lineItem?.catalogReference?.catalogItemId || "").trim(),
           reservationDateType: String(
-            getLineItemShellOptions({
-              catalogReference: { options: lineItem?.catalogReference?.options || {} }
-            })?.[RESERVATION_DATE_TYPE_KEY] || ""
+            lineItem?.catalogReference?.options?.[RESERVATION_DATE_TYPE_KEY] || ""
           ).trim().toLowerCase()
         }))
       })
@@ -262,6 +249,9 @@ async function applyReservationDateType(isFlexible, source) {
               lineItemId: resolveLineItemId(lineItem),
               catalogItemId: String(lineItem?.catalogReference?.catalogItemId || "").trim(),
               prebookId: String(shellOptions?.prebookId || "").trim(),
+              hasPrebookSnapshot: Boolean(
+                String(shellOptions?.prebookSnapshot || "").trim()
+              ),
               reservationDateType: String(
                 shellOptions?.[RESERVATION_DATE_TYPE_KEY] || ""
               ).trim().toLowerCase()
@@ -314,18 +304,9 @@ function getRelevantLiteApiLineItems(cart) {
 function getLineItemShellOptions(lineItem) {
   const rawOptions = lineItem?.catalogReference?.options || {};
 
-  if (
-    rawOptions &&
-    typeof rawOptions === "object" &&
-    !Array.isArray(rawOptions) &&
-    rawOptions.options &&
-    typeof rawOptions.options === "object" &&
-    !Array.isArray(rawOptions.options)
-  ) {
-    return rawOptions.options;
-  }
-
-  return rawOptions && typeof rawOptions === "object" ? rawOptions : {};
+  return rawOptions && typeof rawOptions === "object" && !Array.isArray(rawOptions)
+    ? rawOptions
+    : {};
 }
 
 function resolveLineItemId(lineItem) {

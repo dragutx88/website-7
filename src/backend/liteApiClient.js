@@ -45,11 +45,7 @@ export async function getLiteApiPaymentEnvironment() {
 }
 
 export async function parseJson(response) {
-  try {
-    return await response.json();
-  } catch (error) {
-    return null;
-  }
+  return await response.json();
 }
 
 export function buildLiteApiError(json, fallbackMessage) {

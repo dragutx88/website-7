@@ -7,7 +7,6 @@ import {
   liteApiRequest,
   parseJson
 } from "./liteApiClient";
-import { getBeforePriceObject, getCurrentPriceObject } from "./liteApiTransforms";
 
 const LITE_BOOK_API_BASE_URL = "https://book.liteapi.travel/v3.0";
 const LITEAPI_CATALOG_APP_ID = "e7f94f4b-7e6a-41c6-8ee1-52c1d5f31cf4";
@@ -34,71 +33,51 @@ export async function createPrebookSessionHandler(payload) {
     throw new Error("offerId is required.");
   }
 
-  const response = await liteApiRequest(`${LITE_BOOK_API_BASE_URL}/rates/prebook`, {
-    method: "POST",
-    body: {
-      offerId,
-      usePaymentSdk
+  const createPrebookResponse = await liteApiRequest(
+    `${LITE_BOOK_API_BASE_URL}/rates/prebook`,
+    {
+      method: "POST",
+      body: {
+        offerId,
+        usePaymentSdk
+      }
     }
-  });
+  );
 
-  const json = await parseJson(response);
+  const prebookResponse = await parseJson(createPrebookResponse);
 
-  if (!response.ok) {
-    const error = buildLiteApiError(json, "Prebook request failed.");
-    error.statusCode = response.status;
+  if (!createPrebookResponse.ok) {
+    const error = buildLiteApiError(prebookResponse, "Prebook request failed.");
+    error.statusCode = createPrebookResponse.status;
     throw error;
   }
 
+  const normalizedPrebook = normalizePrebook(prebookResponse);
+  const prebookSnapshot = JSON.stringify(prebookResponse);
+
   return {
-    raw: json,
-    normalizedPrebook: normalizePrebookResponse(
-      json?.data || null,
-      await getLiteApiPaymentEnvironment()
-    )
+    prebookSnapshot,
+    normalizedPrebook
   };
 }
 
-export async function getPrebookByIdHandler(payload) {
-  const prebookId = normalizeText(
-    typeof payload === "string" ? payload : payload?.prebookId
-  );
+export async function validatePrebook(prebookId) {
+  const normalizedPrebookId = normalizeText(prebookId);
 
-  const includeCreditBalance =
-    typeof payload === "object" && payload?.includeCreditBalance !== undefined
-      ? normalizeText(payload.includeCreditBalance)
-      : "";
-
-  if (!prebookId) {
+  if (!normalizedPrebookId) {
     throw new Error("prebookId is required.");
   }
 
-  const querySuffix = includeCreditBalance
-    ? `?includeCreditBalance=${encodeURIComponent(includeCreditBalance)}`
-    : "";
-
-  const response = await liteApiRequest(
-    `${LITE_BOOK_API_BASE_URL}/prebooks/${encodeURIComponent(prebookId)}${querySuffix}`,
+  const validatePrebookResponse = await liteApiRequest(
+    `${LITE_BOOK_API_BASE_URL}/prebooks/${encodeURIComponent(
+      normalizedPrebookId
+    )}`,
     {
       method: "GET"
     }
   );
 
-  const json = await parseJson(response);
-
-  if (!response.ok) {
-    const error = buildLiteApiError(json, "Get prebook request failed.");
-    error.statusCode = response.status;
-    throw error;
-  }
-
-  return {
-    raw: json,
-    normalizedPrebook: normalizePrebookResponse(
-      json?.data || null,
-      await getLiteApiPaymentEnvironment()
-    )
-  };
+  return validatePrebookResponse.ok;
 }
 
 export async function completeBookingHandler(payload) {
@@ -636,38 +615,82 @@ function resolveBookingIdFromRaw(rawBookingObject) {
   );
 }
 
-function normalizePrebookResponse(data, paymentEnvironment) {
-  if (!data || typeof data !== "object") {
+function normalizePrebook(prebookResponse) {
+  if (!prebookResponse || typeof prebookResponse !== "object") {
     return null;
   }
 
-  const firstRoomType = Array.isArray(data?.roomTypes) ? data.roomTypes[0] : null;
-  const firstRate = Array.isArray(firstRoomType?.rates) ? firstRoomType.rates[0] : null;
+  const paymentEnvironment = getLiteApiPaymentEnvironmentSafe(prebookResponse);
 
-  const fallbackPrice =
-    Number.isFinite(Number(data?.price)) && normalizeText(data?.currency)
-      ? {
-          amount: Number(data.price),
-          currency: normalizeText(data.currency)
-        }
-      : null;
+  const currentPrice = Number(
+    prebookResponse?.data?.roomTypes?.[0]?.rates?.[0]?.retailRate?.total?.[0]?.amount
+  );
 
-  const currentPrice = getCurrentPriceObject(firstRate, firstRoomType) || fallbackPrice;
-  const beforePrice = getBeforePriceObject(firstRate, currentPrice, firstRoomType);
+  const beforeCurrentPrice = Number(
+    prebookResponse?.data?.roomTypes?.[0]?.rates?.[0]?.retailRate?.suggestedSellingPrice?.[0]?.amount
+  );
+
+  const currency = normalizeText(
+    prebookResponse?.data?.roomTypes?.[0]?.rates?.[0]?.retailRate?.total?.[0]?.currency
+  );
+
+  if (!currency || !Number.isFinite(currentPrice)) {
+    throw new Error("prebook retailRate.total[0] is required.");
+  }
 
   return {
-    prebookId: normalizeText(data?.prebookId),
-    offerId: normalizeText(data?.offerId),
-    hotelId: normalizeText(data?.hotelId),
-    transactionId: normalizeText(data?.transactionId),
-    secretKey: normalizeText(data?.secretKey),
-    paymentTypes: Array.isArray(data?.paymentTypes) ? data.paymentTypes : [],
-    paymentEnvironment,
-    currentPrice,
-    beforePrice,
+    prebookId: normalizeText(prebookResponse?.data?.prebookId),
+    checkInDate: normalizeText(prebookResponse?.data?.checkin),
+    checkOutDate: normalizeText(prebookResponse?.data?.checkout),
+    rateName: normalizeText(
+      prebookResponse?.data?.roomTypes?.[0]?.rates?.[0]?.name
+    ),
+    boardName: normalizeText(
+      prebookResponse?.data?.roomTypes?.[0]?.rates?.[0]?.boardName
+    ),
+    adultCount: normalizeCount(
+      prebookResponse?.data?.roomTypes?.[0]?.rates?.[0]?.adultCount
+    ),
+    childCount: normalizeCount(
+      prebookResponse?.data?.roomTypes?.[0]?.rates?.[0]?.childCount
+    ),
+    childrenAges: normalizeNumberArray(
+      prebookResponse?.data?.roomTypes?.[0]?.rates?.[0]?.childrenAges
+    ),
+    occupancyNumber: normalizeCount(
+      prebookResponse?.data?.roomTypes?.[0]?.rates?.[0]?.occupancyNumber
+    ),
     refundableTag:
-      normalizeText(firstRate?.cancellationPolicies?.refundableTag) || null
+      normalizeText(
+        prebookResponse?.data?.roomTypes?.[0]?.rates?.[0]?.cancellationPolicies?.refundableTag
+      ) || null,
+    currency,
+    currentPrice,
+    beforeCurrentPrice: Number.isFinite(beforeCurrentPrice)
+      ? beforeCurrentPrice
+      : null,
+
+    transactionId: normalizeText(prebookResponse?.data?.transactionId),
+    secretKey: normalizeText(prebookResponse?.data?.secretKey),
+    paymentTypes: Array.isArray(prebookResponse?.data?.paymentTypes)
+      ? prebookResponse.data.paymentTypes
+      : [],
+    paymentEnvironment
   };
+}
+
+function getLiteApiPaymentEnvironmentSafe(prebookResponse) {
+  const sandbox = prebookResponse?.data?.sandbox;
+
+  if (sandbox === true) {
+    return "sandbox";
+  }
+
+  if (sandbox === false) {
+    return "live";
+  }
+
+  return "";
 }
 
 function normalizeCompletedBookingResponse(rawBooking, guestDetails) {
@@ -789,6 +812,26 @@ function deepFindFirstValueByKey(input, targetKey) {
   }
 
   return walk(input);
+}
+
+function normalizeNumberArray(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item));
+}
+
+function normalizeCount(value) {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.floor(parsed));
 }
 
 function normalizeText(value) {
