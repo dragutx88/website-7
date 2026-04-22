@@ -10,7 +10,6 @@ import {
 import { importCatalogImages } from "backend/wix.web";
 import {
   buildCheckoutPageUrl,
-  buildHotelPageUrl,
   buildOccupancyFromCtx,
   formatGuestRating,
   formatPrice,
@@ -100,22 +99,32 @@ async function initializeHotelPage() {
 
     setTextIfExists(
       "#hotelNameText",
-      normalizeText(fallbackHotel?.name) || "Hotel"
+      normalizeText(fallbackHotel?.name || fallbackHotel?.hotelName) || "Hotel"
     );
-    setTextIfExists("#hotelAddressText", normalizeText(fallbackHotel?.address));
+    setTextIfExists(
+      "#hotelAddressText",
+      normalizeText(fallbackHotel?.address || fallbackHotel?.hotelAddress)
+    );
   }
 }
 
 function bindHotelHero(normalizedHotelDetails, normalizedMergedMappedRoomOffers) {
   const hotelMainImage =
     normalizeText(normalizedHotelDetails?.hotelMainImage) || FALLBACK_IMAGE_URL;
+
   const hotelGalleryImageUrls = collectHotelImageUrls(
     normalizedHotelDetails?.hotelImages,
     hotelMainImage
   );
 
-  setTextIfExists("#hotelNameText", normalizeText(normalizedHotelDetails?.hotelName) || "Hotel");
-  setTextIfExists("#hotelAddressText", normalizeText(normalizedHotelDetails?.hotelAddress));
+  setTextIfExists(
+    "#hotelNameText",
+    normalizeText(normalizedHotelDetails?.hotelName) || "Hotel"
+  );
+  setTextIfExists(
+    "#hotelAddressText",
+    normalizeText(normalizedHotelDetails?.hotelAddress)
+  );
   setRatingIfExists(
     "#hotelStarRatingDisplay",
     normalizedHotelDetails?.hotelStarRating
@@ -132,17 +141,18 @@ function bindHotelHero(normalizedHotelDetails, normalizedMergedMappedRoomOffers)
   bindMapElements(normalizedHotelDetails?.hotelMapUrl);
   bindHeroGallery(hotelGalleryImageUrls);
 
-  const roomOffersMinCurrentPrice = Number(
+  const roomOffersMinCurrentPrice = normalizeNumberOrNull(
     normalizedMergedMappedRoomOffers?.roomOffersMinCurrentPrice
   );
-  const roomOffersMinCurrentPriceCurrency = normalizeText(
-    normalizedMergedMappedRoomOffers?.roomOffersMinCurrentPriceCurrency
+  const roomOfferCurrency = normalizeText(
+    normalizedMergedMappedRoomOffers?.roomOfferCurrency
   );
+
   const roomOffersMinCurrentPriceText =
-    Number.isFinite(roomOffersMinCurrentPrice) && roomOffersMinCurrentPriceCurrency
+    Number.isFinite(roomOffersMinCurrentPrice) && roomOfferCurrency
       ? formatPrice({
           amount: roomOffersMinCurrentPrice,
-          currency: roomOffersMinCurrentPriceCurrency
+          currency: roomOfferCurrency
         })
       : "";
 
@@ -176,68 +186,72 @@ function bindHotelDescriptionSections(normalizedHotelDetails) {
 }
 
 function bindHotelPopupButtons(normalizedHotelDetails) {
-  const facilitiesButton = safeGetPageElement("#HotelFacilitiesPopupButton");
-  const facilities = Array.isArray(normalizedHotelDetails?.hotelFacilities)
+  const hotelFacilitiesPopupButton = safeGetPageElement("#hotelFacilitiesPopupButton");
+  const hotelFacilities = Array.isArray(normalizedHotelDetails?.hotelFacilities)
     ? normalizedHotelDetails.hotelFacilities
     : [];
 
-  if (facilitiesButton) {
-    if (facilities.length > 0) {
-      safeShow(facilitiesButton);
-      safeExpand(facilitiesButton);
-      if (typeof facilitiesButton.onClick === "function") {
-        facilitiesButton.onClick(() => {
+  if (hotelFacilitiesPopupButton) {
+    if (hotelFacilities.length > 0) {
+      safeShow(hotelFacilitiesPopupButton);
+      safeExpand(hotelFacilitiesPopupButton);
+
+      if (typeof hotelFacilitiesPopupButton.onClick === "function") {
+        hotelFacilitiesPopupButton.onClick(() => {
           wixWindowFrontend.openLightbox(HOTEL_FACILITIES_LIGHTBOX, {
-            facilities
+            facilities: hotelFacilities
           });
         });
       }
     } else {
-      safeCollapseAndHide(facilitiesButton);
+      safeCollapseAndHide(hotelFacilitiesPopupButton);
     }
   }
 
-  const policiesButton = safeGetPageElement("#HotelPoliciesPopupButton");
-  const policies = Array.isArray(normalizedHotelDetails?.hotelPolicies)
+  const hotelPoliciesPopupButton = safeGetPageElement("#hotelPoliciesPopupButton");
+  const hotelPolicies = Array.isArray(normalizedHotelDetails?.hotelPolicies)
     ? normalizedHotelDetails.hotelPolicies
     : [];
 
-  if (policiesButton) {
-    if (policies.length > 0) {
-      safeShow(policiesButton);
-      safeExpand(policiesButton);
-      if (typeof policiesButton.onClick === "function") {
-        policiesButton.onClick(() => {
+  if (hotelPoliciesPopupButton) {
+    if (hotelPolicies.length > 0) {
+      safeShow(hotelPoliciesPopupButton);
+      safeExpand(hotelPoliciesPopupButton);
+
+      if (typeof hotelPoliciesPopupButton.onClick === "function") {
+        hotelPoliciesPopupButton.onClick(() => {
           wixWindowFrontend.openLightbox(HOTEL_POLICIES_LIGHTBOX, {
-            policies
+            policies: hotelPolicies
           });
         });
       }
     } else {
-      safeCollapseAndHide(policiesButton);
+      safeCollapseAndHide(hotelPoliciesPopupButton);
     }
   }
 }
 
 function bindMappedRoomOffersRepeater(mappedRoomOffers) {
-  const repeater = safeGetPageElement("#mappedRoomOffersRepeater");
-  if (!repeater) {
+  const mappedRoomOffersRepeater = safeGetPageElement("#mappedRoomOffersRepeater");
+
+  if (!mappedRoomOffersRepeater) {
     console.error("Missing #mappedRoomOffersRepeater");
     return;
   }
 
-  repeater.onItemReady(($item, itemData) => {
+  mappedRoomOffersRepeater.onItemReady(($item, itemData) => {
     bindMappedRoomOfferItem($item, itemData);
   });
 
-  repeater.data = (Array.isArray(mappedRoomOffers) ? mappedRoomOffers : []).map(
-    (mappedRoomOfferItem, mappedRoomOfferIndex) => ({
-      ...mappedRoomOfferItem,
-      _id: buildRepeaterId(
-        mappedRoomOfferItem?.mappedRoomId || `mapped-room-${mappedRoomOfferIndex + 1}`
-      )
-    })
-  );
+  mappedRoomOffersRepeater.data = (Array.isArray(mappedRoomOffers)
+    ? mappedRoomOffers
+    : []
+  ).map((mappedRoomOfferItem, mappedRoomOfferIndex) => ({
+    ...mappedRoomOfferItem,
+    _id: buildRepeaterId(
+      mappedRoomOfferItem?.mappedRoomId || `mapped-room-${mappedRoomOfferIndex + 1}`
+    )
+  }));
 }
 
 function bindMappedRoomOfferItem($item, itemData) {
@@ -245,22 +259,19 @@ function bindMappedRoomOfferItem($item, itemData) {
   const roomOffers = Array.isArray(itemData?.roomOffers) ? itemData.roomOffers : [];
 
   const roomName =
-    normalizeText(room?.roomName) || normalizeText(roomOffers?.[0]?.roomOfferName) || "Room";
+    normalizeText(room?.roomName) ||
+    normalizeText(roomOffers?.[0]?.roomOfferName) ||
+    "Room";
+
   const roomMainImage =
     normalizeText(room?.roomMainImage) ||
     normalizeText(hotelPageState?.normalizedHotelDetails?.hotelMainImage) ||
     FALLBACK_IMAGE_URL;
 
   setItemImage($item, "#roomMainImage", roomMainImage, FALLBACK_IMAGE_URL);
-  setItemText($item, "#roomDetailsTitleText", roomName);
+  setItemText($item, "#roomNameText", roomName);
   setOptionalItemText($item, "#roomSizeText", normalizeText(room?.roomSizeText));
-  setOptionalItemText(
-    $item,
-    "#roomSleepsText",
-    room?.roomSleepsText === null || room?.roomSleepsText === undefined
-      ? ""
-      : String(room.roomSleepsText)
-  );
+  setOptionalItemText($item, "#roomSleepsText", normalizeText(room?.roomSleepsText));
   setOptionalItemText(
     $item,
     "#roomDescriptionText",
@@ -271,6 +282,7 @@ function bindMappedRoomOfferItem($item, itemData) {
     "#roomBedTypesText",
     normalizeText(room?.roomBedTypesText)
   );
+
   bindRoomDetailsButton($item, room);
 
   for (let roomOfferSlotIndex = 0; roomOfferSlotIndex < 4; roomOfferSlotIndex += 1) {
@@ -286,36 +298,21 @@ function bindMappedRoomOfferItem($item, itemData) {
 
 function bindRoomDetailsButton($item, room) {
   const roomDetailsButton = safeGetItemElement($item, "#roomDetailsButton");
+
   if (!roomDetailsButton) {
     return;
   }
 
-  if (!room) {
-    safeCollapseAndHide(roomDetailsButton);
-    return;
-  }
-
-  const roomDetailsPopupContext = {
-    roomName: normalizeText(room?.roomName),
-    description: normalizeText(room?.roomDescription),
-    sizeText: normalizeText(room?.roomSizeText),
-    sleepsText:
-      room?.roomSleepsText === null || room?.roomSleepsText === undefined
-        ? ""
-        : String(room.roomSleepsText),
-    bedTypesText: normalizeText(room?.roomBedTypesText),
-    amenities: deriveRoomAmenityNames(room?.roomAmenities),
-    images: Array.isArray(room?.roomImages) ? room.roomImages : []
-  };
+  const roomDetailsPopupData = buildRoomDetailsPopupData(room);
 
   const shouldShowRoomDetailsButton =
-    roomDetailsPopupContext.roomName ||
-    roomDetailsPopupContext.description ||
-    roomDetailsPopupContext.sizeText ||
-    roomDetailsPopupContext.sleepsText ||
-    roomDetailsPopupContext.bedTypesText ||
-    roomDetailsPopupContext.amenities.length > 0 ||
-    roomDetailsPopupContext.images.length > 0;
+    roomDetailsPopupData.roomName ||
+    roomDetailsPopupData.description ||
+    roomDetailsPopupData.sizeText ||
+    roomDetailsPopupData.sleepsText ||
+    roomDetailsPopupData.bedTypesText ||
+    roomDetailsPopupData.amenities.length > 0 ||
+    roomDetailsPopupData.images.length > 0;
 
   if (!shouldShowRoomDetailsButton) {
     safeCollapseAndHide(roomDetailsButton);
@@ -327,9 +324,35 @@ function bindRoomDetailsButton($item, room) {
 
   if (typeof roomDetailsButton.onClick === "function") {
     roomDetailsButton.onClick(() => {
-      wixWindowFrontend.openLightbox(ROOM_DETAILS_LIGHTBOX, roomDetailsPopupContext);
+      wixWindowFrontend.openLightbox(ROOM_DETAILS_LIGHTBOX, roomDetailsPopupData);
     });
   }
+}
+
+function buildRoomDetailsPopupData(room) {
+  if (!room || typeof room !== "object") {
+    return {
+      roomName: "",
+      description: "",
+      sizeText: "",
+      sleepsText: "",
+      bedTypesText: "",
+      amenities: [],
+      images: []
+    };
+  }
+
+  return {
+    roomName: normalizeText(room?.roomName),
+    description: normalizeText(room?.roomDescription),
+    sizeText: normalizeText(room?.roomSizeText),
+    sleepsText: normalizeText(room?.roomSleepsText),
+    bedTypesText: normalizeText(room?.roomBedTypesText),
+    amenities: deriveRoomAmenityNames(room?.roomAmenities),
+    images: Array.isArray(room?.roomImages)
+      ? room.roomImages.filter(Boolean)
+      : [normalizeText(room?.roomMainImage)].filter(Boolean)
+  };
 }
 
 function bindRoomOfferSlot($item, slotNumber, roomOffer, mappedRoomOfferItem, room) {
@@ -344,12 +367,14 @@ function bindRoomOfferSlot($item, slotNumber, roomOffer, mappedRoomOfferItem, ro
   }
 
   if (!roomOffer) {
-    if (roomOfferRowSlot) {
-      safeCollapseAndHide(roomOfferRowSlot);
-    }
     if (roomOfferColumnFlex) {
       safeCollapseAndHide(roomOfferColumnFlex);
     }
+
+    if (roomOfferRowSlot) {
+      safeCollapseAndHide(roomOfferRowSlot);
+    }
+
     return;
   }
 
@@ -363,21 +388,27 @@ function bindRoomOfferSlot($item, slotNumber, roomOffer, mappedRoomOfferItem, ro
     safeExpand(roomOfferColumnFlex);
   }
 
+  const roomOfferCurrentPriceAmount = normalizeNumberOrNull(
+    roomOffer?.roomOfferCurrentPrice
+  );
+  const roomOfferBeforeCurrentPriceAmount = normalizeNumberOrNull(
+    roomOffer?.roomOfferBeforeCurrentPrice
+  );
+  const roomOfferCurrency = normalizeText(roomOffer?.roomOfferCurrency);
+
   const roomOfferCurrentPriceText =
-    Number.isFinite(Number(roomOffer?.roomOfferCurrentPrice)) &&
-    normalizeText(roomOffer?.roomOfferCurrentPriceCurrency)
+    Number.isFinite(roomOfferCurrentPriceAmount) && roomOfferCurrency
       ? formatPrice({
-          amount: Number(roomOffer.roomOfferCurrentPrice),
-          currency: normalizeText(roomOffer.roomOfferCurrentPriceCurrency)
+          amount: roomOfferCurrentPriceAmount,
+          currency: roomOfferCurrency
         })
       : "";
 
   const roomOfferBeforeCurrentPriceText =
-    Number.isFinite(Number(roomOffer?.roomOfferBeforeCurrentPrice)) &&
-    normalizeText(roomOffer?.roomOfferBeforeCurrentPriceCurrency)
+    Number.isFinite(roomOfferBeforeCurrentPriceAmount) && roomOfferCurrency
       ? formatPrice({
-          amount: Number(roomOffer.roomOfferBeforeCurrentPrice),
-          currency: normalizeText(roomOffer.roomOfferBeforeCurrentPriceCurrency)
+          amount: roomOfferBeforeCurrentPriceAmount,
+          currency: roomOfferCurrency
         })
       : "";
 
@@ -411,6 +442,7 @@ function bindRoomOfferSlot($item, slotNumber, roomOffer, mappedRoomOfferItem, ro
     `#roomOfferCurrentPriceNoteText${slotNumber}`,
     normalizeText(roomOffer?.roomOfferCurrentPriceNoteText)
   );
+
   syncItemVisibilityWithCurrentPrice(
     $item,
     `#roomOfferPerNightText${slotNumber}`,
@@ -430,20 +462,76 @@ function bindRoomOfferSlot($item, slotNumber, roomOffer, mappedRoomOfferItem, ro
   safeExpand(roomOfferSelectionButton);
 
   roomOfferSelectionButton.onClick(async () => {
-    await handleOfferSelection({
-      mappedRoomId: mappedRoomOfferItem?.mappedRoomId,
-      room,
-      roomOffer
-    });
+    try {
+      await handleOfferSelection({
+        hotelId: normalizeText(hotelPageState?.normalizedHotelDetails?.hotelId),
+        hotelName: normalizeText(hotelPageState?.normalizedHotelDetails?.hotelName),
+        hotelAddress: normalizeText(
+          hotelPageState?.normalizedHotelDetails?.hotelAddress
+        ),
+        hotelMainPhoto: normalizeText(
+          hotelPageState?.normalizedHotelDetails?.hotelMainImage
+        ),
+        hotelStars: hotelPageState?.normalizedHotelDetails?.hotelStarRating ?? null,
+        hotelGuestRating: hotelPageState?.normalizedHotelDetails?.hotelRating ?? null,
+        hotelReviewCount:
+          hotelPageState?.normalizedHotelDetails?.hotelReviewCount ?? null,
+        mappedRoomId: normalizeText(mappedRoomOfferItem?.mappedRoomId),
+        roomName: normalizeText(room?.roomName),
+        roomImage: normalizeText(room?.roomMainImage),
+        roomDetailsPopupData: buildRoomDetailsPopupData(room),
+        offer: buildSelectedOfferOffer(roomOffer),
+        ctx: currentCtx
+      });
+    } catch (error) {
+      console.error(
+        "HOTEL PAGE offer selection failed",
+        error,
+        JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
+      );
+    }
   });
 }
 
-async function handleOfferSelection({ mappedRoomId, room, roomOffer }) {
-  const selectedOfferPayload = buildSelectedOfferPayload({
-    mappedRoomId,
-    room,
-    roomOffer
-  });
+function buildSelectedOfferOffer(roomOffer) {
+  const roomOfferCurrentPriceAmount = normalizeNumberOrNull(
+    roomOffer?.roomOfferCurrentPrice
+  );
+  const roomOfferBeforeCurrentPriceAmount = normalizeNumberOrNull(
+    roomOffer?.roomOfferBeforeCurrentPrice
+  );
+  const roomOfferCurrency = normalizeText(roomOffer?.roomOfferCurrency);
+
+  return {
+    offerId: normalizeText(roomOffer?.offerId),
+    name: normalizeText(roomOffer?.roomOfferName) || "Room rate",
+    boardName: normalizeText(roomOffer?.roomOfferBoardName),
+    refundableTag: normalizeText(roomOffer?.roomOfferRefundableTag) || null,
+    currentPrice:
+      Number.isFinite(roomOfferCurrentPriceAmount) && roomOfferCurrency
+        ? {
+            amount: roomOfferCurrentPriceAmount,
+            currency: roomOfferCurrency
+          }
+        : null,
+    beforePrice:
+      Number.isFinite(roomOfferBeforeCurrentPriceAmount) && roomOfferCurrency
+        ? {
+            amount: roomOfferBeforeCurrentPriceAmount,
+            currency: roomOfferCurrency
+          }
+        : null,
+    priceNote: normalizeText(roomOffer?.roomOfferCurrentPriceNoteText)
+  };
+}
+
+async function handleOfferSelection(selectionPayload) {
+  console.log(
+    "HOTEL PAGE handleOfferSelection input",
+    JSON.stringify(selectionPayload, null, 2)
+  );
+
+  const selectedOfferPayload = buildSelectedOfferPayload(selectionPayload);
 
   console.log(
     "HOTEL PAGE selectedOfferPayload",
@@ -453,12 +541,7 @@ async function handleOfferSelection({ mappedRoomId, room, roomOffer }) {
   persistSelectedOfferPayload(selectedOfferPayload);
 
   if (PURCHASE_FLOW_MODE === PURCHASE_FLOW_MODES.WIX_CART) {
-    try {
-      await handleWixCartFlow(selectedOfferPayload);
-    } catch (error) {
-      console.error("HOTEL PAGE handleWixCartFlow failed", error);
-      recoverCurrentHotelPage();
-    }
+    await handleWixCartFlow(selectedOfferPayload);
     return;
   }
 
@@ -470,48 +553,23 @@ async function handleOfferSelection({ mappedRoomId, room, roomOffer }) {
   throw new Error(`Unsupported PURCHASE_FLOW_MODE: ${PURCHASE_FLOW_MODE}`);
 }
 
-function buildSelectedOfferPayload({ mappedRoomId, room, roomOffer }) {
-  const normalizedHotelDetails = hotelPageState?.normalizedHotelDetails || {};
-
+function buildSelectedOfferPayload(selectionPayload) {
   return {
     selectedAt: Date.now(),
-    hotelId: normalizeText(normalizedHotelDetails?.hotelId),
-    hotelName: normalizeText(normalizedHotelDetails?.hotelName),
-    hotelMainImage: normalizeText(normalizedHotelDetails?.hotelMainImage),
-    mappedRoomId: normalizeIntegerOrNull(mappedRoomId),
-    roomId: normalizeIntegerOrNull(room?.roomId),
-    roomName: normalizeText(room?.roomName),
-    roomMainImage: normalizeText(room?.roomMainImage),
-    roomOfferId: normalizeText(roomOffer?.roomOfferId),
-    roomOfferName: normalizeText(roomOffer?.roomOfferName),
-    roomOfferBoardName: normalizeText(roomOffer?.roomOfferBoardName),
-    roomOfferCurrentPrice: normalizeNumberOrNull(roomOffer?.roomOfferCurrentPrice),
-    roomOfferCurrentPriceCurrency: normalizeText(
-      roomOffer?.roomOfferCurrentPriceCurrency
-    ),
-    roomOfferBeforeCurrentPrice: normalizeNumberOrNull(
-      roomOffer?.roomOfferBeforeCurrentPrice
-    ),
-    roomOfferBeforeCurrentPriceCurrency: normalizeText(
-      roomOffer?.roomOfferBeforeCurrentPriceCurrency
-    ),
-    roomOfferRefundableTag: normalizeText(roomOffer?.roomOfferRefundableTag),
-    roomOfferRefundableTagText: normalizeText(
-      roomOffer?.roomOfferRefundableTagText
-    ),
-    roomOfferCurrentPriceNoteText: normalizeText(
-      roomOffer?.roomOfferCurrentPriceNoteText
-    ),
-    roomOfferOccupancyNumber: normalizeIntegerOrNull(
-      roomOffer?.roomOfferOccupancyNumber
-    ),
-    roomOfferAdultCount: normalizeIntegerOrNull(roomOffer?.roomOfferAdultCount),
-    roomOfferChildCount: normalizeIntegerOrNull(roomOffer?.roomOfferChildCount),
-    roomOfferChildrenAges: Array.isArray(roomOffer?.roomOfferChildrenAges)
-      ? roomOffer.roomOfferChildrenAges
-      : [],
-    offerId: normalizeText(roomOffer?.offerId),
-    ctx: currentCtx
+    hotelId: normalizeText(selectionPayload?.hotelId),
+    hotelName: normalizeText(selectionPayload?.hotelName),
+    hotelAddress: normalizeText(selectionPayload?.hotelAddress),
+    hotelMainPhoto: normalizeText(selectionPayload?.hotelMainPhoto),
+    hotelStars: selectionPayload?.hotelStars ?? null,
+    hotelGuestRating: selectionPayload?.hotelGuestRating ?? null,
+    hotelReviewCount: selectionPayload?.hotelReviewCount ?? null,
+    mappedRoomId: normalizeText(selectionPayload?.mappedRoomId),
+    roomName: normalizeText(selectionPayload?.roomName),
+    roomImage: normalizeText(selectionPayload?.roomImage),
+    roomDetailsPopupData: selectionPayload?.roomDetailsPopupData || null,
+    offer: selectionPayload?.offer || null,
+    offerId: normalizeText(selectionPayload?.offer?.offerId),
+    ctx: selectionPayload?.ctx || currentCtx
   };
 }
 
@@ -519,9 +577,26 @@ async function handleWixCartFlow(selectedOfferPayload) {
   const mappedRoomId = normalizeText(selectedOfferPayload?.mappedRoomId);
   const offerId = normalizeText(selectedOfferPayload?.offerId);
 
-  if (!mappedRoomId || !offerId) {
-    recoverCurrentHotelPage();
-    return;
+  console.log(
+    "HOTEL PAGE handleWixCartFlow start",
+    JSON.stringify(
+      {
+        mappedRoomId,
+        offerId,
+        purchaseFlowMode: PURCHASE_FLOW_MODE,
+        catalogAppId: LITEAPI_CATALOG_APP_ID
+      },
+      null,
+      2
+    )
+  );
+
+  if (!mappedRoomId) {
+    throw new Error("mappedRoomId is required for Wix cart flow.");
+  }
+
+  if (!offerId) {
+    throw new Error("offerId is required for Wix cart flow.");
   }
 
   setCartReturnUrl();
@@ -532,37 +607,55 @@ async function handleWixCartFlow(selectedOfferPayload) {
     usePaymentSdk: false
   });
 
+  console.log(
+    "HOTEL PAGE prebookResult",
+    JSON.stringify(prebookResult, null, 2)
+  );
+
   const prebookSnapshot = normalizeText(prebookResult?.prebookSnapshot);
   const normalizedPrebook =
-    prebookResult?.normalizedPrebook && typeof prebookResult.normalizedPrebook === "object"
+    prebookResult?.normalizedPrebook &&
+    typeof prebookResult.normalizedPrebook === "object"
       ? prebookResult.normalizedPrebook
       : null;
 
-  if (!prebookSnapshot || !normalizedPrebook) {
-    recoverCurrentHotelPage();
-    return;
+  if (!prebookSnapshot) {
+    throw new Error("prebookSnapshot is required.");
+  }
+
+  if (!normalizedPrebook) {
+    throw new Error("normalizedPrebook is required.");
   }
 
   const prebookId = normalizeText(normalizedPrebook?.prebookId);
+
   if (!prebookId) {
-    recoverCurrentHotelPage();
-    return;
+    throw new Error("normalizedPrebook.prebookId is required.");
   }
 
   const importedImageRefs = await resolveCatalogImageRefs({
-    hotelMainImage: selectedOfferPayload?.hotelMainImage,
-    roomMainImage: selectedOfferPayload?.roomMainImage,
-    hotelName: selectedOfferPayload?.hotelName,
+    hotelMainImage: selectedOfferPayload.hotelMainPhoto,
+    roomMainImage: selectedOfferPayload.roomImage,
+    hotelName: selectedOfferPayload.hotelName,
     mappedRoomName:
-      selectedOfferPayload?.roomName || String(selectedOfferPayload?.mappedRoomId || "")
+      selectedOfferPayload.roomName || selectedOfferPayload.mappedRoomId
   });
 
   const prebookShell = buildPrebookShell({
-    selectedOfferPayload,
-    normalizedPrebook,
+    mappedRoomId,
     prebookSnapshot,
-    importedImageRefs,
-    normalizedHotelDetails: hotelPageState?.normalizedHotelDetails || null
+    normalizedPrebook,
+    hotelName: selectedOfferPayload.hotelName,
+    hotelMainImage: selectedOfferPayload.hotelMainPhoto,
+    roomMainImage: selectedOfferPayload.roomImage,
+    wixHotelMainImageRef: importedImageRefs.wixHotelMainImageRef,
+    wixRoomMainImageRef: importedImageRefs.wixRoomMainImageRef,
+    hotelStars: formatHotelStarsText(selectedOfferPayload.hotelStars),
+    hotelReview: buildHotelReviewText(
+      selectedOfferPayload.hotelGuestRating,
+      selectedOfferPayload.hotelReviewCount
+    ),
+    hotelAddress: selectedOfferPayload.hotelAddress
   });
 
   const lineItem = buildWixCatalogLineItem({
@@ -570,9 +663,26 @@ async function handleWixCartFlow(selectedOfferPayload) {
     prebookShell
   });
 
-  await currentCart.addToCurrentCart({
+  console.log(
+    "HOTEL PAGE lineItem before addToCurrentCart",
+    JSON.stringify(lineItem, null, 2)
+  );
+
+  const addResult = await currentCart.addToCurrentCart({
     lineItems: [lineItem]
   });
+
+  console.log(
+    "HOTEL PAGE addToCurrentCart result",
+    JSON.stringify(addResult, null, 2)
+  );
+
+  const cartAfterAdd = await currentCart.getCurrentCart();
+
+  console.log(
+    "HOTEL PAGE currentCart after add",
+    JSON.stringify(cartAfterAdd, null, 2)
+  );
 
   wixEcomFrontend.refreshCart();
   wixLocationFrontend.to(CART_PAGE_PATH);
@@ -587,10 +697,12 @@ async function removePrebookItemsIfCartExists() {
     if (isMissingCurrentCartError(error)) {
       return;
     }
+
     throw error;
   }
 
   const lineItems = Array.isArray(cart?.lineItems) ? cart.lineItems : [];
+
   if (!lineItems.length) {
     return;
   }
@@ -618,6 +730,11 @@ async function removePrebookItemsIfCartExists() {
     return;
   }
 
+  console.log(
+    "HOTEL PAGE removing existing prebook line items",
+    JSON.stringify(lineItemIdsToRemove, null, 2)
+  );
+
   await currentCart.removeLineItemsFromCurrentCart(lineItemIdsToRemove);
   wixEcomFrontend.refreshCart();
 }
@@ -643,6 +760,7 @@ function isMissingCurrentCartError(error) {
   }
 
   const message = normalizeText(error?.message).toLowerCase();
+
   return (
     message.includes("404") ||
     message.includes("cart not found") ||
@@ -662,65 +780,49 @@ function handleLiteApiDirectCheckout(selectedOfferPayload) {
 }
 
 function buildPrebookShell({
-  selectedOfferPayload,
-  normalizedPrebook,
+  mappedRoomId,
   prebookSnapshot,
-  importedImageRefs,
-  normalizedHotelDetails
+  normalizedPrebook,
+  hotelName,
+  hotelMainImage,
+  roomMainImage,
+  wixHotelMainImageRef,
+  wixRoomMainImageRef,
+  hotelStars,
+  hotelReview,
+  hotelAddress
 }) {
   return {
-    mappedRoomId: normalizeText(selectedOfferPayload?.mappedRoomId),
+    mappedRoomId: normalizeText(mappedRoomId),
     prebookId: normalizeText(normalizedPrebook?.prebookId),
     prebookSnapshot: normalizeText(prebookSnapshot),
-    hotelName: normalizeText(selectedOfferPayload?.hotelName),
-    hotelMainImage: normalizeText(selectedOfferPayload?.hotelMainImage),
-    roomMainImage: normalizeText(selectedOfferPayload?.roomMainImage),
-    wixHotelMainImageRef: normalizeText(importedImageRefs?.wixHotelMainImageRef),
-    wixRoomMainImageRef: normalizeText(importedImageRefs?.wixRoomMainImageRef),
-    hotelStars: formatHotelStarsText(normalizedHotelDetails?.hotelStarRating),
-    hotelReview: buildHotelReviewText(
-      normalizedHotelDetails?.hotelRating,
-      normalizedHotelDetails?.hotelReviewCount
-    ),
-    hotelAddress: normalizeText(normalizedHotelDetails?.hotelAddress),
+
+    hotelName: normalizeText(hotelName),
+    hotelMainImage: normalizeText(hotelMainImage),
+    roomMainImage: normalizeText(roomMainImage),
+    wixHotelMainImageRef: normalizeText(wixHotelMainImageRef),
+    wixRoomMainImageRef: normalizeText(wixRoomMainImageRef),
+    hotelStars: normalizeText(hotelStars),
+    hotelReview: normalizeText(hotelReview),
+    hotelAddress: normalizeText(hotelAddress),
+
     checkInDate: normalizeText(normalizedPrebook?.checkInDate),
     checkOutDate: normalizeText(normalizedPrebook?.checkOutDate),
-    rateName:
-      normalizeText(selectedOfferPayload?.roomOfferName) ||
-      normalizeText(normalizedPrebook?.rateName),
-    boardName:
-      normalizeText(selectedOfferPayload?.roomOfferBoardName) ||
-      normalizeText(normalizedPrebook?.boardName),
-    adultCount:
-      normalizeIntegerOrNull(selectedOfferPayload?.roomOfferAdultCount) ??
-      normalizeIntegerOrNull(normalizedPrebook?.adultCount) ??
-      0,
-    childCount:
-      normalizeIntegerOrNull(selectedOfferPayload?.roomOfferChildCount) ??
-      normalizeIntegerOrNull(normalizedPrebook?.childCount) ??
-      0,
-    childrenAges: Array.isArray(selectedOfferPayload?.roomOfferChildrenAges)
-      ? selectedOfferPayload.roomOfferChildrenAges
-      : Array.isArray(normalizedPrebook?.childrenAges)
+    rateName: normalizeText(normalizedPrebook?.rateName),
+    boardName: normalizeText(normalizedPrebook?.boardName),
+    adultCount: normalizedPrebook?.adultCount,
+    childCount: normalizedPrebook?.childCount,
+    childrenAges: Array.isArray(normalizedPrebook?.childrenAges)
       ? normalizedPrebook.childrenAges
       : [],
-    occupancyNumber:
-      normalizeIntegerOrNull(selectedOfferPayload?.roomOfferOccupancyNumber) ??
-      normalizeIntegerOrNull(normalizedPrebook?.occupancyNumber) ??
-      1,
-    refundableTag:
-      normalizeText(selectedOfferPayload?.roomOfferRefundableTag) ||
-      normalizeText(normalizedPrebook?.refundableTag),
-    currency:
-      normalizeText(selectedOfferPayload?.roomOfferCurrentPriceCurrency) ||
-      normalizeText(normalizedPrebook?.currency),
-    currentPrice:
-      normalizeNumberOrNull(selectedOfferPayload?.roomOfferCurrentPrice) ??
-      normalizeNumberOrNull(normalizedPrebook?.currentPrice),
+    occupancyNumber: normalizedPrebook?.occupancyNumber,
+    refundableTag: normalizeText(normalizedPrebook?.refundableTag),
+    currency: normalizeText(normalizedPrebook?.currency),
+    currentPrice: normalizedPrebook?.currentPrice,
     beforeCurrentPrice:
-      normalizeNumberOrNull(selectedOfferPayload?.roomOfferBeforeCurrentPrice) ??
-      normalizeNumberOrNull(normalizedPrebook?.beforeCurrentPrice),
-    ratePriceNoteText: normalizeText(selectedOfferPayload?.roomOfferCurrentPriceNoteText)
+      normalizedPrebook?.beforeCurrentPrice === undefined
+        ? null
+        : normalizedPrebook.beforeCurrentPrice
   };
 }
 
@@ -749,7 +851,9 @@ async function resolveCatalogImageRefs({
   hotelName,
   mappedRoomName
 }) {
-  const hasAnyImage = Boolean(normalizeText(hotelMainImage) || normalizeText(roomMainImage));
+  const hasAnyImage = Boolean(
+    normalizeText(hotelMainImage) || normalizeText(roomMainImage)
+  );
 
   if (!hasAnyImage) {
     return {
@@ -771,7 +875,11 @@ async function resolveCatalogImageRefs({
       wixRoomMainImageRef: normalizeText(result?.wixRoomMainImageRef)
     };
   } catch (error) {
-    console.error("HOTEL PAGE importCatalogImages failed", error);
+    console.error(
+      "HOTEL PAGE importCatalogImages failed",
+      error,
+      JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
+    );
 
     return {
       wixHotelMainImageRef: "",
@@ -782,6 +890,7 @@ async function resolveCatalogImageRefs({
 
 function setCartReturnUrl() {
   const currentUrl = normalizeText(wixLocationFrontend?.url);
+
   if (!currentUrl) {
     return;
   }
@@ -789,25 +898,30 @@ function setCartReturnUrl() {
   session.setItem(CART_RETURN_URL_STORAGE_KEY, currentUrl);
 }
 
-function buildHotelReviewText(hotelRating, hotelReviewCount) {
-  const hotelRatingText = formatGuestRating(hotelRating);
+function buildHotelReviewText(hotelGuestRating, hotelReviewCount) {
+  const hotelGuestRatingText = formatGuestRating(hotelGuestRating);
   const hotelReviewCountText = formatReviewCount(hotelReviewCount);
 
-  if (hotelRatingText && hotelReviewCountText) {
-    return `${hotelRatingText} • ${hotelReviewCountText}`;
+  if (hotelGuestRatingText && hotelReviewCountText) {
+    return `${hotelGuestRatingText} • ${hotelReviewCountText}`;
   }
 
-  return hotelRatingText || hotelReviewCountText || "";
+  return hotelGuestRatingText || hotelReviewCountText || "";
 }
 
 function formatHotelStarsText(hotelStarRating) {
   const numericHotelStarRating = Number(hotelStarRating || 0);
+
   if (!Number.isFinite(numericHotelStarRating) || numericHotelStarRating <= 0) {
     return "";
   }
 
-  const roundedStars = Math.max(1, Math.min(5, Math.round(numericHotelStarRating)));
-  return "★".repeat(roundedStars);
+  const roundedHotelStars = Math.max(
+    1,
+    Math.min(5, Math.round(numericHotelStarRating))
+  );
+
+  return "★".repeat(roundedHotelStars);
 }
 
 function bindMapElements(hotelMapUrl) {
@@ -818,9 +932,11 @@ function bindMapElements(hotelMapUrl) {
     if (hotelMapLinkIconButton) {
       safeCollapseAndHide(hotelMapLinkIconButton);
     }
+
     if (hotelMapLinkIconText) {
       safeCollapseAndHide(hotelMapLinkIconText);
     }
+
     return;
   }
 
@@ -842,6 +958,7 @@ function bindMapElements(hotelMapUrl) {
 
 function bindHeroGallery(hotelGalleryImageUrls) {
   const hotelHeroGallery = safeGetPageElement("#hotelHeroGallery");
+
   if (!hotelHeroGallery) {
     return;
   }
@@ -871,6 +988,7 @@ function collectHotelImageUrls(hotelImages, hotelMainImage) {
   if (Array.isArray(hotelImages)) {
     hotelImages.forEach((hotelImageItem) => {
       const hotelImageUrl = normalizeText(hotelImageItem?.url);
+
       if (hotelImageUrl) {
         hotelImageUrls.push(hotelImageUrl);
       }
@@ -900,27 +1018,15 @@ function deriveRoomAmenityNames(roomAmenities) {
     .filter(Boolean);
 }
 
-function recoverCurrentHotelPage() {
-  const resolvedHotelId =
-    normalizeText(currentCtx.hotelId) ||
-    normalizeText(hotelPageState?.normalizedHotelDetails?.hotelId) ||
-    normalizeText(selectedHotelPayload?.hotelId) ||
-    normalizeText(selectedHotelPayload?.rawHotel?.hotelId);
-
-  if (!resolvedHotelId) {
-    return;
-  }
-
-  wixLocationFrontend.to(buildHotelPageUrl(currentCtx, resolvedHotelId));
-}
-
 function setRatingIfExists(selector, ratingValue) {
   const element = safeGetPageElement(selector);
+
   if (!element) {
     return;
   }
 
   const numericRating = Number(ratingValue || 0);
+
   if (!Number.isFinite(numericRating) || numericRating <= 0) {
     safeCollapseAndHide(element);
     return;
@@ -937,6 +1043,7 @@ function setRatingIfExists(selector, ratingValue) {
 
 function syncVisibilityWithCurrentPrice(selector, currentPriceText) {
   const element = safeGetPageElement(selector);
+
   if (!element) {
     return;
   }
@@ -952,6 +1059,7 @@ function syncVisibilityWithCurrentPrice(selector, currentPriceText) {
 
 function syncItemVisibilityWithCurrentPrice($item, selector, currentPriceText) {
   const element = safeGetItemElement($item, selector);
+
   if (!element) {
     return;
   }
