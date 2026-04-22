@@ -1,100 +1,172 @@
 import { buildLiteApiError, liteApiRequest, parseJson } from "./liteApiClient";
-import {
-  buildLiteApiOccupancies,
-  buildPriceNote,
-  dedupeStringArray,
-  getBeforePriceObject,
-  getCurrentPriceObject,
-  normalizeBedTypes,
-  normalizeImageUrl,
-  normalizeMaybeInteger,
-  normalizeMaybeNumber,
-  normalizeRichText,
-  normalizeStringArray
-} from "./liteApiTransforms";
 
 const LITE_API_BASE_URL = "https://api.liteapi.travel/v3.0";
 const DEFAULT_CURRENCY = "USD";
 const DEFAULT_GUEST_NATIONALITY = "US";
 
 export async function getHotelDetailsHandler(hotelId) {
-  const normalizedHotelId = String(hotelId || "").trim();
+  const normalizedHotelId = normalizeText(hotelId);
 
   if (!normalizedHotelId) {
     throw new Error("hotelId is required.");
   }
 
-  const response = await liteApiRequest(
-    `${LITE_API_BASE_URL}/data/hotel?hotelId=${encodeURIComponent(
-      normalizedHotelId
-    )}&timeout=4`,
-    { method: "GET" }
+  const getHotelDetailsResponse = await parseJson(
+    await liteApiRequest(
+      `${LITE_API_BASE_URL}/data/hotel?hotelId=${encodeURIComponent(
+        normalizedHotelId
+      )}&timeout=4`,
+      {
+        method: "GET"
+      }
+    )
   );
 
-  const json = await parseJson(response);
-
-  if (!response.ok) {
-    throw buildLiteApiError(json, "Hotel details request failed.");
+  if (!getHotelDetailsResponse || typeof getHotelDetailsResponse !== "object") {
+    throw new Error("Hotel details response is invalid.");
   }
+
+  if (getHotelDetailsResponse.error) {
+    throw buildLiteApiError(getHotelDetailsResponse, "Hotel details request failed.");
+  }
+
+  const normalizedHotelDetails = normalizeHotelDetails(
+    getHotelDetailsResponse?.data || null
+  );
 
   return {
     hotelId: normalizedHotelId,
-    raw: json,
-    normalizedHotel: normalizeHotelDetails(json?.data || null)
+    raw: getHotelDetailsResponse,
+    normalizedHotelDetails
   };
 }
 
-export async function getHotelRatesByHotelIdHandler(payload) {
-  const body = buildSingleHotelRatesBody(payload);
+export async function getMappedRoomRatesByHotelIdHandler(payload) {
+  const getMappedRoomRatesByHotelIdRequestBody =
+    buildMappedRoomRatesByHotelIdRequestBody(payload);
 
-  const response = await liteApiRequest(`${LITE_API_BASE_URL}/hotels/rates`, {
-    method: "POST",
-    body
-  });
+  const getMappedRoomRatesByHotelIdResponse = await parseJson(
+    await liteApiRequest(`${LITE_API_BASE_URL}/hotels/rates`, {
+      method: "POST",
+      body: getMappedRoomRatesByHotelIdRequestBody
+    })
+  );
 
-  const json = await parseJson(response);
-
-  if (!response.ok) {
-    throw buildLiteApiError(json, "Hotel room rates request failed.");
+  if (
+    !getMappedRoomRatesByHotelIdResponse ||
+    typeof getMappedRoomRatesByHotelIdResponse !== "object"
+  ) {
+    throw new Error("Hotel rates response is invalid.");
   }
 
+  if (getMappedRoomRatesByHotelIdResponse.error) {
+    throw buildLiteApiError(
+      getMappedRoomRatesByHotelIdResponse,
+      "Hotel room rates request failed."
+    );
+  }
+
+  const normalizedMappedRoomRatesByHotelId =
+    normalizeMappedRoomRatesByHotelId({
+      getMappedRoomRatesByHotelIdResponse,
+      checkin: getMappedRoomRatesByHotelIdRequestBody.checkin,
+      checkout: getMappedRoomRatesByHotelIdRequestBody.checkout
+    });
+
   return {
-    hotelId: body.hotelIds[0],
-    occupancySentToLiteApi: body.occupancies,
-    raw: json,
-    normalizedRoomGroups: normalizeHotelRoomGroups(json, payload),
-    lowestPrice: getLowestPriceFromRatesJson(json)
+    hotelId: getMappedRoomRatesByHotelIdRequestBody.hotelIds[0],
+    raw: getMappedRoomRatesByHotelIdResponse,
+    normalizedMappedRoomRatesByHotelId
   };
 }
 
-function buildSingleHotelRatesBody(payload) {
-  const hotelId = String(payload?.hotelId || "").trim();
-  const checkIn = String(payload?.checkIn || payload?.checkin || "").trim();
-  const checkOut = String(payload?.checkOut || payload?.checkout || "").trim();
-  const currency =
-    String(payload?.currency || DEFAULT_CURRENCY).trim() || DEFAULT_CURRENCY;
-  const guestNationality =
-    String(payload?.guestNationality || DEFAULT_GUEST_NATIONALITY).trim() ||
-    DEFAULT_GUEST_NATIONALITY;
+export async function getMergedMappedRoomOffersHandler(payload) {
+  const normalizedHotelId = normalizeText(payload?.hotelId);
 
-  if (!hotelId) {
+  if (!normalizedHotelId) {
     throw new Error("hotelId is required.");
   }
 
-  if (!checkIn || !checkOut) {
-    throw new Error("Check-in and check-out are required.");
+  const getHotelDetailsResult = await getHotelDetailsHandler(normalizedHotelId);
+  const getMappedRoomRatesByHotelIdResult = await getMappedRoomRatesByHotelIdHandler({
+    ...payload,
+    hotelId: normalizedHotelId
+  });
+
+  const normalizedMergedMappedRoomOffers = normalizeMergedMappedRoomOffers({
+    normalizedHotelDetails: getHotelDetailsResult?.normalizedHotelDetails || null,
+    normalizedMappedRoomRatesByHotelId:
+      getMappedRoomRatesByHotelIdResult?.normalizedMappedRoomRatesByHotelId || []
+  });
+
+  return {
+    hotelId: normalizedHotelId,
+    raw: {
+      getHotelDetailsResponse: getHotelDetailsResult?.raw || null,
+      getMappedRoomRatesByHotelIdResponse:
+        getMappedRoomRatesByHotelIdResult?.raw || null
+    },
+    normalizedHotelDetails: getHotelDetailsResult?.normalizedHotelDetails || null,
+    normalizedMergedMappedRoomOffers
+  };
+}
+
+function buildMappedRoomRatesByHotelIdRequestBody(payload) {
+  const normalizedHotelId = normalizeText(payload?.hotelId);
+  const normalizedCheckin = normalizeText(payload?.checkIn || payload?.checkin);
+  const normalizedCheckout = normalizeText(payload?.checkOut || payload?.checkout);
+  const normalizedCurrency =
+    normalizeText(payload?.currency).toUpperCase() || DEFAULT_CURRENCY;
+  const normalizedGuestNationality =
+    normalizeText(payload?.guestNationality).toUpperCase() || DEFAULT_GUEST_NATIONALITY;
+  const normalizedOccupancies = buildMappedRoomRatesByHotelIdOccupancies(payload);
+
+  if (!normalizedHotelId) {
+    throw new Error("hotelId is required.");
+  }
+
+  if (!normalizedCheckin || !normalizedCheckout) {
+    throw new Error("checkin and checkout are required.");
   }
 
   return {
-    hotelIds: [hotelId],
-    occupancies: buildLiteApiOccupancies(payload?.occupancy),
-    currency,
-    guestNationality,
-    checkin: checkIn,
-    checkout: checkOut,
+    hotelIds: [normalizedHotelId],
+    occupancies: normalizedOccupancies,
+    currency: normalizedCurrency,
+    guestNationality: normalizedGuestNationality,
+    checkin: normalizedCheckin,
+    checkout: normalizedCheckout,
     roomMapping: true,
     includeHotelData: false
   };
+}
+
+function buildMappedRoomRatesByHotelIdOccupancies(payload) {
+  const occupancy = payload?.occupancy;
+
+  if (Array.isArray(payload?.occupancies) && payload.occupancies.length > 0) {
+    return payload.occupancies
+      .map((occupancyItem) => ({
+        adults: normalizePositiveInteger(occupancyItem?.adults, 2),
+        children: Array.isArray(occupancyItem?.children)
+          ? occupancyItem.children
+              .map((childAge) => normalizeIntegerOrNull(childAge))
+              .filter((childAge) => Number.isFinite(childAge))
+          : []
+      }))
+      .filter((occupancyItem) => occupancyItem.adults > 0);
+  }
+
+  return [
+    {
+      adults: normalizePositiveInteger(occupancy?.adults, 2),
+      children: Array.isArray(occupancy?.childAges)
+        ? occupancy.childAges
+            .map((childAge) => normalizeIntegerOrNull(childAge))
+            .filter((childAge) => Number.isFinite(childAge))
+        : []
+    }
+  ];
 }
 
 function normalizeHotelDetails(hotel) {
@@ -102,256 +174,480 @@ function normalizeHotelDetails(hotel) {
     return null;
   }
 
-  const rooms = Array.isArray(hotel?.rooms)
-    ? hotel.rooms.map(normalizeRoomDetails).filter(Boolean)
-    : [];
-
   return {
-    hotelId: String(hotel?.id || hotel?.hotelId || "").trim() || null,
-    name: String(hotel?.name || "Hotel"),
-    address: String(hotel?.address || ""),
-    city: String(hotel?.city || ""),
-    country: String(hotel?.country || ""),
-    mainPhoto: normalizeImageUrl(hotel?.main_photo),
-    images: normalizeHotelImages(hotel),
-    starRating: normalizeMaybeNumber(
-      hotel?.starRating ?? hotel?.star_rating ?? null
+    hotelId: normalizeText(hotel?.id || hotel?.hotelId) || null,
+    hotelName: normalizeText(hotel?.name) || "Hotel",
+    hotelAddress: normalizeText(hotel?.address),
+    hotelStarRating: normalizeNumberOrNull(hotel?.starRating),
+    hotelRating: normalizeNumberOrNull(hotel?.rating),
+    hotelReviewCount: normalizeIntegerOrNull(hotel?.reviewCount),
+    hotelMainImage:
+      normalizeText(hotel?.main_photo) ||
+      normalizeText(hotel?.thumbnail) ||
+      normalizeText(hotel?.hotelImages?.[0]?.url),
+    hotelImages: Array.isArray(hotel?.hotelImages) ? hotel.hotelImages : [],
+    hotelDescription: stripHtml(hotel?.hotelDescription),
+    hotelImportantInformation: stripHtml(hotel?.hotelImportantInformation),
+    hotelCheckinCheckoutTimes: normalizeHotelCheckinCheckoutTimes(
+      hotel?.checkinCheckoutTimes
     ),
-    guestRating: normalizeMaybeNumber(hotel?.rating ?? null),
-    reviewCount: normalizeMaybeInteger(
-      hotel?.reviewCount ?? hotel?.review_count ?? null
-    ),
-    hotelDescription: normalizeRichText(hotel?.hotelDescription),
-    hotelImportantInformation: normalizeRichText(
-      hotel?.hotelImportantInformation
-    ),
-    facilities: normalizeStringArray(
-      hotel?.hotelFacilities ?? hotel?.facilities ?? []
-    ),
-    policies: Array.isArray(hotel?.policies)
+    hotelFacilities: Array.isArray(hotel?.hotelFacilities)
+      ? hotel.hotelFacilities
+          .map((facility) => normalizeText(facility))
+          .filter(Boolean)
+      : [],
+    hotelPolicies: Array.isArray(hotel?.policies)
       ? hotel.policies
           .map((policy) => ({
-            name: String(policy?.name || "").trim(),
-            description: normalizeRichText(policy?.description)
+            name: normalizeText(policy?.name),
+            description: stripHtml(policy?.description)
           }))
           .filter((policy) => policy.name || policy.description)
       : [],
-    location: {
-      latitude: normalizeMaybeNumber(hotel?.location?.latitude),
-      longitude: normalizeMaybeNumber(hotel?.location?.longitude)
-    },
-    rooms
+    hotelMapUrl: buildHotelMapUrl(
+      hotel?.location?.latitude,
+      hotel?.location?.longitude
+    ),
+    rooms: Array.isArray(hotel?.rooms)
+      ? hotel.rooms.map((room) => normalizeHotelDetailsRoom({ room, hotel })).filter(Boolean)
+      : []
   };
 }
 
-function normalizeRoomDetails(room) {
+function normalizeHotelCheckinCheckoutTimes(hotelCheckinCheckoutTimes) {
+  const normalizedHotelCheckinCheckoutTimes =
+    hotelCheckinCheckoutTimes && typeof hotelCheckinCheckoutTimes === "object"
+      ? hotelCheckinCheckoutTimes
+      : {};
+
+  return {
+    checkin_start: normalizeText(
+      normalizedHotelCheckinCheckoutTimes?.checkin_start
+    ),
+    checkin_end: normalizeText(normalizedHotelCheckinCheckoutTimes?.checkin_end),
+    checkout: normalizeText(normalizedHotelCheckinCheckoutTimes?.checkout),
+    instructions: Array.isArray(normalizedHotelCheckinCheckoutTimes?.instructions)
+      ? normalizedHotelCheckinCheckoutTimes.instructions
+      : [],
+    special_instructions: normalizeText(
+      normalizedHotelCheckinCheckoutTimes?.special_instructions
+    )
+  };
+}
+
+function normalizeHotelDetailsRoom({ room, hotel }) {
   if (!room || typeof room !== "object") {
     return null;
   }
 
-  const roomId =
-    room?.id !== undefined && room?.id !== null ? String(room.id) : null;
+  const roomImages = Array.isArray(room?.photos)
+    ? room.photos
+        .map((photo) =>
+          normalizeText(photo?.url) ||
+          normalizeText(photo?.hd_url) ||
+          normalizeText(photo?.failoverPhoto)
+        )
+        .filter(Boolean)
+    : [];
+
+  const roomDefaultImage = Array.isArray(room?.photos)
+    ? room.photos.find((photo) => photo?.mainPhoto === true)
+    : null;
+
+  const roomMainImage =
+    normalizeText(roomDefaultImage?.url) ||
+    normalizeText(roomDefaultImage?.hd_url) ||
+    normalizeText(roomDefaultImage?.failoverPhoto) ||
+    normalizeText(roomImages[0]) ||
+    normalizeText(hotel?.main_photo) ||
+    normalizeText(hotel?.thumbnail) ||
+    "";
 
   return {
-    roomId,
-    roomName: String(room?.roomName || room?.name || "").trim() || "",
-    description: normalizeRichText(room?.description),
-    maxOccupancy: normalizeMaybeInteger(room?.maxOccupancy),
-    roomSizeSquare: normalizeMaybeNumber(room?.roomSizeSquare),
-    roomSizeUnit: String(room?.roomSizeUnit || "").trim(),
-    bedTypes: normalizeBedTypes(room?.bedTypes),
-    roomAmenities: normalizeStringArray(room?.roomAmenities),
-    photos: normalizeRoomPhotos(room?.photos)
+    roomId: normalizeIntegerOrNull(room?.id),
+    roomName: normalizeText(room?.roomName || room?.name),
+    roomDescription: stripHtml(room?.description),
+    roomMainImage,
+    roomImages,
+    roomAmenities: Array.isArray(room?.roomAmenities) ? room.roomAmenities : [],
+    roomSizeText: buildRoomSizeText(
+      room?.roomSizeSquare,
+      room?.roomSizeUnit
+    ),
+    roomBedTypesText: buildRoomBedTypesText(room?.bedTypes),
+    roomSleepsText: normalizeIntegerOrNull(room?.maxOccupancy)
   };
 }
 
-function normalizeHotelImages(hotel) {
-  const orderedImages = [];
-
-  const mainPhoto = normalizeImageUrl(hotel?.main_photo);
-  if (mainPhoto) {
-    orderedImages.push(mainPhoto);
-  }
-
-  const hotelImages = Array.isArray(hotel?.hotelImages) ? hotel.hotelImages : [];
-
-  hotelImages
-    .slice()
-    .sort((left, right) => {
-      const leftDefault = left?.defaultImage ? 0 : 1;
-      const rightDefault = right?.defaultImage ? 0 : 1;
-      if (leftDefault !== rightDefault) {
-        return leftDefault - rightDefault;
-      }
-
-      const leftOrder = Number.isFinite(Number(left?.order))
-        ? Number(left.order)
-        : Number.MAX_SAFE_INTEGER;
-
-      const rightOrder = Number.isFinite(Number(right?.order))
-        ? Number(right.order)
-        : Number.MAX_SAFE_INTEGER;
-
-      return leftOrder - rightOrder;
-    })
-    .forEach((image) => {
-      const url = normalizeImageUrl(image?.url);
-      if (url) {
-        orderedImages.push(url);
-      }
-    });
-
-  return dedupeStringArray(orderedImages);
-}
-
-function normalizeRoomPhotos(photos) {
-  if (!Array.isArray(photos)) {
-    return [];
-  }
-
-  return dedupeStringArray(
-    photos.map((photo) => normalizeImageUrl(photo?.url)).filter(Boolean)
-  );
-}
-
-function normalizeHotelRoomGroups(raw, searchContext) {
-  const data = Array.isArray(raw?.data) ? raw.data : [];
-  const firstHotelEntry = data[0];
-
-  if (!firstHotelEntry) {
-    return [];
-  }
-
-  const roomTypes = Array.isArray(firstHotelEntry?.roomTypes)
-    ? firstHotelEntry.roomTypes
+function normalizeMappedRoomRatesByHotelId({
+  getMappedRoomRatesByHotelIdResponse,
+  checkin,
+  checkout
+}) {
+  const normalizedMappedRoomRatesByHotelIdMap = new Map();
+  const hotelEntries = Array.isArray(getMappedRoomRatesByHotelIdResponse?.data)
+    ? getMappedRoomRatesByHotelIdResponse.data
     : [];
 
-  const grouped = new Map();
+  hotelEntries.forEach((hotelEntry) => {
+    const roomTypes = Array.isArray(hotelEntry?.roomTypes) ? hotelEntry.roomTypes : [];
 
-  roomTypes.forEach((roomType, roomTypeIndex) => {
-    const roomTypeOfferId = String(roomType?.offerId || "").trim() || null;
-    const rates = Array.isArray(roomType?.rates) ? roomType.rates : [];
+    roomTypes.forEach((roomType, roomTypeIndex) => {
+      const normalizedOfferId = normalizeText(roomType?.offerId);
+      const roomTypeRates = Array.isArray(roomType?.rates) ? roomType.rates : [];
 
-    rates.forEach((rate, rateIndex) => {
-      const mappedRoomId =
-        rate?.mappedRoomId !== undefined && rate?.mappedRoomId !== null
-          ? String(rate.mappedRoomId)
-          : null;
+      roomTypeRates.forEach((rate, rateIndex) => {
+        const normalizedMappedRoomId = normalizeIntegerOrNull(rate?.mappedRoomId);
+        const mappedRoomRatesKey = Number.isFinite(normalizedMappedRoomId)
+          ? String(normalizedMappedRoomId)
+          : `unmapped-${roomTypeIndex + 1}-${rateIndex + 1}`;
 
-      const supplierRoomName =
-        String(rate?.name || "").trim() || "Room";
-      const groupKey =
-        mappedRoomId || `unmapped-${roomTypeIndex + 1}-${rateIndex + 1}`;
+        if (!normalizedMappedRoomRatesByHotelIdMap.has(mappedRoomRatesKey)) {
+          normalizedMappedRoomRatesByHotelIdMap.set(mappedRoomRatesKey, {
+            mappedRoomId: Number.isFinite(normalizedMappedRoomId)
+              ? normalizedMappedRoomId
+              : null,
+            roomOffers: []
+          });
+        }
 
-      if (!grouped.has(groupKey)) {
-        grouped.set(groupKey, {
-          groupKey,
-          mappedRoomId,
-          roomTypeId: String(roomType?.roomTypeId || roomType?.id || roomTypeIndex + 1),
-          roomNameFromRates: supplierRoomName,
-          roomName: supplierRoomName,
-          boardType: String(roomType?.boardType || "").trim() || null,
-          offers: []
+        const roomOfferCurrentPrice = normalizeNumberOrNull(
+          rate?.retailRate?.total?.[0]?.amount
+        );
+        const roomOfferCurrentPriceCurrency = normalizeText(
+          rate?.retailRate?.total?.[0]?.currency
+        );
+
+        if (!Number.isFinite(roomOfferCurrentPrice) || !roomOfferCurrentPriceCurrency) {
+          return;
+        }
+
+        const roomOfferSuggestedSellingPrice = normalizeNumberOrNull(
+          rate?.retailRate?.suggestedSellingPrice?.[0]?.amount
+        );
+        const roomOfferInitialPrice = normalizeNumberOrNull(
+          rate?.retailRate?.initialPrice?.[0]?.amount
+        );
+
+        let roomOfferBeforeCurrentPrice = null;
+        if (
+          Number.isFinite(roomOfferSuggestedSellingPrice) &&
+          roomOfferSuggestedSellingPrice > roomOfferCurrentPrice
+        ) {
+          roomOfferBeforeCurrentPrice = roomOfferSuggestedSellingPrice;
+        } else if (
+          Number.isFinite(roomOfferInitialPrice) &&
+          roomOfferInitialPrice > roomOfferCurrentPrice
+        ) {
+          roomOfferBeforeCurrentPrice = roomOfferInitialPrice;
+        }
+
+        const roomOfferBeforeCurrentPriceCurrency = roomOfferBeforeCurrentPrice
+          ? normalizeText(
+              rate?.retailRate?.suggestedSellingPrice?.[0]?.currency ||
+                rate?.retailRate?.initialPrice?.[0]?.currency ||
+                roomOfferCurrentPriceCurrency
+            )
+          : "";
+
+        const roomOfferRefundableTag = normalizeText(
+          rate?.cancellationPolicies?.refundableTag
+        );
+
+        const roomOfferRefundableTagText = buildRoomOfferRefundableTagText(
+          roomOfferRefundableTag
+        );
+
+        const roomOfferCurrentPriceNoteText = buildRoomOfferCurrentPriceNoteText({
+          occupancyNumber: rate?.occupancyNumber,
+          checkin,
+          checkout,
+          taxesAndFees: rate?.retailRate?.taxesAndFees
         });
-      }
 
-      const currentPrice = getCurrentPriceObject(rate, roomType);
-      if (!currentPrice) {
-        return;
-      }
-
-      const beforePrice = getBeforePriceObject(rate, currentPrice, roomType);
-
-      grouped.get(groupKey).offers.push({
-        offerId: roomTypeOfferId,
-        mappedRoomId,
-        name: supplierRoomName || "Room rate",
-        boardName: String(rate?.boardName || "").trim(),
-        occupancyNumber:
-          normalizeMaybeInteger(rate?.occupancyNumber) ||
-          normalizeMaybeInteger(rate?.occupancy_number) ||
-          1,
-        currentPrice,
-        beforePrice,
-        refundableTag:
-          String(rate?.cancellationPolicies?.refundableTag || "").trim() || null,
-        cancellationPolicies: normalizeStringArray(
-          rate?.cancellationPolicies?.cancelPolicyInfos
-        ),
-        roomDescription:
-          String(rate?.roomDescription || roomType?.description || "").trim() ||
-          null,
-        amenities: normalizeStringArray(
-          rate?.roomAmenities || roomType?.roomAmenities
-        ),
-        beds: normalizeBedTypes(rate?.bedTypes || roomType?.bedTypes),
-        roomSizeSquare:
-          normalizeMaybeNumber(rate?.roomSizeSquare) ||
-          normalizeMaybeNumber(roomType?.roomSizeSquare),
-        roomSizeUnit:
-          String(rate?.roomSizeUnit || roomType?.roomSizeUnit || "").trim() ||
-          null,
-        maxOccupancy:
-          normalizeMaybeInteger(rate?.maxOccupancy) ||
-          normalizeMaybeInteger(roomType?.maxOccupancy),
-        priceNote: buildPriceNote(searchContext, rate),
-        raw: rate
+        normalizedMappedRoomRatesByHotelIdMap.get(mappedRoomRatesKey).roomOffers.push({
+          roomOfferId: normalizeText(rate?.rateId) || null,
+          roomOfferName: normalizeText(rate?.name) || "Room rate",
+          roomOfferMappedRoomId: Number.isFinite(normalizedMappedRoomId)
+            ? normalizedMappedRoomId
+            : null,
+          roomOfferBoardName: normalizeText(rate?.boardName),
+          roomOfferOccupancyNumber: normalizeIntegerOrNull(rate?.occupancyNumber),
+          roomOfferAdultCount: normalizeIntegerOrNull(rate?.adultCount),
+          roomOfferChildCount: normalizeIntegerOrNull(rate?.childCount),
+          roomOfferChildrenAges: Array.isArray(rate?.childrenAges)
+            ? rate.childrenAges
+                .map((childAge) => normalizeIntegerOrNull(childAge))
+                .filter((childAge) => Number.isFinite(childAge))
+            : [],
+          roomOfferCurrentPrice,
+          roomOfferCurrentPriceCurrency,
+          roomOfferBeforeCurrentPrice,
+          roomOfferBeforeCurrentPriceCurrency,
+          roomOfferRefundableTag: roomOfferRefundableTag || null,
+          roomOfferRefundableTagText,
+          roomOfferCurrentPriceNoteText,
+          offerId: normalizedOfferId
+        });
       });
     });
   });
 
-  return Array.from(grouped.values())
-    .map((group) => ({
-      ...group,
-      offers: group.offers
+  return Array.from(normalizedMappedRoomRatesByHotelIdMap.values())
+    .map((mappedRoomRatesItem) => ({
+      mappedRoomId: mappedRoomRatesItem.mappedRoomId,
+      roomOffers: mappedRoomRatesItem.roomOffers
         .slice()
-        .sort((left, right) => {
-          const leftAmount = Number(left?.currentPrice?.amount);
-          const rightAmount = Number(right?.currentPrice?.amount);
+        .sort((leftRoomOfferItem, rightRoomOfferItem) => {
+          const leftRoomOfferCurrentPrice = Number(leftRoomOfferItem?.roomOfferCurrentPrice);
+          const rightRoomOfferCurrentPrice = Number(
+            rightRoomOfferItem?.roomOfferCurrentPrice
+          );
 
-          if (!Number.isFinite(leftAmount)) {
+          if (!Number.isFinite(leftRoomOfferCurrentPrice)) {
             return 1;
           }
 
-          if (!Number.isFinite(rightAmount)) {
+          if (!Number.isFinite(rightRoomOfferCurrentPrice)) {
             return -1;
           }
 
-          return leftAmount - rightAmount;
+          return leftRoomOfferCurrentPrice - rightRoomOfferCurrentPrice;
         })
     }))
-    .sort((left, right) => {
-      const leftAmount = Number(left?.offers?.[0]?.currentPrice?.amount);
-      const rightAmount = Number(right?.offers?.[0]?.currentPrice?.amount);
+    .sort((leftMappedRoomRatesItem, rightMappedRoomRatesItem) => {
+      const leftRoomOfferCurrentPrice = Number(
+        leftMappedRoomRatesItem?.roomOffers?.[0]?.roomOfferCurrentPrice
+      );
+      const rightRoomOfferCurrentPrice = Number(
+        rightMappedRoomRatesItem?.roomOffers?.[0]?.roomOfferCurrentPrice
+      );
 
-      if (!Number.isFinite(leftAmount)) {
+      if (!Number.isFinite(leftRoomOfferCurrentPrice)) {
         return 1;
       }
 
-      if (!Number.isFinite(rightAmount)) {
+      if (!Number.isFinite(rightRoomOfferCurrentPrice)) {
         return -1;
       }
 
-      return leftAmount - rightAmount;
+      return leftRoomOfferCurrentPrice - rightRoomOfferCurrentPrice;
     });
 }
 
-function getLowestPriceFromRatesJson(raw) {
-  const roomGroups = normalizeHotelRoomGroups(raw, null);
-  const amounts = roomGroups
-    .flatMap((group) => group.offers || [])
-    .map((offer) => offer.currentPrice)
-    .filter(Boolean);
+function normalizeMergedMappedRoomOffers({
+  normalizedHotelDetails,
+  normalizedMappedRoomRatesByHotelId
+}) {
+  const normalizedRoomsByRoomId = new Map();
+  const normalizedHotelRooms = Array.isArray(normalizedHotelDetails?.rooms)
+    ? normalizedHotelDetails.rooms
+    : [];
 
-  if (!amounts.length) {
-    return null;
+  normalizedHotelRooms.forEach((roomItem) => {
+    const normalizedRoomId = normalizeIntegerOrNull(roomItem?.roomId);
+    if (Number.isFinite(normalizedRoomId)) {
+      normalizedRoomsByRoomId.set(String(normalizedRoomId), roomItem);
+    }
+  });
+
+  const mappedRoomOffers = (Array.isArray(normalizedMappedRoomRatesByHotelId)
+    ? normalizedMappedRoomRatesByHotelId
+    : []
+  ).map((mappedRoomRatesItem) => {
+    const normalizedMappedRoomId = normalizeIntegerOrNull(
+      mappedRoomRatesItem?.mappedRoomId
+    );
+    const matchedRoom = Number.isFinite(normalizedMappedRoomId)
+      ? normalizedRoomsByRoomId.get(String(normalizedMappedRoomId)) || null
+      : null;
+
+    return {
+      mappedRoomId: Number.isFinite(normalizedMappedRoomId)
+        ? normalizedMappedRoomId
+        : null,
+      room: matchedRoom,
+      roomOffers: Array.isArray(mappedRoomRatesItem?.roomOffers)
+        ? mappedRoomRatesItem.roomOffers
+        : []
+    };
+  });
+
+  const allRoomOffers = mappedRoomOffers.flatMap((mappedRoomOfferItem) =>
+    Array.isArray(mappedRoomOfferItem?.roomOffers) ? mappedRoomOfferItem.roomOffers : []
+  );
+
+  const roomOfferCurrentPrices = allRoomOffers
+    .map((roomOfferItem) => normalizeNumberOrNull(roomOfferItem?.roomOfferCurrentPrice))
+    .filter((roomOfferCurrentPrice) => Number.isFinite(roomOfferCurrentPrice));
+
+  let roomOffersMinCurrentPrice = null;
+  let roomOffersMinCurrentPriceCurrency = null;
+
+  if (roomOfferCurrentPrices.length > 0) {
+    roomOffersMinCurrentPrice = Math.min(...roomOfferCurrentPrices);
+    const roomOfferWithMinCurrentPrice = allRoomOffers.find(
+      (roomOfferItem) =>
+        normalizeNumberOrNull(roomOfferItem?.roomOfferCurrentPrice) ===
+        roomOffersMinCurrentPrice
+    );
+
+    roomOffersMinCurrentPriceCurrency =
+      normalizeText(roomOfferWithMinCurrentPrice?.roomOfferCurrentPriceCurrency) || null;
   }
 
-  return amounts.reduce((lowest, current) => {
-    if (!lowest) {
-      return current;
-    }
+  return {
+    roomOffersMinCurrentPrice,
+    roomOffersMinCurrentPriceCurrency,
+    mappedRoomOffers
+  };
+}
 
-    return current.amount < lowest.amount ? current : lowest;
-  }, null);
+function buildRoomOfferRefundableTagText(roomOfferRefundableTag) {
+  const normalizedRoomOfferRefundableTag = normalizeText(
+    roomOfferRefundableTag
+  ).toUpperCase();
+
+  if (normalizedRoomOfferRefundableTag === "RFN") {
+    return "Refundable";
+  }
+
+  if (normalizedRoomOfferRefundableTag === "NRFN") {
+    return "Non-refundable";
+  }
+
+  return normalizedRoomOfferRefundableTag;
+}
+
+function buildRoomOfferCurrentPriceNoteText({
+  occupancyNumber,
+  checkin,
+  checkout,
+  taxesAndFees
+}) {
+  const normalizedOccupancyNumber = normalizePositiveInteger(occupancyNumber, 1);
+  const normalizedNightCount = getNightCount(checkin, checkout);
+  const roomText =
+    normalizedOccupancyNumber === 1
+      ? "1 room"
+      : `${normalizedOccupancyNumber} rooms`;
+  const nightText =
+    normalizedNightCount === 1 ? "1 night" : `${normalizedNightCount} nights`;
+  const hasExcludedTaxesAndFees = Array.isArray(taxesAndFees)
+    ? taxesAndFees.some((taxesAndFeesItem) => taxesAndFeesItem?.included === false)
+    : false;
+  const taxesAndFeesText = hasExcludedTaxesAndFees
+    ? "excl taxes & fees"
+    : "inc taxes & fees";
+
+  return `${roomText} ${nightText} ${taxesAndFeesText}`;
+}
+
+function buildRoomSizeText(roomSizeSquare, roomSizeUnit) {
+  const normalizedRoomSizeSquare = normalizeNumberOrNull(roomSizeSquare);
+  const normalizedRoomSizeUnit = normalizeText(roomSizeUnit);
+
+  if (!Number.isFinite(normalizedRoomSizeSquare) || normalizedRoomSizeSquare <= 0) {
+    return "";
+  }
+
+  return normalizedRoomSizeUnit
+    ? `${normalizedRoomSizeSquare} ${normalizedRoomSizeUnit}`
+    : `${normalizedRoomSizeSquare}`;
+}
+
+function buildRoomBedTypesText(roomBedTypes) {
+  if (!Array.isArray(roomBedTypes) || roomBedTypes.length === 0) {
+    return "";
+  }
+
+  return roomBedTypes
+    .map((roomBedTypeItem) => {
+      const quantity = normalizePositiveInteger(roomBedTypeItem?.quantity, 1);
+      const bedType = normalizeText(roomBedTypeItem?.bedType);
+      const bedSize = normalizeText(roomBedTypeItem?.bedSize);
+
+      if (!bedType) {
+        return "";
+      }
+
+      const pluralizedBedType =
+        quantity > 1 && !bedType.toLowerCase().endsWith("s")
+          ? `${bedType}s`
+          : bedType;
+
+      if (bedSize) {
+        return `${quantity} ${pluralizedBedType} · ${bedSize}`;
+      }
+
+      return quantity > 1 ? `${quantity} ${pluralizedBedType}` : bedType;
+    })
+    .filter(Boolean)
+    .join(" + ");
+}
+
+function buildHotelMapUrl(latitude, longitude) {
+  const normalizedLatitude = normalizeNumberOrNull(latitude);
+  const normalizedLongitude = normalizeNumberOrNull(longitude);
+
+  if (!Number.isFinite(normalizedLatitude) || !Number.isFinite(normalizedLongitude)) {
+    return "";
+  }
+
+  return `https://maps.google.com/?q=${normalizedLatitude},${normalizedLongitude}`;
+}
+
+function stripHtml(value) {
+  return normalizeText(value)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+\n/g, "\n")
+    .replace(/\n\s+/g, "\n")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function getNightCount(checkin, checkout) {
+  const checkinDate = new Date(checkin);
+  const checkoutDate = new Date(checkout);
+
+  if (
+    Number.isNaN(checkinDate.getTime()) ||
+    Number.isNaN(checkoutDate.getTime())
+  ) {
+    return 1;
+  }
+
+  const nightCount = Math.round(
+    (checkoutDate.getTime() - checkinDate.getTime()) / (1000 * 60 * 60 * 24)
+  );
+
+  return nightCount > 0 ? nightCount : 1;
+}
+
+function normalizeText(value) {
+  return String(value || "").trim();
+}
+
+function normalizeNumberOrNull(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeIntegerOrNull(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+}
+
+function normalizePositiveInteger(value, fallbackValue) {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallbackValue;
+  }
+
+  return Math.trunc(parsed);
 }

@@ -2,7 +2,8 @@ import { Permissions, webMethod } from "wix-web-module";
 import { searchHotelRatesHandler, searchPlacesHandler } from "./liteApiSearch";
 import {
   getHotelDetailsHandler,
-  getHotelRatesByHotelIdHandler
+  getMappedRoomRatesByHotelIdHandler,
+  getMergedMappedRoomOffersHandler
 } from "./liteApiHotel";
 import {
   completeBookingHandler,
@@ -23,9 +24,14 @@ export const getHotelDetails = webMethod(
   async (hotelId) => getHotelDetailsHandler(hotelId)
 );
 
-export const getHotelRatesByHotelId = webMethod(
+export const getMappedRoomRatesByHotelId = webMethod(
   Permissions.Anyone,
-  async (payload) => getHotelRatesByHotelIdHandler(payload)
+  async (payload) => getMappedRoomRatesByHotelIdHandler(payload)
+);
+
+export const getMergedMappedRoomOffers = webMethod(
+  Permissions.Anyone,
+  async (payload) => getMergedMappedRoomOffersHandler(payload)
 );
 
 export const createPrebookSession = webMethod(
