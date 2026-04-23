@@ -2,8 +2,8 @@ import { Permissions, webMethod } from "wix-web-module";
 import { searchHotelRatesHandler, searchPlacesHandler } from "./liteApiSearch";
 import {
   getHotelDetailsHandler,
-  getMappedRoomRatesByHotelIdHandler,
-  getMergedMappedRoomOffersHandler
+  getHotelMappedRoomRatesHandler,
+  getHotelMappedRoomOffersHandler
 } from "./liteApiHotel";
 import {
   completeBookingHandler,
@@ -26,12 +26,34 @@ export const getHotelDetails = webMethod(
 
 export const getMappedRoomRatesByHotelId = webMethod(
   Permissions.Anyone,
-  async (payload) => getMappedRoomRatesByHotelIdHandler(payload)
+  async (payload) => {
+    const getHotelMappedRoomRatesResult = await getHotelMappedRoomRatesHandler(payload);
+
+    return {
+      hotelId: getHotelMappedRoomRatesResult.hotelId,
+      getMappedRoomRatesByHotelIdResponse:
+        getHotelMappedRoomRatesResult.getHotelMappedRoomRatesResponse,
+      normalizedMappedRoomRatesByHotelId:
+        getHotelMappedRoomRatesResult.normalizedHotelMappedRoomRates
+    };
+  }
 );
 
 export const getMergedMappedRoomOffers = webMethod(
   Permissions.Anyone,
-  async (payload) => getMergedMappedRoomOffersHandler(payload)
+  async (payload) => {
+    const getHotelMappedRoomOffersResult = await getHotelMappedRoomOffersHandler(payload);
+
+    return {
+      hotelId: getHotelMappedRoomOffersResult.hotelId,
+      getHotelDetailsResponse: getHotelMappedRoomOffersResult.getHotelDetailsResponse,
+      getMappedRoomRatesByHotelIdResponse:
+        getHotelMappedRoomOffersResult.getHotelMappedRoomRatesResponse,
+      normalizedHotelDetails: getHotelMappedRoomOffersResult.normalizedHotelDetails,
+      normalizedMergedMappedRoomOffers:
+        getHotelMappedRoomOffersResult.normalizedHotelMappedRoomOffers
+    };
+  }
 );
 
 export const createPrebookSession = webMethod(
