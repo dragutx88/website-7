@@ -1,6 +1,4 @@
-import { session } from "wix-storage-frontend";
-
-export const SEARCH_FORM_STORAGE_KEY = "liteapi.searchFormState.v1";
+import wixLocationFrontend from "wix-location-frontend";
 
 const CHILD_AGE_DROPDOWN_COUNT = 10;
 const OCCUPANCY_MIN_ADULTS = 1;
@@ -24,7 +22,7 @@ const childAgeDropdownIdMap = Object.fromEntries(
   })
 );
 
-export const DEFAULT_SEARCH_FORM_IDS = Object.freeze({
+const DEFAULT_SEARCH_FORM_IDS = Object.freeze({
   destinationSearchModeButton: "#destinationSearchModeButton",
   vibeSearchModeButton: "#vibeSearchModeButton",
   searchModeSwitch: "#searchModeSwitch",
@@ -79,17 +77,13 @@ const CHILD_AGE_OPTIONS = [
   })
 ];
 
-export function createSearchFormController(options) {
+export function initSearchForm(options = {}) {
   const config = buildControllerConfig(options);
 
   const {
     $w,
     ids,
     searchPlacesFn,
-    searchHotelRatesFn,
-    onSearchSuccess,
-    onSearchError,
-    onValidationError,
     debug,
     autocompleteMinChars,
     autocompleteDebounceMs
@@ -104,219 +98,41 @@ export function createSearchFormController(options) {
       checkIn: null,
       checkOut: null
     },
-
     occupancy: cloneOccupancyState(DEFAULT_OCCUPANCY_STATE),
-
     autocompleteSuggestions: [],
     autocompleteDebounceTimer: null,
     autocompleteRequestToken: 0,
-
     isSearchInputFocused: false,
     isPointerInsideSuggestions: false,
     suggestionCloseTimer: null,
-
     isOccupancyInputFocused: false,
     isPointerInsideOccupancy: false,
     occupancyCloseTimer: null
   };
 
-  function init(initialSearchFormData = null) {
-    initializeForm();
-    bindSearchModeEvents();
-    bindDestinationSuggestionEvents();
-    bindOccupancyEvents();
-    bindDatePickerEvents();
-    bindSubmitEvent();
-    syncSearchModeUi();
-    syncDateStateFromInputs();
-    syncOccupancySummaryInput();
+  initializeForm();
+  bindSearchModeEvents();
+  bindDestinationSuggestionEvents();
+  bindOccupancyEvents();
+  bindDatePickerEvents();
+  bindSubmitEvent();
 
-    if (initialSearchFormData) {
-      hydrateFromSearchFormData(initialSearchFormData);
-    }
-  }
+  const initialState = normalizeSearchFormInitialState(
+    wixLocationFrontend.query || {}
+  );
 
-  function getState() {
-    return {
-      searchMode: {
-        mode: state.searchMode.mode,
-        selectedDestinationPlaceId: state.searchMode.selectedDestinationPlaceId
-      },
-      dateSelection: {
-        checkIn: state.dateSelection.checkIn
-          ? new Date(state.dateSelection.checkIn)
-          : null,
-        checkOut: state.dateSelection.checkOut
-          ? new Date(state.dateSelection.checkOut)
-          : null
-      },
-      occupancy: cloneOccupancyState(state.occupancy)
-    };
-  }
-
-  function hydrateFromSearchFormData(searchFormData) {
-    if (!searchFormData || typeof searchFormData !== "object") {
-      return;
-    }
-
-    const nextMode = searchFormData.mode === "vibe" ? "vibe" : "destination";
-    applySearchMode(nextMode, { resetSelectedDestination: false });
-
-    state.searchMode.selectedDestinationPlaceId = searchFormData.placeId || null;
-
-    getElement("searchQueryInput").value = String(
-      searchFormData.searchQuery || ""
-    ).trim();
-
-    const checkInDate = normalizeDateValue(searchFormData.checkIn);
-    const checkOutDate = normalizeDateValue(searchFormData.checkOut);
-
-    state.dateSelection.checkIn = checkInDate;
-    state.dateSelection.checkOut = checkOutDate;
-
-    getElement("checkInDatePickerInput").value = checkInDate;
-    getElement("checkOutDatePickerInput").value = checkOutDate;
-
-    state.occupancy = normalizeOccupancyState(
-      searchFormData.occupancy || DEFAULT_OCCUPANCY_STATE
-    );
-
-    renderOccupancyPopover();
-    syncOccupancySummaryInput();
-
-    clearSuggestionsPanel();
-    collapseSuggestionsBox();
-    collapseOccupancyBox();
-    syncSearchModeUi();
-  }
-
-  async function runSearch() {
-    syncDateStateFromInputs();
-
-    const validationError = validateSearchForm();
-
-    if (validationError) {
-      if (typeof onValidationError === "function") {
-        await onValidationError({
-          message: validationError,
-          controller: publicApi
-        });
-      }
-      return null;
-    }
-
-    const searchFormButton = getElement("searchFormButton");
-    const originalButtonLabel = searchFormButton.label;
-
-    searchFormButton.label = "Searching...";
-    searchFormButton.disable();
-
-    try {
-      const searchFormData = getSearchFormData();
-      const searchResult = await searchHotelRatesFn(searchFormData);
-
-      debugLog("searchFormData", searchFormData);
-      debugLog("searchResult", searchResult);
-
-      if (typeof onSearchSuccess === "function") {
-        await onSearchSuccess({
-          searchFormData,
-          searchResult,
-          controller: publicApi
-        });
-      }
-
-      return {
-        searchFormData,
-        searchResult
-      };
-    } catch (error) {
-      if (typeof onSearchError === "function") {
-        await onSearchError({
-          error,
-          controller: publicApi
-        });
-      } else {
-        console.error("Search failed:", error);
-      }
-
-      return null;
-    } finally {
-      searchFormButton.label = originalButtonLabel;
-      searchFormButton.enable();
-    }
-  }
-
-  function validateSearchForm() {
-    const searchQuery = String(getElement("searchQueryInput").value || "").trim();
-    const { checkIn, checkOut } = getResolvedDateSelection();
-
-    if (state.searchMode.mode === "destination") {
-      if (!searchQuery) {
-        return "Please enter a destination.";
-      }
-
-      if (!state.searchMode.selectedDestinationPlaceId) {
-        return "Please choose a destination from the suggestions list.";
-      }
-    }
-
-    if (state.searchMode.mode === "vibe") {
-      if (!searchQuery) {
-        return "Please describe your ideal stay.";
-      }
-    }
-
-    if (!checkIn) {
-      return "Please select a check-in date.";
-    }
-
-    if (!checkOut) {
-      return "Please select a check-out date.";
-    }
-
-    if (checkOut <= checkIn) {
-      return "Check-out date must be after check-in date.";
-    }
-
-    const occupancyValidationError = validateOccupancyState(state.occupancy);
-    if (occupancyValidationError) {
-      return occupancyValidationError;
-    }
-
-    return "";
-  }
-
-  function getSearchFormData() {
-    const searchQuery = String(getElement("searchQueryInput").value || "").trim();
-    const { checkIn, checkOut } = getResolvedDateSelection();
-
-    return {
-      mode: state.searchMode.mode,
-      placeId:
-        state.searchMode.mode === "destination"
-          ? state.searchMode.selectedDestinationPlaceId
-          : null,
-      aiSearch:
-        state.searchMode.mode === "vibe"
-          ? searchQuery
-          : null,
-      searchQuery,
-      checkIn: formatDateForLiteApi(checkIn),
-      checkOut: formatDateForLiteApi(checkOut),
-      occupancy: {
-        adults: state.occupancy.adults,
-        children: state.occupancy.children,
-        childAges: [...state.occupancy.childAges]
-      },
-      guestsSummaryText: buildGuestsSummaryText(state.occupancy)
-    };
-  }
+  hydrateSearchFormInitialState(initialState);
+  syncSearchModeUi();
+  syncDateStateFromInputs();
+  syncOccupancySummaryInput();
+  syncCorrelatedDatePickerBounds();
 
   function initializeForm() {
     try {
       getElement("guestsOccupancySelectionInput").readOnly = true;
-    } catch (error) {}
+    } catch (error) {
+      debugLog("initializeForm.readOnly.error", error);
+    }
 
     clearSuggestionsPanel();
     collapseSuggestionsBox();
@@ -477,19 +293,279 @@ export function createSearchFormController(options) {
         state.dateSelection.checkOut = null;
         getElement("checkOutDatePickerInput").value = null;
       }
+
+      syncCorrelatedDatePickerBounds();
     });
 
     getElement("checkOutDatePickerInput").onChange(() => {
       state.dateSelection.checkOut = normalizeDateValue(
         getElement("checkOutDatePickerInput").value
       );
+
+      syncCorrelatedDatePickerBounds();
     });
   }
 
   function bindSubmitEvent() {
-    getElement("searchFormButton").onClick(async () => {
-      await runSearch();
+    getElement("searchFormButton").onClick(() => {
+      void runSearch();
     });
+  }
+
+  function runSearch() {
+    syncDateStateFromInputs();
+
+    const searchQuery = String(getElement("searchQueryInput").value || "").trim();
+    const { checkIn, checkOut } = getResolvedDateSelection();
+    const currentQuery = wixLocationFrontend.query || {};
+
+    if (state.searchMode.mode === "destination") {
+      if (!searchQuery) {
+        console.warn("Search validation error: Please enter a destination.");
+        return null;
+      }
+
+      if (!state.searchMode.selectedDestinationPlaceId) {
+        console.warn(
+          "Search validation error: Please choose a destination from the suggestions list."
+        );
+        return null;
+      }
+    }
+
+    if (state.searchMode.mode === "vibe") {
+      if (!searchQuery) {
+        console.warn("Search validation error: Please describe your ideal stay.");
+        return null;
+      }
+    }
+
+    if (!checkIn) {
+      console.warn("Search validation error: Please select a check-in date.");
+      return null;
+    }
+
+    if (!checkOut) {
+      console.warn("Search validation error: Please select a check-out date.");
+      return null;
+    }
+
+    if (checkOut <= checkIn) {
+      console.warn(
+        "Search validation error: Check-out date must be after check-in date."
+      );
+      return null;
+    }
+
+    const occupancyValidationError = validateOccupancyState(state.occupancy);
+    if (occupancyValidationError) {
+      console.warn("Search validation error:", occupancyValidationError);
+      expandOccupancyBox();
+      return null;
+    }
+
+    if (!String(currentQuery.language || "").trim()) {
+      console.warn("Search validation error: Missing language query param.");
+      return null;
+    }
+
+    if (!String(currentQuery.currency || "").trim()) {
+      console.warn("Search validation error: Missing currency query param.");
+      return null;
+    }
+
+    const searchFormButton = getElement("searchFormButton");
+    const originalButtonLabel = searchFormButton.label;
+
+    searchFormButton.label = "Searching...";
+    searchFormButton.disable();
+
+    try {
+      const normalizedSearchForm = normalizeSearchForm();
+      const searchFlowContextUrl =
+        buildSearchFlowContextUrl(normalizedSearchForm);
+
+      debugLog("normalizedSearchForm", normalizedSearchForm);
+      debugLog("searchFlowContextUrl", searchFlowContextUrl);
+
+      navigateSearchFlowContextUrl(searchFlowContextUrl);
+
+      return {
+        searchFlowContextUrl
+      };
+    } finally {
+      searchFormButton.label = originalButtonLabel;
+      searchFormButton.enable();
+    }
+  }
+
+  function normalizeSearchFormInitialState(query) {
+    const mode = query.mode === "vibe" ? "vibe" : "destination";
+    const placeId = String(query.placeId || "").trim() || null;
+    const name = String(query.name || "").trim();
+    const aiSearch = String(query.aiSearch || "").trim();
+    const searchQuery = mode === "vibe" ? aiSearch : name;
+
+    const checkIn = normalizeDateValue(String(query.checkin || "").trim());
+    const checkOut = normalizeDateValue(String(query.checkout || "").trim());
+
+    const adultsTokens = String(query.adults || "")
+      .split(",")
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+
+    const firstAdultsToken = adultsTokens[0] || "";
+    const adults = clampInteger(
+      firstAdultsToken,
+      DEFAULT_OCCUPANCY_STATE.adults,
+      OCCUPANCY_MIN_ADULTS,
+      OCCUPANCY_MAX_ADULTS
+    );
+
+    const childrenRaw = String(query.children || "").trim();
+    let childAges = [];
+
+    if (childrenRaw.includes("_")) {
+      childAges = childrenRaw
+        .split(",")
+        .map((token) => String(token || "").trim())
+        .filter(Boolean)
+        .map((token) => token.split("_"))
+        .filter((parts) => parts.length === 2 && parts[0] === "1")
+        .map((parts) => String(parts[1] || "").trim())
+        .filter((age) => age !== "");
+    } else if (childrenRaw) {
+      const normalizedChildrenCount = clampInteger(
+        childrenRaw,
+        0,
+        OCCUPANCY_MIN_CHILDREN,
+        OCCUPANCY_MAX_CHILDREN
+      );
+      childAges = Array.from({ length: normalizedChildrenCount }, () => "");
+    }
+
+    const occupancy = normalizeOccupancyState({
+      adults,
+      children: childAges.length,
+      childAges
+    });
+
+    return {
+      mode,
+      placeId,
+      searchQuery,
+      checkIn,
+      checkOut,
+      occupancy
+    };
+  }
+
+  function hydrateSearchFormInitialState(initialState) {
+    if (!initialState || typeof initialState !== "object") {
+      return;
+    }
+
+    const nextMode = initialState.mode === "vibe" ? "vibe" : "destination";
+    applySearchMode(nextMode, { resetSelectedDestination: false });
+
+    state.searchMode.selectedDestinationPlaceId = initialState.placeId || null;
+
+    getElement("searchQueryInput").value = String(
+      initialState.searchQuery || ""
+    ).trim();
+
+    const checkInDate = normalizeDateValue(initialState.checkIn);
+    const checkOutDate = normalizeDateValue(initialState.checkOut);
+
+    state.dateSelection.checkIn = checkInDate;
+    state.dateSelection.checkOut = checkOutDate;
+
+    getElement("checkInDatePickerInput").value = checkInDate;
+    getElement("checkOutDatePickerInput").value = checkOutDate;
+
+    state.occupancy = normalizeOccupancyState(
+      initialState.occupancy || DEFAULT_OCCUPANCY_STATE
+    );
+
+    renderOccupancyPopover();
+    syncOccupancySummaryInput();
+
+    clearSuggestionsPanel();
+    collapseSuggestionsBox();
+    collapseOccupancyBox();
+    syncSearchModeUi();
+    syncCorrelatedDatePickerBounds();
+  }
+
+  function normalizeSearchForm() {
+    const mode = state.searchMode.mode === "vibe" ? "vibe" : "destination";
+    const searchQuery = String(getElement("searchQueryInput").value || "").trim();
+    const { checkIn, checkOut } = getResolvedDateSelection();
+    const currentQuery = wixLocationFrontend.query || {};
+
+    const childTokens = state.occupancy.childAges
+      .map((age) => String(age || "").trim())
+      .filter(Boolean)
+      .map((age) => `1_${age}`);
+
+    return {
+      mode,
+      placeId:
+        mode === "destination"
+          ? String(state.searchMode.selectedDestinationPlaceId || "").trim()
+          : "",
+      name: mode === "destination" ? searchQuery : "",
+      aiSearch: mode === "vibe" ? searchQuery : "",
+      checkin: formatDateForLiteApi(checkIn),
+      checkout: formatDateForLiteApi(checkOut),
+      rooms: "1",
+      adults: String(state.occupancy.adults),
+      children: childTokens.join(","),
+      sorting: String(currentQuery.sorting || "").trim(),
+      language: String(currentQuery.language || "").trim(),
+      currency: String(currentQuery.currency || "").trim()
+    };
+  }
+
+  function buildSearchFlowContextUrl(normalizedSearchForm) {
+    const params = new URLSearchParams();
+
+    params.set("mode", normalizedSearchForm.mode);
+
+    if (normalizedSearchForm.mode === "destination") {
+      params.set("placeId", normalizedSearchForm.placeId);
+      params.set("name", normalizedSearchForm.name);
+    }
+
+    if (normalizedSearchForm.mode === "vibe") {
+      params.set("aiSearch", normalizedSearchForm.aiSearch);
+    }
+
+    params.set("checkin", normalizedSearchForm.checkin);
+    params.set("checkout", normalizedSearchForm.checkout);
+    params.set("rooms", normalizedSearchForm.rooms);
+    params.set("adults", normalizedSearchForm.adults);
+
+    if (normalizedSearchForm.children) {
+      params.set("children", normalizedSearchForm.children);
+    }
+
+    if (normalizedSearchForm.sorting) {
+      params.set("sorting", normalizedSearchForm.sorting);
+    }
+
+    params.set("language", normalizedSearchForm.language);
+    params.set("currency", normalizedSearchForm.currency);
+
+    return `/hotels?${params.toString()}`;
+  }
+
+  function navigateSearchFlowContextUrl(searchFlowContextUrl) {
+    if (!searchFlowContextUrl) {
+      return;
+    }
+
+    wixLocationFrontend.to(searchFlowContextUrl);
   }
 
   function applySearchMode(mode, options = {}) {
@@ -603,25 +679,35 @@ export function createSearchFormController(options) {
   function clearSuggestionsPanel() {
     try {
       getElement("searchSuggestionsRepeater").data = [];
-    } catch (error) {}
+    } catch (error) {
+      debugLog("clearSuggestionsPanel.error", error);
+    }
   }
 
   function expandSuggestionsBox() {
     const box = getElement("searchSuggestionsBox", false);
-    if (!box) return;
+    if (!box) {
+      return;
+    }
 
     try {
       box.expand();
-    } catch (error) {}
+    } catch (error) {
+      debugLog("expandSuggestionsBox.error", error);
+    }
   }
 
   function collapseSuggestionsBox() {
     const box = getElement("searchSuggestionsBox", false);
-    if (!box) return;
+    if (!box) {
+      return;
+    }
 
     try {
       box.collapse();
-    } catch (error) {}
+    } catch (error) {
+      debugLog("collapseSuggestionsBox.error", error);
+    }
   }
 
   function clearAutocompleteDebounceTimer() {
@@ -711,11 +797,15 @@ export function createSearchFormController(options) {
       if (state.occupancy.children === 0) {
         try {
           ageBox.collapse();
-        } catch (error) {}
+        } catch (error) {
+          debugLog("renderChildrenAgeDropdowns.collapse.error", error);
+        }
       } else {
         try {
           ageBox.expand();
-        } catch (error) {}
+        } catch (error) {
+          debugLog("renderChildrenAgeDropdowns.expand.error", error);
+        }
       }
     }
 
@@ -739,26 +829,36 @@ export function createSearchFormController(options) {
         } else {
           dropdown.collapse();
         }
-      } catch (error) {}
+      } catch (error) {
+        debugLog(`renderChildrenAgeDropdowns.${name}.error`, error);
+      }
     });
   }
 
   function expandOccupancyBox() {
     const box = getElement("occupancySelectionBox", false);
-    if (!box) return;
+    if (!box) {
+      return;
+    }
 
     try {
       box.expand();
-    } catch (error) {}
+    } catch (error) {
+      debugLog("expandOccupancyBox.error", error);
+    }
   }
 
   function collapseOccupancyBox() {
     const box = getElement("occupancySelectionBox", false);
-    if (!box) return;
+    if (!box) {
+      return;
+    }
 
     try {
       box.collapse();
-    } catch (error) {}
+    } catch (error) {
+      debugLog("collapseOccupancyBox.error", error);
+    }
   }
 
   function clearOccupancyCloseTimer() {
@@ -819,6 +919,41 @@ export function createSearchFormController(options) {
     return { checkIn, checkOut };
   }
 
+  function syncCorrelatedDatePickerBounds() {
+    const checkInDatePickerInput = getElement("checkInDatePickerInput", false);
+    const checkOutDatePickerInput = getElement("checkOutDatePickerInput", false);
+
+    if (!checkInDatePickerInput || !checkOutDatePickerInput) {
+      return;
+    }
+
+    const { checkIn, checkOut } = getResolvedDateSelection();
+
+    try {
+      if (checkIn) {
+        const checkoutMinDate = new Date(checkIn);
+        checkoutMinDate.setDate(checkoutMinDate.getDate() + 1);
+        checkOutDatePickerInput.minDate = checkoutMinDate;
+      } else {
+        checkOutDatePickerInput.minDate = undefined;
+      }
+    } catch (error) {
+      debugLog("syncCorrelatedDatePickerBounds.checkoutMinDate.error", error);
+    }
+
+    try {
+      if (checkOut) {
+        const checkinMaxDate = new Date(checkOut);
+        checkinMaxDate.setDate(checkinMaxDate.getDate() - 1);
+        checkInDatePickerInput.maxDate = checkinMaxDate;
+      } else {
+        checkInDatePickerInput.maxDate = undefined;
+      }
+    } catch (error) {
+      debugLog("syncCorrelatedDatePickerBounds.checkinMaxDate.error", error);
+    }
+  }
+
   function getElement(name, required = true) {
     const selector = ids[name];
 
@@ -846,176 +981,15 @@ export function createSearchFormController(options) {
 
     console.log(`[searchForm] ${label}`, value);
   }
-
-  const publicApi = {
-    init,
-    runSearch,
-    getState,
-    getSearchFormData,
-    validateSearchForm,
-    hydrateFromSearchFormData
-  };
-
-  return publicApi;
-}
-
-export function persistSearchFormState(searchFormData) {
-  if (!searchFormData || typeof searchFormData !== "object") {
-    return;
-  }
-
-  session.setItem(SEARCH_FORM_STORAGE_KEY, JSON.stringify(searchFormData));
-}
-
-export function loadPersistedSearchFormState() {
-  const rawValue = session.getItem(SEARCH_FORM_STORAGE_KEY);
-
-  if (!rawValue) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(rawValue);
-  } catch (error) {
-    return null;
-  }
-}
-
-export function clearPersistedSearchFormState() {
-  session.removeItem(SEARCH_FORM_STORAGE_KEY);
-}
-
-export function buildGuestsSummaryText(occupancy) {
-  const normalized = normalizeOccupancyState(occupancy);
-
-  const adultsText =
-    normalized.adults === 1
-      ? "1 Adult"
-      : `${normalized.adults} Adults`;
-
-  const childrenText =
-    normalized.children === 1
-      ? "1 Child"
-      : `${normalized.children} Children`;
-
-  const roomText = "1 Room";
-
-  if (normalized.children === 0) {
-    return `${adultsText}, ${roomText}`;
-  }
-
-  return `${adultsText}, ${childrenText}, ${roomText}`;
-}
-
-export function normalizeOccupancyState(data) {
-  const adults = clampInteger(
-    data?.adults,
-    2,
-    OCCUPANCY_MIN_ADULTS,
-    OCCUPANCY_MAX_ADULTS
-  );
-
-  const children = clampInteger(
-    data?.children,
-    0,
-    OCCUPANCY_MIN_CHILDREN,
-    OCCUPANCY_MAX_CHILDREN
-  );
-
-  let childAges = Array.isArray(data?.childAges) ? [...data.childAges] : [];
-  childAges = childAges.slice(0, children);
-
-  while (childAges.length < children) {
-    childAges.push("");
-  }
-
-  return {
-    adults,
-    children,
-    childAges
-  };
-}
-
-export function validateOccupancyState(occupancy) {
-  const normalized = normalizeOccupancyState(occupancy);
-
-  if (normalized.adults < OCCUPANCY_MIN_ADULTS) {
-    return "At least 1 adult is required.";
-  }
-
-  if (normalized.adults > OCCUPANCY_MAX_ADULTS) {
-    return `Adults cannot exceed ${OCCUPANCY_MAX_ADULTS}.`;
-  }
-
-  if (normalized.children < OCCUPANCY_MIN_CHILDREN) {
-    return "Children count cannot be negative.";
-  }
-
-  if (normalized.children > OCCUPANCY_MAX_CHILDREN) {
-    return `Children cannot exceed ${OCCUPANCY_MAX_CHILDREN}.`;
-  }
-
-  if (normalized.children > 0) {
-    for (let index = 0; index < normalized.children; index += 1) {
-      const age = normalized.childAges[index];
-
-      if (age === "" || age === null || age === undefined) {
-        return "Please select an age for each child.";
-      }
-    }
-  }
-
-  return "";
-}
-
-export function formatDateForLiteApi(dateValue) {
-  const normalizedDate = normalizeDateValue(dateValue);
-
-  if (!normalizedDate) {
-    return "";
-  }
-
-  const year = normalizedDate.getFullYear();
-  const month = String(normalizedDate.getMonth() + 1).padStart(2, "0");
-  const day = String(normalizedDate.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
-}
-
-export function normalizeDateValue(value) {
-  if (!value) {
-    return null;
-  }
-
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const [year, month, day] = value.split("-").map(Number);
-    const dateFromParts = new Date(year, month - 1, day);
-
-    if (!Number.isNaN(dateFromParts.getTime())) {
-      return dateFromParts;
-    }
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  return date;
 }
 
 function buildControllerConfig(options = {}) {
   if (!options.$w) {
-    throw new Error("createSearchFormController requires $w.");
+    throw new Error("initSearchForm requires $w.");
   }
 
   if (typeof options.searchPlacesFn !== "function") {
-    throw new Error("createSearchFormController requires searchPlacesFn.");
-  }
-
-  if (typeof options.searchHotelRatesFn !== "function") {
-    throw new Error("createSearchFormController requires searchHotelRatesFn.");
+    throw new Error("initSearchForm requires searchPlacesFn.");
   }
 
   return {
@@ -1025,10 +999,6 @@ function buildControllerConfig(options = {}) {
       ...(options.ids || {})
     },
     searchPlacesFn: options.searchPlacesFn,
-    searchHotelRatesFn: options.searchHotelRatesFn,
-    onSearchSuccess: options.onSearchSuccess,
-    onSearchError: options.onSearchError,
-    onValidationError: options.onValidationError,
     debug: Boolean(options.debug),
     autocompleteMinChars:
       Number(options.autocompleteMinChars) || DEFAULT_AUTOCOMPLETE_MIN_CHARS,
@@ -1060,4 +1030,120 @@ function getChildAgeDropdownNames() {
   return Array.from({ length: CHILD_AGE_DROPDOWN_COUNT }, (_, index) => {
     return `childrenAgeSelectionDropdown${index + 1}`;
   });
+}
+
+function buildGuestsSummaryText(occupancy) {
+  const normalized = normalizeOccupancyState(occupancy);
+
+  const adultsText =
+    normalized.adults === 1 ? "1 Adult" : `${normalized.adults} Adults`;
+
+  const childrenText =
+    normalized.children === 1 ? "1 Child" : `${normalized.children} Children`;
+
+  const roomText = "1 Room";
+
+  if (normalized.children === 0) {
+    return `${adultsText}, ${roomText}`;
+  }
+
+  return `${adultsText}, ${childrenText}, ${roomText}`;
+}
+
+function normalizeOccupancyState(data) {
+  const adults = clampInteger(
+    data?.adults,
+    2,
+    OCCUPANCY_MIN_ADULTS,
+    OCCUPANCY_MAX_ADULTS
+  );
+
+  const children = clampInteger(
+    data?.children,
+    0,
+    OCCUPANCY_MIN_CHILDREN,
+    OCCUPANCY_MAX_CHILDREN
+  );
+
+  let childAges = Array.isArray(data?.childAges) ? [...data.childAges] : [];
+  childAges = childAges.slice(0, children);
+
+  while (childAges.length < children) {
+    childAges.push("");
+  }
+
+  return {
+    adults,
+    children,
+    childAges
+  };
+}
+
+function validateOccupancyState(occupancy) {
+  const normalized = normalizeOccupancyState(occupancy);
+
+  if (normalized.adults < OCCUPANCY_MIN_ADULTS) {
+    return "At least 1 adult is required.";
+  }
+
+  if (normalized.adults > OCCUPANCY_MAX_ADULTS) {
+    return `Adults cannot exceed ${OCCUPANCY_MAX_ADULTS}.`;
+  }
+
+  if (normalized.children < OCCUPANCY_MIN_CHILDREN) {
+    return "Children count cannot be negative.";
+  }
+
+  if (normalized.children > OCCUPANCY_MAX_CHILDREN) {
+    return `Children cannot exceed ${OCCUPANCY_MAX_CHILDREN}.`;
+  }
+
+  if (normalized.children > 0) {
+    for (let index = 0; index < normalized.children; index += 1) {
+      const age = normalized.childAges[index];
+
+      if (age === "" || age === null || age === undefined) {
+        return "Please select an age for each child.";
+      }
+    }
+  }
+
+  return "";
+}
+
+function formatDateForLiteApi(dateValue) {
+  const normalizedDate = normalizeDateValue(dateValue);
+
+  if (!normalizedDate) {
+    return "";
+  }
+
+  const year = normalizedDate.getFullYear();
+  const month = String(normalizedDate.getMonth() + 1).padStart(2, "0");
+  const day = String(normalizedDate.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeDateValue(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split("-").map(Number);
+    const dateFromParts = new Date(year, month - 1, day);
+
+    if (!Number.isNaN(dateFromParts.getTime())) {
+      return dateFromParts;
+    }
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date;
 }

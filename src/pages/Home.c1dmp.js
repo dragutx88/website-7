@@ -1,64 +1,52 @@
 import wixLocationFrontend from "wix-location-frontend";
-import { searchPlaces, searchHotelRates } from "backend/liteApi.web";
-import {
-  createSearchFormController,
-  loadPersistedSearchFormState,
-  persistSearchFormState
-} from "public/searchForm";
-import {
-  PAGE_PATHS,
-  DEFAULT_CURRENCY,
-  DEFAULT_LANGUAGE,
-  buildCanonicalCtx,
-  buildCtxQueryString,
-  persistSearchResultsPayload
-} from "public/liteApiFlow";
+import { session } from "wix-storage-frontend";
+import { searchPlaces } from "backend/liteApi.web";
+import { initSearchForm } from "public/searchForm";
 
-let homeSearchFormController;
+const SEARCH_FLOW_CONTEXT_CURRENCY_AND_LANGUAGE =
+  "searchFlowContextCurrencyAndLanguage";
+
+const DEFAULT_SEARCH_FLOW_CONTEXT_CURRENCY_AND_LANGUAGE =
+  "?language=tr&currency=TRY";
 
 $w.onReady(function () {
-  homeSearchFormController = createSearchFormController({
+  initSearchForm({
     $w,
     searchPlacesFn: searchPlaces,
-    searchHotelRatesFn: searchHotelRates,
-    onValidationError: ({ message }) => {
-      console.warn("HOME V5 validation error:", message);
-    },
-    onSearchError: ({ error }) => {
-      console.error("HOME V5 search failed:", error);
-    },
-    onSearchSuccess: async ({ searchFormData, searchResult }) => {
-      persistSearchFormState(searchFormData);
-
-      const ctx = buildCanonicalCtx(searchFormData, {
-        language: getCurrentLanguage(),
-        currency: getCurrentCurrency()
-      });
-
-      persistSearchResultsPayload({
-        searchedAt: Date.now(),
-        mode: searchResult?.mode || searchFormData?.mode || null,
-        searchContext: ctx,
-        normalizedHotels: Array.isArray(searchResult?.normalizedHotels)
-          ? searchResult.normalizedHotels
-          : []
-      });
-
-      wixLocationFrontend.to(`${PAGE_PATHS.hotels}?${buildCtxQueryString(ctx)}`);
-    },
     debug: false
   });
 
-  const persistedSearchFormState = loadPersistedSearchFormState();
-  homeSearchFormController.init(persistedSearchFormState);
+  const existingSessionValue = session.getItem(
+    SEARCH_FLOW_CONTEXT_CURRENCY_AND_LANGUAGE
+  );
+
+  if (!existingSessionValue) {
+    session.setItem(
+      SEARCH_FLOW_CONTEXT_CURRENCY_AND_LANGUAGE,
+      DEFAULT_SEARCH_FLOW_CONTEXT_CURRENCY_AND_LANGUAGE
+    );
+
+    const currentParams = new URLSearchParams();
+
+    Object.entries(wixLocationFrontend.query || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && String(value).trim() !== "") {
+        currentParams.set(key, String(value));
+      }
+    });
+
+    const defaultParams = new URLSearchParams(
+      DEFAULT_SEARCH_FLOW_CONTEXT_CURRENCY_AND_LANGUAGE.slice(1)
+    );
+
+    defaultParams.forEach((value, key) => {
+      currentParams.set(key, value);
+    });
+
+    const relativePath =
+      Array.isArray(wixLocationFrontend.path) && wixLocationFrontend.path.length
+        ? `/${wixLocationFrontend.path.join("/")}`
+        : "/";
+
+    wixLocationFrontend.to(`${relativePath}?${currentParams.toString()}`);
+  }
 });
-
-function getCurrentLanguage() {
-  const queryLanguage = String(wixLocationFrontend.query?.language || "").trim();
-  return queryLanguage || DEFAULT_LANGUAGE;
-}
-
-function getCurrentCurrency() {
-  const queryCurrency = String(wixLocationFrontend.query?.currency || "").trim();
-  return queryCurrency || DEFAULT_CURRENCY;
-}
