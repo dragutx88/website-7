@@ -171,10 +171,12 @@ function bindHotelRepeaterItem($item, itemData) {
   if (hotelReviewCountText) {
     const hotelReviewCount = Number(itemData?.hotelReviewCount);
 
-    if (!Number.isFinite(hotelReviewCount)) {
+    if (!Number.isFinite(hotelReviewCount) || hotelReviewCount <= 0) {
       safeCollapseAndHide(hotelReviewCountText);
     } else {
-      hotelReviewCountText.text = String(hotelReviewCount);
+      hotelReviewCountText.text = `${new Intl.NumberFormat().format(
+        hotelReviewCount
+      )} Reviews`;
       safeShow(hotelReviewCountText);
       safeExpand(hotelReviewCountText);
     }
@@ -183,7 +185,7 @@ function bindHotelRepeaterItem($item, itemData) {
   if (hotelRatingText) {
     const hotelRating = Number(itemData?.hotelRating);
 
-    if (!Number.isFinite(hotelRating)) {
+    if (!Number.isFinite(hotelRating) || hotelRating <= 0) {
       safeCollapseAndHide(hotelRatingText);
     } else {
       hotelRatingText.text = String(hotelRating);
@@ -193,38 +195,48 @@ function bindHotelRepeaterItem($item, itemData) {
   }
 
   if (hotelOffersBeforeMinCurrentPriceText) {
-    const beforePrice = Number(itemData?.hotelOffersBeforeMinCurrentPrice);
-    const currency = normalizeText(currentSearchFlowContextQuery?.currency);
+    const hotelOffersBeforeMinCurrentPrice = Number(
+      itemData?.hotelOffersBeforeMinCurrentPrice
+    );
 
-    if (!Number.isFinite(beforePrice) || !currency) {
+    if (!Number.isFinite(hotelOffersBeforeMinCurrentPrice)) {
       safeCollapseAndHide(hotelOffersBeforeMinCurrentPriceText);
     } else {
-      hotelOffersBeforeMinCurrentPriceText.text = formatPrice(beforePrice, currency);
+      hotelOffersBeforeMinCurrentPriceText.text = formatPrice(
+        hotelOffersBeforeMinCurrentPrice,
+        currentSearchFlowContextQuery?.currency
+      );
       safeShow(hotelOffersBeforeMinCurrentPriceText);
       safeExpand(hotelOffersBeforeMinCurrentPriceText);
     }
   }
 
   if (hotelOffersMinCurrentPriceText) {
-    const currentPrice = Number(itemData?.hotelOffersMinCurrentPrice);
-    const currency = normalizeText(currentSearchFlowContextQuery?.currency);
+    const hotelOffersMinCurrentPrice = Number(
+      itemData?.hotelOffersMinCurrentPrice
+    );
 
-    if (!Number.isFinite(currentPrice) || !currency) {
+    if (!Number.isFinite(hotelOffersMinCurrentPrice)) {
       safeCollapseAndHide(hotelOffersMinCurrentPriceText);
     } else {
-      hotelOffersMinCurrentPriceText.text = formatPrice(currentPrice, currency);
+      hotelOffersMinCurrentPriceText.text = formatPrice(
+        hotelOffersMinCurrentPrice,
+        currentSearchFlowContextQuery?.currency
+      );
       safeShow(hotelOffersMinCurrentPriceText);
       safeExpand(hotelOffersMinCurrentPriceText);
     }
   }
 
   if (hotelOffersMinCurrentPriceNoteText) {
-    const currentPriceNote = normalizeText(itemData?.hotelOffersMinCurrentPriceNote);
+    const hotelOffersMinCurrentPriceNote = normalizeText(
+      itemData?.hotelOffersMinCurrentPriceNote
+    );
 
-    if (!currentPriceNote) {
+    if (!hotelOffersMinCurrentPriceNote) {
       safeCollapseAndHide(hotelOffersMinCurrentPriceNoteText);
     } else {
-      hotelOffersMinCurrentPriceNoteText.text = currentPriceNote;
+      hotelOffersMinCurrentPriceNoteText.text = hotelOffersMinCurrentPriceNote;
       safeShow(hotelOffersMinCurrentPriceNoteText);
       safeExpand(hotelOffersMinCurrentPriceNoteText);
     }
@@ -243,15 +255,7 @@ function bindHotelRepeaterItem($item, itemData) {
   }
 
   if (hotelStarRatingDisplay) {
-    const hotelStarRating = Number(itemData?.hotelStarRating);
-
-    if (!Number.isFinite(hotelStarRating) || hotelStarRating <= 0) {
-      safeCollapseAndHide(hotelStarRatingDisplay);
-    } else {
-      hotelStarRatingDisplay.rating = hotelStarRating;
-      safeShow(hotelStarRatingDisplay);
-      safeExpand(hotelStarRatingDisplay);
-    }
+    setItemStars(hotelStarRatingDisplay, itemData?.hotelStarRating);
   }
 
   if (hotelAvailabilityButton) {
@@ -291,9 +295,8 @@ function openHotelDetailsPage(itemData) {
 function buildHotelPageUrlFromHotelOffer(hotelId, searchFlowContextUrl) {
   const hotelPageQuery = new URLSearchParams();
   const [, currentQueryString = ""] = String(searchFlowContextUrl || "").split("?");
-  const currentSearchFlowParams = new URLSearchParams(currentQueryString);
 
-  currentSearchFlowParams.forEach((value, key) => {
+  new URLSearchParams(currentQueryString).forEach((value, key) => {
     if (normalizeText(value)) {
       hotelPageQuery.set(key, value);
     }
@@ -380,20 +383,36 @@ function syncLoadMoreButton() {
   safeExpand(loadMoreHotelOffersButton);
 }
 
+function setItemStars(element, starRating) {
+  const normalizedStarRating = Number(starRating);
+
+  if (!Number.isFinite(normalizedStarRating) || normalizedStarRating <= 0) {
+    safeCollapseAndHide(element);
+    return;
+  }
+
+  element.rating = normalizedStarRating;
+  safeShow(element);
+  safeExpand(element);
+}
+
 function formatPrice(amount, currency) {
-  if (!Number.isFinite(amount) || !normalizeText(currency)) {
+  const normalizedAmount = Number(amount);
+  const normalizedCurrency = normalizeText(currency).toUpperCase();
+
+  if (!Number.isFinite(normalizedAmount) || !normalizedCurrency) {
     return "";
   }
 
   try {
     return new Intl.NumberFormat(undefined, {
       style: "currency",
-      currency: String(currency).toUpperCase(),
+      currency: normalizedCurrency,
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
-    }).format(amount);
+    }).format(normalizedAmount);
   } catch (formatError) {
-    return `${amount.toFixed(2)} ${String(currency).toUpperCase()}`;
+    return `${normalizedAmount.toFixed(2)} ${normalizedCurrency}`;
   }
 }
 
