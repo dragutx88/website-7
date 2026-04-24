@@ -59,10 +59,7 @@ export async function getHotelsRatesHandler(searchFlowContextQuery) {
 
   return {
     getHotelsRatesResponse: getHotelsRatesJson,
-    normalizedHotelsRates: normalizeHotelsRates(
-      getHotelsRatesJson,
-      searchFlowContextQuery
-    )
+    normalizedHotelsRates: normalizeHotelsRates(getHotelsRatesJson)
   };
 }
 
@@ -99,6 +96,7 @@ function buildHotelsRatesRequest(searchFlowContextQuery) {
     guestNationality,
     checkin,
     checkout,
+    roomMapping: true,
     includeHotelData: true,
     maxRatesPerHotel: 1,
     margin: 0
@@ -184,7 +182,7 @@ function buildHotelsRatesRequestOccupancies(searchFlowContextQuery) {
   );
 }
 
-function normalizeHotelsRates(getHotelsRatesResponse, searchFlowContextQuery) {
+function normalizeHotelsRates(getHotelsRatesResponse) {
   const hotels = Array.isArray(getHotelsRatesResponse?.hotels)
     ? getHotelsRatesResponse.hotels
     : [];
@@ -219,32 +217,14 @@ function normalizeHotelsRates(getHotelsRatesResponse, searchFlowContextQuery) {
       (item?.hotel && typeof item.hotel === "object" ? item.hotel : {});
 
     const roomTypes = Array.isArray(item?.roomTypes) ? item.roomTypes : [];
+    const matchedRoomType = roomTypes[0] || null;
+    const matchedRates = Array.isArray(matchedRoomType?.rates)
+      ? matchedRoomType.rates
+      : [];
+    const matchedRate = matchedRates[0] || null;
 
-    let matchedRoomType = null;
-    let matchedRate = null;
-    let matchedRateTotalAmount = null;
-
-    for (const roomType of roomTypes) {
-      const rates = Array.isArray(roomType?.rates) ? roomType.rates : [];
-
-      for (const rate of rates) {
-        const rateTotalAmount = normalizeNumberOrNull(
-          rate?.retailRate?.total?.[0]?.amount
-        );
-
-        if (!Number.isFinite(rateTotalAmount)) {
-          continue;
-        }
-
-        if (
-          !Number.isFinite(matchedRateTotalAmount) ||
-          rateTotalAmount < matchedRateTotalAmount
-        ) {
-          matchedRoomType = roomType;
-          matchedRate = rate;
-          matchedRateTotalAmount = rateTotalAmount;
-        }
-      }
+    if (!matchedRoomType || !matchedRate) {
+      continue;
     }
 
     normalizedHotelsRates.push({
@@ -258,7 +238,10 @@ function normalizeHotelsRates(getHotelsRatesResponse, searchFlowContextQuery) {
         normalizeText(item?.address) ||
         null,
       hotelReviewCount: normalizeIntegerOrNull(
-        hotel?.reviewCount ?? hotel?.review_count ?? item?.reviewCount
+        hotel?.reviewCount ??
+          hotel?.review_count ??
+          item?.reviewCount ??
+          item?.review_count
       ),
       hotelRating: normalizeNumberOrNull(
         hotel?.rating ?? item?.rating ?? item?.hotel?.rating
@@ -270,8 +253,8 @@ function normalizeHotelsRates(getHotelsRatesResponse, searchFlowContextQuery) {
         matchedRate?.retailRate?.total?.[0]?.amount
       ),
       hotelOffersMinCurrentPriceNote: buildHotelsRatesPriceNote(
-        searchFlowContextQuery,
-        matchedRate
+        matchedRate?.occupancyNumber,
+        matchedRate?.retailRate?.taxesAndFees
       ),
       hotelMainImage: normalizeText(hotel?.main_photo) || null,
       hotelStarRating: normalizeNumberOrNull(
@@ -288,37 +271,17 @@ function normalizeHotelsRates(getHotelsRatesResponse, searchFlowContextQuery) {
   return normalizedHotelsRates;
 }
 
-function buildHotelsRatesPriceNote(searchFlowContextQuery, matchedRate) {
-  const checkinDate = new Date(normalizeText(searchFlowContextQuery?.checkin));
-  const checkoutDate = new Date(normalizeText(searchFlowContextQuery?.checkout));
+function buildHotelsRatesPriceNote(occupancyNumber, taxesAndFees) {
+  const roomCount = normalizePositiveInteger(occupancyNumber, 1);
 
-  const nightCount =
-    !Number.isNaN(checkinDate.getTime()) && !Number.isNaN(checkoutDate.getTime())
-      ? Math.max(
-          1,
-          Math.round(
-            (checkoutDate.getTime() - checkinDate.getTime()) /
-              (1000 * 60 * 60 * 24)
-          )
-        )
-      : 1;
-
-  const roomCount = normalizePositiveInteger(
-    searchFlowContextQuery?.rooms,
-    DEFAULT_ROOMS
-  );
-
-  const taxesAndFees = Array.isArray(matchedRate?.retailRate?.taxesAndFees)
-    ? matchedRate.retailRate.taxesAndFees
-    : [];
-
-  const taxesAndFeesText = taxesAndFees.some(
+  const taxesAndFeesList = Array.isArray(taxesAndFees) ? taxesAndFees : [];
+  const taxesAndFeesText = taxesAndFeesList.some(
     (taxesAndFeesItem) => taxesAndFeesItem?.included === false
   )
     ? "excl."
     : "incl.";
 
-  return `${nightCount} night, ${roomCount} room, ${taxesAndFeesText} taxes & fees`;
+  return `1 night, ${roomCount} room, ${taxesAndFeesText} taxes & fees`;
 }
 
 function normalizeText(value) {
