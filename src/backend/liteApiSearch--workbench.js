@@ -9,15 +9,17 @@ const DEFAULT_FIRST_ROOM_ADULTS = 2;
 const DEFAULT_EXTRA_ROOM_ADULTS = 1;
 
 export async function searchPlacesHandler(textQuery) {
-  const query = normalizeText(textQuery);
+  const normalizedTextQuery = normalizeText(textQuery);
 
-  if (query.length < 2) {
+  if (normalizedTextQuery.length < 2) {
     return [];
   }
 
   const searchPlacesResponse = await liteApiRequest(
-    `${LITE_API_BASE_URL}/data/places?textQuery=${encodeURIComponent(query)}`,
-    { method: "GET" }
+    `${LITE_API_BASE_URL}/data/places?textQuery=${encodeURIComponent(normalizedTextQuery)}`,
+    {
+      method: "GET"
+    }
   );
 
   const searchPlacesJson = await parseJson(searchPlacesResponse);
@@ -29,14 +31,14 @@ export async function searchPlacesHandler(textQuery) {
     );
   }
 
-  const searchPlaces = Array.isArray(searchPlacesJson?.data)
+  const searchPlacesData = Array.isArray(searchPlacesJson?.data)
     ? searchPlacesJson.data
     : [];
 
-  return searchPlaces.map((place) => ({
-    placeId: normalizeText(place?.placeId),
-    displayName: normalizeText(place?.displayName),
-    formattedAddress: normalizeText(place?.formattedAddress)
+  return searchPlacesData.map((searchPlacesItem) => ({
+    placeId: normalizeText(searchPlacesItem?.placeId),
+    displayName: normalizeText(searchPlacesItem?.displayName),
+    formattedAddress: normalizeText(searchPlacesItem?.formattedAddress)
   }));
 }
 
@@ -59,64 +61,68 @@ export async function getHotelsRatesHandler(searchFlowContextQuery) {
 
   return {
     getHotelsRatesResponse: getHotelsRatesJson,
-    normalizedHotelsRates: normalizeHotelsRates(getHotelsRatesJson)
+    normalizedHotelsRates: normalizeHotelsRates(
+      getHotelsRatesJson,
+      searchFlowContextQuery
+    )
   };
 }
 
 function buildHotelsRatesRequest(searchFlowContextQuery) {
-  const mode = normalizeText(searchFlowContextQuery?.mode);
-  const placeId = normalizeText(searchFlowContextQuery?.placeId);
-  const aiSearch =
+  const normalizedMode = normalizeText(searchFlowContextQuery?.mode);
+  const normalizedPlaceId = normalizeText(searchFlowContextQuery?.placeId);
+  const normalizedAiSearch =
     normalizeText(searchFlowContextQuery?.aiSearch) ||
     normalizeText(searchFlowContextQuery?.message) ||
     normalizeText(searchFlowContextQuery?.query);
-  const checkin = normalizeText(searchFlowContextQuery?.checkin);
-  const checkout = normalizeText(searchFlowContextQuery?.checkout);
-  const currency =
+  const normalizedCheckin = normalizeText(searchFlowContextQuery?.checkin);
+  const normalizedCheckout = normalizeText(searchFlowContextQuery?.checkout);
+  const normalizedCurrency =
     normalizeText(searchFlowContextQuery?.currency).toUpperCase() ||
     DEFAULT_CURRENCY;
-  const language =
+  const normalizedLanguage =
     normalizeText(searchFlowContextQuery?.language).toLowerCase() ||
     DEFAULT_LANGUAGE;
-  const guestNationality =
-    language.toUpperCase() || DEFAULT_GUEST_NATIONALITY;
-  const occupancies = buildHotelsRatesRequestOccupancies(searchFlowContextQuery);
+  const normalizedGuestNationality =
+    normalizedLanguage.toUpperCase() || DEFAULT_GUEST_NATIONALITY;
+  const getHotelsRatesOccupancies =
+    buildHotelsRatesRequestOccupancies(searchFlowContextQuery);
 
-  if (!checkin || !checkout) {
+  if (!normalizedCheckin || !normalizedCheckout) {
     throw new Error("checkin and checkout are required.");
   }
 
-  if (!occupancies.length) {
+  if (!getHotelsRatesOccupancies.length) {
     throw new Error("occupancies are required.");
   }
 
   const getHotelsRatesRequest = {
-    occupancies,
-    currency,
-    guestNationality,
-    checkin,
-    checkout,
+    occupancies: getHotelsRatesOccupancies,
+    currency: normalizedCurrency,
+    guestNationality: normalizedGuestNationality,
+    checkin: normalizedCheckin,
+    checkout: normalizedCheckout,
     roomMapping: true,
     includeHotelData: true,
     maxRatesPerHotel: 1,
     margin: 0
   };
 
-  if (mode === "destination") {
-    if (!placeId) {
+  if (normalizedMode === "destination") {
+    if (!normalizedPlaceId) {
       throw new Error("placeId is required for destination mode.");
     }
 
-    getHotelsRatesRequest.placeId = placeId;
+    getHotelsRatesRequest.placeId = normalizedPlaceId;
     return getHotelsRatesRequest;
   }
 
-  if (mode === "vibe") {
-    if (!aiSearch) {
+  if (normalizedMode === "vibe") {
+    if (!normalizedAiSearch) {
       throw new Error("aiSearch is required for vibe mode.");
     }
 
-    getHotelsRatesRequest.aiSearch = aiSearch;
+    getHotelsRatesRequest.aiSearch = normalizedAiSearch;
     return getHotelsRatesRequest;
   }
 
@@ -124,164 +130,252 @@ function buildHotelsRatesRequest(searchFlowContextQuery) {
 }
 
 function buildHotelsRatesRequestOccupancies(searchFlowContextQuery) {
-  const rooms = normalizePositiveInteger(
+  const normalizedRooms = normalizePositiveInteger(
     searchFlowContextQuery?.rooms,
     DEFAULT_ROOMS
   );
 
-  const adultsList = normalizeText(searchFlowContextQuery?.adults)
+  const normalizedAdultsList = normalizeText(searchFlowContextQuery?.adults)
     .split(",")
-    .map((adultItem) => normalizePositiveInteger(adultItem, null))
-    .filter((adultItem) => Number.isFinite(adultItem));
+    .map((normalizedAdultsItem) =>
+      normalizePositiveInteger(normalizedAdultsItem, null)
+    )
+    .filter((normalizedAdultsItem) => Number.isFinite(normalizedAdultsItem));
 
-  const childrenByRoom = new Map();
-  const childrenList = normalizeText(searchFlowContextQuery?.children)
+  const normalizedChildrenByRoom = new Map();
+
+  const normalizedChildrenList = normalizeText(searchFlowContextQuery?.children)
     .split(",")
-    .map((childItem) => normalizeText(childItem))
+    .map((normalizedChildrenItem) => normalizeText(normalizedChildrenItem))
     .filter(Boolean);
 
-  for (const childItem of childrenList) {
-    const [roomNumberText, childAgeText] = childItem.split("_");
-    const roomNumber = normalizePositiveInteger(roomNumberText, null);
-    const childAge = normalizeIntegerOrNull(childAgeText);
+  for (const normalizedChildrenItem of normalizedChildrenList) {
+    const [normalizedRoomNumberText, normalizedChildAgeText] =
+      normalizedChildrenItem.split("_");
+
+    const normalizedRoomNumber = normalizePositiveInteger(
+      normalizedRoomNumberText,
+      null
+    );
+    const normalizedChildAge = normalizeIntegerOrNull(normalizedChildAgeText);
 
     if (
-      !Number.isFinite(roomNumber) ||
-      roomNumber < 1 ||
-      roomNumber > rooms ||
-      !Number.isFinite(childAge)
+      !Number.isFinite(normalizedRoomNumber) ||
+      normalizedRoomNumber < 1 ||
+      normalizedRoomNumber > normalizedRooms ||
+      !Number.isFinite(normalizedChildAge)
     ) {
       continue;
     }
 
-    if (!childrenByRoom.has(roomNumber)) {
-      childrenByRoom.set(roomNumber, []);
+    if (!normalizedChildrenByRoom.has(normalizedRoomNumber)) {
+      normalizedChildrenByRoom.set(normalizedRoomNumber, []);
     }
 
-    childrenByRoom.get(roomNumber).push(childAge);
+    normalizedChildrenByRoom.get(normalizedRoomNumber).push(normalizedChildAge);
   }
 
-  const occupancies = [];
+  const getHotelsRatesOccupancies = [];
 
-  for (let roomNumber = 1; roomNumber <= rooms; roomNumber += 1) {
-    const adults =
-      Number.isFinite(adultsList[roomNumber - 1])
-        ? adultsList[roomNumber - 1]
-        : roomNumber === 1
+  for (
+    let normalizedRoomNumber = 1;
+    normalizedRoomNumber <= normalizedRooms;
+    normalizedRoomNumber += 1
+  ) {
+    const normalizedAdults =
+      Number.isFinite(normalizedAdultsList[normalizedRoomNumber - 1])
+        ? normalizedAdultsList[normalizedRoomNumber - 1]
+        : normalizedRoomNumber === 1
           ? DEFAULT_FIRST_ROOM_ADULTS
           : DEFAULT_EXTRA_ROOM_ADULTS;
 
-    occupancies.push({
-      adults: normalizePositiveInteger(adults, DEFAULT_FIRST_ROOM_ADULTS),
-      children: childrenByRoom.get(roomNumber) || []
+    getHotelsRatesOccupancies.push({
+      adults: normalizePositiveInteger(normalizedAdults, DEFAULT_FIRST_ROOM_ADULTS),
+      children: normalizedChildrenByRoom.get(normalizedRoomNumber) || []
     });
   }
 
-  return occupancies.filter(
-    (occupancyItem) => normalizePositiveInteger(occupancyItem?.adults, 0) > 0
+  return getHotelsRatesOccupancies.filter(
+    (getHotelsRatesOccupancyItem) =>
+      normalizePositiveInteger(getHotelsRatesOccupancyItem?.adults, 0) > 0
   );
 }
 
-function normalizeHotelsRates(getHotelsRatesResponse) {
-  const hotels = Array.isArray(getHotelsRatesResponse?.hotels)
-    ? getHotelsRatesResponse.hotels
-    : [];
-  const data = Array.isArray(getHotelsRatesResponse?.data)
+function normalizeHotelsRates(getHotelsRatesResponse, searchFlowContextQuery) {
+  const getHotelsRatesData = Array.isArray(getHotelsRatesResponse?.data)
     ? getHotelsRatesResponse.data
     : [];
+  const getHotelsRatesHotels = Array.isArray(getHotelsRatesResponse?.hotels)
+    ? getHotelsRatesResponse.hotels
+    : [];
 
-  const hotelsById = new Map();
+  const normalizedLanguage =
+    normalizeText(searchFlowContextQuery?.language).toLowerCase() ||
+    DEFAULT_LANGUAGE;
 
-  for (const hotel of hotels) {
-    const hotelId = normalizeText(hotel?.id) || normalizeText(hotel?.hotelId);
+  const normalizedCheckin = normalizeText(searchFlowContextQuery?.checkin);
+  const normalizedCheckout = normalizeText(searchFlowContextQuery?.checkout);
 
-    if (hotelId) {
-      hotelsById.set(hotelId, hotel);
-    }
-  }
+  const normalizedCheckinDate = new Date(normalizedCheckin);
+  const normalizedCheckoutDate = new Date(normalizedCheckout);
+
+  const normalizedNightCount =
+    !Number.isNaN(normalizedCheckinDate.getTime()) &&
+    !Number.isNaN(normalizedCheckoutDate.getTime())
+      ? Math.max(
+          1,
+          Math.round(
+            (normalizedCheckoutDate.getTime() - normalizedCheckinDate.getTime()) /
+              (1000 * 60 * 60 * 24)
+          )
+        )
+      : 1;
 
   const normalizedHotelsRates = [];
 
-  for (const item of data) {
-    const hotelId =
-      normalizeText(item?.hotelId) ||
-      normalizeText(item?.hotel?.id) ||
-      normalizeText(item?.id);
+  for (const dataItem of getHotelsRatesData) {
+    const dataItemHotelId = normalizeText(dataItem?.hotelId);
 
-    if (!hotelId) {
+    if (!dataItemHotelId) {
       continue;
     }
 
-    const hotel =
-      hotelsById.get(hotelId) ||
-      (item?.hotel && typeof item.hotel === "object" ? item.hotel : {});
+    const matchedHotel =
+      getHotelsRatesHotels.find(
+        (hotelItem) => normalizeText(hotelItem?.id) === dataItemHotelId
+      ) || null;
 
-    const roomTypes = Array.isArray(item?.roomTypes) ? item.roomTypes : [];
-    const matchedRoomType = roomTypes[0] || null;
-    const matchedRates = Array.isArray(matchedRoomType?.rates)
-      ? matchedRoomType.rates
+    if (!matchedHotel) {
+      continue;
+    }
+
+    const matchedRoomType = Array.isArray(dataItem?.roomTypes)
+      ? dataItem.roomTypes[0] || null
+      : null;
+
+    if (!matchedRoomType) {
+      continue;
+    }
+
+    const matchedRate = Array.isArray(dataItem?.roomTypes?.[0]?.rates)
+      ? dataItem.roomTypes[0].rates[0] || null
+      : null;
+
+    if (!matchedRate) {
+      continue;
+    }
+
+    const matchedHotelName = normalizeText(matchedHotel?.name) || null;
+
+    if (!matchedHotelName) {
+      continue;
+    }
+
+    const matchedHotelAddress = normalizeText(matchedHotel?.address) || null;
+    const matchedHotelReviewCount = normalizeIntegerOrNull(
+      matchedHotel?.reviewCount
+    );
+    const matchedHotelRating = normalizeNumberOrNull(matchedHotel?.rating);
+    const matchedHotelMainImage = normalizeText(matchedHotel?.main_photo) || null;
+    const matchedHotelStarRating = normalizeNumberOrNull(matchedHotel?.stars);
+
+    const matchedRateBeforeCurrentPrice = normalizeNumberOrNull(
+      matchedRate?.retailRate?.suggestedSellingPrice?.[0]?.amount
+    );
+
+    const matchedRateCurrentPrice = normalizeNumberOrNull(
+      matchedRate?.retailRate?.total?.[0]?.amount
+    );
+
+    const matchedRateCurrency =
+      normalizeText(matchedRate?.retailRate?.total?.[0]?.currency) || null;
+
+    const matchedRateOccupancyNumber = normalizePositiveInteger(
+      matchedRate?.occupancyNumber,
+      1
+    );
+
+    const matchedRateTaxesAndFees = Array.isArray(
+      matchedRate?.retailRate?.taxesAndFees
+    )
+      ? matchedRate.retailRate.taxesAndFees
       : [];
-    const matchedRate = matchedRates[0] || null;
 
-    if (!matchedRoomType || !matchedRate) {
-      continue;
-    }
+    const matchedRateHasExcludedTaxesAndFees = matchedRateTaxesAndFees.some(
+      (matchedRateTaxesAndFeesItem) =>
+        matchedRateTaxesAndFeesItem?.included === false
+    );
+
+    const matchedRateTaxesAndFeesText = matchedRateHasExcludedTaxesAndFees
+      ? "excl."
+      : "incl.";
+
+    const hotelOffersBeforeMinCurrentPriceText = formatCurrencyText(
+      matchedRateBeforeCurrentPrice,
+      matchedRateCurrency,
+      normalizedLanguage
+    );
+
+    const hotelOffersMinCurrentPriceText = formatCurrencyText(
+      matchedRateCurrentPrice,
+      matchedRateCurrency,
+      normalizedLanguage
+    );
+
+    const hotelOffersMinCurrentPriceNoteText =
+      Number.isFinite(matchedRateOccupancyNumber)
+        ? `${normalizedNightCount} night, ${matchedRateOccupancyNumber} room, ${matchedRateTaxesAndFeesText} taxes & fees`
+        : null;
 
     normalizedHotelsRates.push({
-      hotelId,
-      hotelName:
-        normalizeText(hotel?.name) ||
-        normalizeText(item?.name) ||
-        "Hotel",
-      hotelAddress:
-        normalizeText(hotel?.address) ||
-        normalizeText(item?.address) ||
-        null,
-      hotelReviewCount: normalizeIntegerOrNull(
-        hotel?.reviewCount ??
-          hotel?.review_count ??
-          item?.reviewCount ??
-          item?.review_count
-      ),
-      hotelRating: normalizeNumberOrNull(
-        hotel?.rating ?? item?.rating ?? item?.hotel?.rating
-      ),
-      hotelOffersBeforeMinCurrentPrice: normalizeNumberOrNull(
-        matchedRoomType?.suggestedSellingPrice?.amount
-      ),
-      hotelOffersMinCurrentPrice: normalizeNumberOrNull(
-        matchedRate?.retailRate?.total?.[0]?.amount
-      ),
-      hotelOffersMinCurrentPriceNote: buildHotelsRatesPriceNote(
-        matchedRate?.occupancyNumber,
-        matchedRate?.retailRate?.taxesAndFees
-      ),
-      hotelMainImage: normalizeText(hotel?.main_photo) || null,
-      hotelStarRating: normalizeNumberOrNull(
-        hotel?.starRating ??
-          hotel?.star_rating ??
-          item?.starRating ??
-          item?.star_rating ??
-          item?.hotel?.starRating ??
-          item?.hotel?.star_rating
-      )
+      hotelId: dataItemHotelId,
+      hotelName: matchedHotelName,
+      hotelAddress: matchedHotelAddress,
+      hotelReviewCountText: formatReviewCountText(matchedHotelReviewCount),
+      hotelRating: matchedHotelRating,
+      hotelOffersBeforeMinCurrentPriceText,
+      hotelOffersMinCurrentPriceText,
+      hotelOffersMinCurrentPriceNoteText,
+      hotelMainImage: matchedHotelMainImage,
+      hotelStarRating: matchedHotelStarRating
     });
   }
 
   return normalizedHotelsRates;
 }
 
-function buildHotelsRatesPriceNote(occupancyNumber, taxesAndFees) {
-  const roomCount = normalizePositiveInteger(occupancyNumber, 1);
+function formatCurrencyText(amount, currency, language) {
+  const normalizedAmount = normalizeNumberOrNull(amount);
+  const normalizedCurrency = normalizeText(currency).toUpperCase();
+  const normalizedLanguage = normalizeText(language).toLowerCase() || DEFAULT_LANGUAGE;
 
-  const taxesAndFeesList = Array.isArray(taxesAndFees) ? taxesAndFees : [];
-  const taxesAndFeesText = taxesAndFeesList.some(
-    (taxesAndFeesItem) => taxesAndFeesItem?.included === false
-  )
-    ? "excl."
-    : "incl.";
+  if (!Number.isFinite(normalizedAmount) || !normalizedCurrency) {
+    return null;
+  }
 
-  return `1 night, ${roomCount} room, ${taxesAndFeesText} taxes & fees`;
+  const normalizedLocale =
+    normalizedLanguage === "tr" ? "tr-TR" : "en-US";
+
+  try {
+    return new Intl.NumberFormat(normalizedLocale, {
+      style: "currency",
+      currency: normalizedCurrency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(normalizedAmount);
+  } catch (formatCurrencyError) {
+    return `${normalizedCurrency} ${normalizedAmount.toFixed(2)}`;
+  }
+}
+
+function formatReviewCountText(reviewCount) {
+  const normalizedReviewCount = normalizeIntegerOrNull(reviewCount);
+
+  if (!Number.isFinite(normalizedReviewCount) || normalizedReviewCount <= 0) {
+    return null;
+  }
+
+  return `${new Intl.NumberFormat("en-US").format(normalizedReviewCount)} Reviews`;
 }
 
 function normalizeText(value) {
