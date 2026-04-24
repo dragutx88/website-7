@@ -28,7 +28,8 @@ export const getHotelDetails = webMethod(
 export const getMappedRoomRatesByHotelId = webMethod(
   Permissions.Anyone,
   async (payload) => {
-    const getHotelMappedRoomRatesResult = await getHotelMappedRoomRatesHandler(payload);
+    const getHotelMappedRoomRatesResult =
+      await getHotelMappedRoomRatesHandler(payload);
 
     return {
       hotelId: getHotelMappedRoomRatesResult.hotelId,
@@ -43,7 +44,8 @@ export const getMappedRoomRatesByHotelId = webMethod(
 export const getMergedMappedRoomOffers = webMethod(
   Permissions.Anyone,
   async (payload) => {
-    const getHotelMappedRoomOffersResult = await getHotelMappedRoomOffersHandler(payload);
+    const getHotelMappedRoomOffersResult =
+      await getHotelMappedRoomOffersHandler(payload);
 
     return {
       hotelId: getHotelMappedRoomOffersResult.hotelId,
