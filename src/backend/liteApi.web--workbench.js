@@ -22,42 +22,47 @@ export const getHotelsRates = webMethod(
 
 export const getHotelDetails = webMethod(
   Permissions.Anyone,
-  async (hotelId) => getHotelDetailsHandler(hotelId)
+  async (searchFlowContextQuery) =>
+    getHotelDetailsHandler(searchFlowContextQuery)
 );
 
-export const getMappedRoomRatesByHotelId = webMethod(
+export const getHotelMappedRoomRates = webMethod(
   Permissions.Anyone,
-  async (payload) => {
+  async (searchFlowContextQuery) => {
     const getHotelMappedRoomRatesResult =
-      await getHotelMappedRoomRatesHandler(payload);
+      await getHotelMappedRoomRatesHandler(searchFlowContextQuery);
 
     return {
       hotelId: getHotelMappedRoomRatesResult.hotelId,
-      getMappedRoomRatesByHotelIdResponse:
+      getHotelMappedRoomRatesResponse:
         getHotelMappedRoomRatesResult.getHotelMappedRoomRatesResponse,
-      normalizedMappedRoomRatesByHotelId:
+      normalizedHotelMappedRoomRates:
         getHotelMappedRoomRatesResult.normalizedHotelMappedRoomRates
     };
   }
 );
 
-export const getMergedMappedRoomOffers = webMethod(
+export const getHotelPageData = webMethod(
   Permissions.Anyone,
-  async (payload) => {
+  async (searchFlowContextQuery) => {
     const getHotelMappedRoomOffersResult =
-      await getHotelMappedRoomOffersHandler(payload);
+      await getHotelMappedRoomOffersHandler(searchFlowContextQuery);
 
     return {
       hotelId: getHotelMappedRoomOffersResult.hotelId,
       getHotelDetailsResponse: getHotelMappedRoomOffersResult.getHotelDetailsResponse,
-      getMappedRoomRatesByHotelIdResponse:
+      getHotelMappedRoomRatesResponse:
         getHotelMappedRoomOffersResult.getHotelMappedRoomRatesResponse,
       normalizedHotelDetails: getHotelMappedRoomOffersResult.normalizedHotelDetails,
-      normalizedMergedMappedRoomOffers:
+      normalizedHotelMappedRoomOffers:
         getHotelMappedRoomOffersResult.normalizedHotelMappedRoomOffers
     };
   }
 );
+
+/* compatibility aliases for current page migration */
+export const getMappedRoomRatesByHotelId = getHotelMappedRoomRates;
+export const getMergedMappedRoomOffers = getHotelPageData;
 
 export const createPrebookSession = webMethod(
   Permissions.Anyone,
