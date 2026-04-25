@@ -1,13 +1,6 @@
 import wixLocationFrontend from "wix-location-frontend";
 import { session } from "wix-storage-frontend";
 import { getHotelsRates } from "backend/liteApi.web";
-import {
-  safeCollapseAndHide,
-  safeExpand,
-  safeGetItemElement,
-  safeGetPageElement,
-  safeShow
-} from "public/liteApiHelpers";
 
 const RETURN_SEARCH_FLOW_CONTEXT_URL_STORAGE_KEY = "returnSearchFlowContextUrl";
 const MAX_RESULTS_TOTAL = 30;
@@ -28,12 +21,10 @@ async function initializeHotelsPage() {
   currentSearchFlowContextUrl =
     buildCurrentSearchFlowContextUrl(searchFlowContextQuery);
 
-  if (currentSearchFlowContextUrl) {
-    session.setItem(
-      RETURN_SEARCH_FLOW_CONTEXT_URL_STORAGE_KEY,
-      currentSearchFlowContextUrl
-    );
-  }
+  session.setItem(
+    RETURN_SEARCH_FLOW_CONTEXT_URL_STORAGE_KEY,
+    currentSearchFlowContextUrl
+  );
 
   configureRepeater();
   configureLoadMoreButton();
@@ -72,14 +63,7 @@ async function initializeHotelsPage() {
 }
 
 function configureRepeater() {
-  const hotelOfferResultsRepeater = safeGetPageElement(
-    "#hotelOfferResultsRepeater"
-  );
-
-  if (!hotelOfferResultsRepeater) {
-    console.error("Missing #hotelOfferResultsRepeater");
-    return;
-  }
+  const hotelOfferResultsRepeater = $w("#hotelOfferResultsRepeater");
 
   hotelOfferResultsRepeater.onItemReady(($item, itemData) => {
     bindHotelRepeaterItem($item, itemData);
@@ -87,13 +71,7 @@ function configureRepeater() {
 }
 
 function configureLoadMoreButton() {
-  const loadMoreHotelOffersButton = safeGetPageElement(
-    "#loadMoreHotelOffersButton"
-  );
-
-  if (!loadMoreHotelOffersButton) {
-    return;
-  }
+  const loadMoreHotelOffersButton = $w("#loadMoreHotelOffersButton");
 
   loadMoreHotelOffersButton.onClick(() => {
     renderedCount = Math.min(
@@ -106,199 +84,137 @@ function configureLoadMoreButton() {
 }
 
 function renderVisibleHotels() {
-  const hotelOfferResultsRepeater = safeGetPageElement(
-    "#hotelOfferResultsRepeater"
-  );
-
-  if (!hotelOfferResultsRepeater) {
-    return;
-  }
+  const hotelOfferResultsRepeater = $w("#hotelOfferResultsRepeater");
 
   hotelOfferResultsRepeater.data = allHotelOfferResults.slice(0, renderedCount);
-
-  safeShow(hotelOfferResultsRepeater);
-  safeExpand(hotelOfferResultsRepeater);
+  hotelOfferResultsRepeater.show();
+  hotelOfferResultsRepeater.expand();
 
   hideEmptyStateIfExists();
   syncLoadMoreButton();
 }
 
 function bindHotelRepeaterItem($item, itemData) {
-  const hotelNameText = safeGetItemElement($item, "#hotelNameText");
-  const hotelAddressText = safeGetItemElement($item, "#hotelAddressText");
-  const hotelReviewCountText = safeGetItemElement($item, "#hotelReviewCountText");
-  const hotelRatingText = safeGetItemElement($item, "#hotelRatingText");
-  const hotelOffersBeforeMinCurrentPriceText = safeGetItemElement(
-    $item,
+  const hotelNameText = $item("#hotelNameText");
+  const hotelAddressText = $item("#hotelAddressText");
+  const hotelReviewCountText = $item("#hotelReviewCountText");
+  const hotelRatingText = $item("#hotelRatingText");
+  const hotelOffersBeforeMinCurrentPriceText = $item(
     "#hotelOffersBeforeMinCurrentPriceText"
   );
-  const hotelOffersMinCurrentPriceText = safeGetItemElement(
-    $item,
+  const hotelOffersMinCurrentPriceText = $item(
     "#hotelOffersMinCurrentPriceText"
   );
-  const hotelOffersMinCurrentPriceNoteText = safeGetItemElement(
-    $item,
+  const hotelOffersMinCurrentPriceNoteText = $item(
     "#hotelOffersMinCurrentPriceNoteText"
   );
-  const hotelMainImage = safeGetItemElement($item, "#hotelMainImage");
-  const hotelStarRatingDisplay = safeGetItemElement(
-    $item,
-    "#hotelStarRatingDisplay"
+  const hotelMainImage = $item("#hotelMainImage");
+  const hotelStarRatingDisplay = $item("#hotelStarRatingDisplay");
+  const hotelAvailabilityButton = $item("#hotelAvailabilityButton");
+  const hotelOfferResultCard = $item("#hotelOfferResultCard");
+
+  const normalizedHotelName = normalizeText(itemData?.hotelName);
+  const normalizedHotelAddress = normalizeText(itemData?.hotelAddress);
+  const normalizedHotelOffersBeforeMinCurrentPriceText = normalizeText(
+    itemData?.hotelOffersBeforeMinCurrentPriceText
   );
-  const hotelAvailabilityButton = safeGetItemElement(
-    $item,
-    "#hotelAvailabilityButton"
+  const normalizedHotelOffersMinCurrentPriceText = normalizeText(
+    itemData?.hotelOffersMinCurrentPriceText
   );
-  const hotelOfferResultCard = safeGetItemElement(
-    $item,
-    "#hotelOfferResultCard"
+  const normalizedHotelOffersMinCurrentPriceNoteText = normalizeText(
+    itemData?.hotelOffersMinCurrentPriceNoteText
   );
+  const normalizedHotelMainImage = normalizeText(itemData?.hotelMainImage);
+  const normalizedHotelRating = Number(itemData?.hotelRating);
 
-  if (hotelNameText) {
-    const hotelName = normalizeText(itemData?.hotelName);
-
-    if (!hotelName) {
-      safeCollapseAndHide(hotelNameText);
-    } else {
-      hotelNameText.text = hotelName;
-      safeShow(hotelNameText);
-      safeExpand(hotelNameText);
-    }
+  if (!normalizedHotelName) {
+    hotelNameText.collapse();
+    hotelNameText.hide();
+  } else {
+    hotelNameText.text = normalizedHotelName;
+    hotelNameText.show();
+    hotelNameText.expand();
   }
 
-  if (hotelAddressText) {
-    const hotelAddress = normalizeText(itemData?.hotelAddress);
-
-    if (!hotelAddress) {
-      safeCollapseAndHide(hotelAddressText);
-    } else {
-      hotelAddressText.text = hotelAddress;
-      safeShow(hotelAddressText);
-      safeExpand(hotelAddressText);
-    }
+  if (!normalizedHotelAddress) {
+    hotelAddressText.collapse();
+    hotelAddressText.hide();
+  } else {
+    hotelAddressText.text = normalizedHotelAddress;
+    hotelAddressText.show();
+    hotelAddressText.expand();
   }
 
-  if (hotelReviewCountText) {
-    const normalizedHotelReviewCountText = normalizeText(
-      itemData?.hotelReviewCountText
-    );
+  hotelReviewCountText.collapse();
+  hotelReviewCountText.hide();
 
-    if (!normalizedHotelReviewCountText) {
-      safeCollapseAndHide(hotelReviewCountText);
-    } else {
-      hotelReviewCountText.text = normalizedHotelReviewCountText;
-      safeShow(hotelReviewCountText);
-      safeExpand(hotelReviewCountText);
-    }
+  if (!Number.isFinite(normalizedHotelRating)) {
+    hotelRatingText.collapse();
+    hotelRatingText.hide();
+  } else {
+    hotelRatingText.text = String(normalizedHotelRating);
+    hotelRatingText.show();
+    hotelRatingText.expand();
   }
 
-  if (hotelRatingText) {
-    const normalizedHotelRating = Number(itemData?.hotelRating);
-
-    if (!Number.isFinite(normalizedHotelRating)) {
-      safeCollapseAndHide(hotelRatingText);
-    } else {
-      hotelRatingText.text = String(normalizedHotelRating);
-      safeShow(hotelRatingText);
-      safeExpand(hotelRatingText);
-    }
+  if (!normalizedHotelOffersBeforeMinCurrentPriceText) {
+    hotelOffersBeforeMinCurrentPriceText.collapse();
+    hotelOffersBeforeMinCurrentPriceText.hide();
+  } else {
+    hotelOffersBeforeMinCurrentPriceText.text =
+      normalizedHotelOffersBeforeMinCurrentPriceText;
+    hotelOffersBeforeMinCurrentPriceText.show();
+    hotelOffersBeforeMinCurrentPriceText.expand();
   }
 
-  if (hotelOffersBeforeMinCurrentPriceText) {
-    const normalizedHotelOffersBeforeMinCurrentPriceText = normalizeText(
-      itemData?.hotelOffersBeforeMinCurrentPriceText
-    );
-
-    if (!normalizedHotelOffersBeforeMinCurrentPriceText) {
-      safeCollapseAndHide(hotelOffersBeforeMinCurrentPriceText);
-    } else {
-      hotelOffersBeforeMinCurrentPriceText.text =
-        normalizedHotelOffersBeforeMinCurrentPriceText;
-      safeShow(hotelOffersBeforeMinCurrentPriceText);
-      safeExpand(hotelOffersBeforeMinCurrentPriceText);
-    }
+  if (!normalizedHotelOffersMinCurrentPriceText) {
+    hotelOffersMinCurrentPriceText.collapse();
+    hotelOffersMinCurrentPriceText.hide();
+  } else {
+    hotelOffersMinCurrentPriceText.text =
+      normalizedHotelOffersMinCurrentPriceText;
+    hotelOffersMinCurrentPriceText.show();
+    hotelOffersMinCurrentPriceText.expand();
   }
 
-  if (hotelOffersMinCurrentPriceText) {
-    const normalizedHotelOffersMinCurrentPriceText = normalizeText(
-      itemData?.hotelOffersMinCurrentPriceText
-    );
-
-    if (!normalizedHotelOffersMinCurrentPriceText) {
-      safeCollapseAndHide(hotelOffersMinCurrentPriceText);
-    } else {
-      hotelOffersMinCurrentPriceText.text =
-        normalizedHotelOffersMinCurrentPriceText;
-      safeShow(hotelOffersMinCurrentPriceText);
-      safeExpand(hotelOffersMinCurrentPriceText);
-    }
+  if (!normalizedHotelOffersMinCurrentPriceNoteText) {
+    hotelOffersMinCurrentPriceNoteText.collapse();
+    hotelOffersMinCurrentPriceNoteText.hide();
+  } else {
+    hotelOffersMinCurrentPriceNoteText.text =
+      normalizedHotelOffersMinCurrentPriceNoteText;
+    hotelOffersMinCurrentPriceNoteText.show();
+    hotelOffersMinCurrentPriceNoteText.expand();
   }
 
-  if (hotelOffersMinCurrentPriceNoteText) {
-    const normalizedHotelOffersMinCurrentPriceNoteText = normalizeText(
-      itemData?.hotelOffersMinCurrentPriceNoteText
-    );
+  if (!normalizedHotelMainImage) {
+    hotelMainImage.collapse();
+    hotelMainImage.hide();
+  } else {
+    hotelMainImage.src = normalizedHotelMainImage;
+    hotelMainImage.show();
+    hotelMainImage.expand();
 
-    if (!normalizedHotelOffersMinCurrentPriceNoteText) {
-      safeCollapseAndHide(hotelOffersMinCurrentPriceNoteText);
-    } else {
-      hotelOffersMinCurrentPriceNoteText.text =
-        normalizedHotelOffersMinCurrentPriceNoteText;
-      safeShow(hotelOffersMinCurrentPriceNoteText);
-      safeExpand(hotelOffersMinCurrentPriceNoteText);
-    }
-  }
-
-  if (hotelMainImage) {
-    const normalizedHotelMainImage = normalizeText(itemData?.hotelMainImage);
-
-    if (!normalizedHotelMainImage) {
-      safeCollapseAndHide(hotelMainImage);
-    } else {
-      hotelMainImage.src = normalizedHotelMainImage;
-      safeShow(hotelMainImage);
-      safeExpand(hotelMainImage);
-
-      if (typeof hotelMainImage.onClick === "function") {
-        hotelMainImage.onClick(() => {
-          openHotelDetailsPage(itemData);
-        });
-      }
-    }
-  }
-
-  if (hotelStarRatingDisplay) {
-    const normalizedHotelStarRating = Number(itemData?.hotelStarRating);
-
-    if (!Number.isFinite(normalizedHotelStarRating) || normalizedHotelStarRating <= 0) {
-      safeCollapseAndHide(hotelStarRatingDisplay);
-    } else {
-      hotelStarRatingDisplay.rating = normalizedHotelStarRating;
-      safeShow(hotelStarRatingDisplay);
-      safeExpand(hotelStarRatingDisplay);
-    }
-  }
-
-  if (hotelAvailabilityButton) {
-    hotelAvailabilityButton.label = "See availability";
-    safeShow(hotelAvailabilityButton);
-    safeExpand(hotelAvailabilityButton);
-
-    hotelAvailabilityButton.onClick(() => {
+    hotelMainImage.onClick(() => {
       openHotelDetailsPage(itemData);
     });
   }
 
-  if (hotelOfferResultCard) {
-    safeShow(hotelOfferResultCard);
-    safeExpand(hotelOfferResultCard);
+  hotelStarRatingDisplay.collapse();
+  hotelStarRatingDisplay.hide();
 
-    if (typeof hotelOfferResultCard.onClick === "function") {
-      hotelOfferResultCard.onClick(() => {
-        openHotelDetailsPage(itemData);
-      });
-    }
-  }
+  hotelAvailabilityButton.label = "See availability";
+  hotelAvailabilityButton.show();
+  hotelAvailabilityButton.expand();
+  hotelAvailabilityButton.onClick(() => {
+    openHotelDetailsPage(itemData);
+  });
+
+  hotelOfferResultCard.show();
+  hotelOfferResultCard.expand();
+  hotelOfferResultCard.onClick(() => {
+    openHotelDetailsPage(itemData);
+  });
 }
 
 function openHotelDetailsPage(itemData) {
@@ -357,49 +273,38 @@ function buildCurrentSearchFlowContextUrl(searchFlowContextQuery) {
 }
 
 function renderEmptyState(message) {
-  const hotelOfferResultsRepeater = safeGetPageElement(
-    "#hotelOfferResultsRepeater"
-  );
-  const loadMoreHotelOffersButton = safeGetPageElement(
-    "#loadMoreHotelOffersButton"
-  );
-  const resultsEmptyStateText = safeGetPageElement("#resultsEmptyStateText");
+  const hotelOfferResultsRepeater = $w("#hotelOfferResultsRepeater");
+  const loadMoreHotelOffersButton = $w("#loadMoreHotelOffersButton");
 
-  if (hotelOfferResultsRepeater) {
-    hotelOfferResultsRepeater.data = [];
-    safeCollapseAndHide(hotelOfferResultsRepeater);
-  }
+  hotelOfferResultsRepeater.data = [];
+  hotelOfferResultsRepeater.collapse();
+  hotelOfferResultsRepeater.hide();
 
-  if (loadMoreHotelOffersButton) {
-    safeCollapseAndHide(loadMoreHotelOffersButton);
-  }
+  loadMoreHotelOffersButton.collapse();
+  loadMoreHotelOffersButton.hide();
 
-  if (resultsEmptyStateText) {
+  try {
+    const resultsEmptyStateText = $w("#resultsEmptyStateText");
     resultsEmptyStateText.text = normalizeText(message);
-    safeShow(resultsEmptyStateText);
-    safeExpand(resultsEmptyStateText);
-  }
+    resultsEmptyStateText.show();
+    resultsEmptyStateText.expand();
+  } catch (resultsEmptyStateTextError) {}
 }
 
 function hideEmptyStateIfExists() {
-  const resultsEmptyStateText = safeGetPageElement("#resultsEmptyStateText");
-
-  if (resultsEmptyStateText) {
-    safeCollapseAndHide(resultsEmptyStateText);
-  }
+  try {
+    const resultsEmptyStateText = $w("#resultsEmptyStateText");
+    resultsEmptyStateText.collapse();
+    resultsEmptyStateText.hide();
+  } catch (resultsEmptyStateTextError) {}
 }
 
 function syncLoadMoreButton() {
-  const loadMoreHotelOffersButton = safeGetPageElement(
-    "#loadMoreHotelOffersButton"
-  );
-
-  if (!loadMoreHotelOffersButton) {
-    return;
-  }
+  const loadMoreHotelOffersButton = $w("#loadMoreHotelOffersButton");
 
   if (renderedCount >= allHotelOfferResults.length) {
-    safeCollapseAndHide(loadMoreHotelOffersButton);
+    loadMoreHotelOffersButton.collapse();
+    loadMoreHotelOffersButton.hide();
     return;
   }
 
@@ -407,8 +312,8 @@ function syncLoadMoreButton() {
     allHotelOfferResults.length - renderedCount
   } left)`;
 
-  safeShow(loadMoreHotelOffersButton);
-  safeExpand(loadMoreHotelOffersButton);
+  loadMoreHotelOffersButton.show();
+  loadMoreHotelOffersButton.expand();
 }
 
 function buildRepeaterId(hotelId, index) {
