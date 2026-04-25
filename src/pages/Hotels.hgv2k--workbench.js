@@ -28,6 +28,7 @@ async function initializeHotelsPage() {
 
   configureRepeater();
   configureLoadMoreButton();
+  hideNoResultsState();
 
   try {
     const getHotelsRatesResult = await getHotelsRates(searchFlowContextQuery);
@@ -39,7 +40,7 @@ async function initializeHotelsPage() {
       : [];
 
     if (!normalizedHotelsRates.length) {
-      renderEmptyState("No available hotels were found for this search.");
+      renderNoResultsState();
       return;
     }
 
@@ -58,7 +59,7 @@ async function initializeHotelsPage() {
     renderVisibleHotels();
   } catch (initializeHotelsPageError) {
     console.error("HOTELS initialization failed", initializeHotelsPageError);
-    renderEmptyState("Something went wrong while loading hotel results.");
+    renderNoResultsState();
   }
 }
 
@@ -90,14 +91,13 @@ function renderVisibleHotels() {
   hotelOfferResultsRepeater.show();
   hotelOfferResultsRepeater.expand();
 
-  hideEmptyStateIfExists();
+  hideNoResultsState();
   syncLoadMoreButton();
 }
 
 function bindHotelRepeaterItem($item, itemData) {
   const hotelNameText = $item("#hotelNameText");
   const hotelAddressText = $item("#hotelAddressText");
-  const hotelReviewCountText = $item("#hotelReviewCountText");
   const hotelRatingText = $item("#hotelRatingText");
   const hotelOffersBeforeMinCurrentPriceText = $item(
     "#hotelOffersBeforeMinCurrentPriceText"
@@ -109,12 +109,12 @@ function bindHotelRepeaterItem($item, itemData) {
     "#hotelOffersMinCurrentPriceNoteText"
   );
   const hotelMainImage = $item("#hotelMainImage");
-  const hotelStarRatingDisplay = $item("#hotelStarRatingDisplay");
   const hotelAvailabilityButton = $item("#hotelAvailabilityButton");
   const hotelOfferResultCard = $item("#hotelOfferResultCard");
 
   const normalizedHotelName = normalizeText(itemData?.hotelName);
   const normalizedHotelAddress = normalizeText(itemData?.hotelAddress);
+  const normalizedHotelRating = Number(itemData?.hotelRating);
   const normalizedHotelOffersBeforeMinCurrentPriceText = normalizeText(
     itemData?.hotelOffersBeforeMinCurrentPriceText
   );
@@ -125,7 +125,6 @@ function bindHotelRepeaterItem($item, itemData) {
     itemData?.hotelOffersMinCurrentPriceNoteText
   );
   const normalizedHotelMainImage = normalizeText(itemData?.hotelMainImage);
-  const normalizedHotelRating = Number(itemData?.hotelRating);
 
   if (!normalizedHotelName) {
     hotelNameText.collapse();
@@ -144,9 +143,6 @@ function bindHotelRepeaterItem($item, itemData) {
     hotelAddressText.show();
     hotelAddressText.expand();
   }
-
-  hotelReviewCountText.collapse();
-  hotelReviewCountText.hide();
 
   if (!Number.isFinite(normalizedHotelRating)) {
     hotelRatingText.collapse();
@@ -199,9 +195,6 @@ function bindHotelRepeaterItem($item, itemData) {
       openHotelDetailsPage(itemData);
     });
   }
-
-  hotelStarRatingDisplay.collapse();
-  hotelStarRatingDisplay.hide();
 
   hotelAvailabilityButton.label = "See availability";
   hotelAvailabilityButton.show();
@@ -272,9 +265,10 @@ function buildCurrentSearchFlowContextUrl(searchFlowContextQuery) {
   return currentQueryString ? `${currentPath}?${currentQueryString}` : currentPath;
 }
 
-function renderEmptyState(message) {
+function renderNoResultsState() {
   const hotelOfferResultsRepeater = $w("#hotelOfferResultsRepeater");
   const loadMoreHotelOffersButton = $w("#loadMoreHotelOffersButton");
+  const noResultsBox = $w("#noResultsBox");
 
   hotelOfferResultsRepeater.data = [];
   hotelOfferResultsRepeater.collapse();
@@ -283,20 +277,15 @@ function renderEmptyState(message) {
   loadMoreHotelOffersButton.collapse();
   loadMoreHotelOffersButton.hide();
 
-  try {
-    const resultsEmptyStateText = $w("#resultsEmptyStateText");
-    resultsEmptyStateText.text = normalizeText(message);
-    resultsEmptyStateText.show();
-    resultsEmptyStateText.expand();
-  } catch (resultsEmptyStateTextError) {}
+  noResultsBox.show();
+  noResultsBox.expand();
 }
 
-function hideEmptyStateIfExists() {
-  try {
-    const resultsEmptyStateText = $w("#resultsEmptyStateText");
-    resultsEmptyStateText.collapse();
-    resultsEmptyStateText.hide();
-  } catch (resultsEmptyStateTextError) {}
+function hideNoResultsState() {
+  const noResultsBox = $w("#noResultsBox");
+
+  noResultsBox.collapse();
+  noResultsBox.hide();
 }
 
 function syncLoadMoreButton() {
