@@ -83,7 +83,8 @@ export async function getHotelMappedRoomOffersHandler(searchFlowContextQuery) {
   const getHotelDetailsRequest = buildHotelDetailsRequest(searchFlowContextQuery);
   const normalizedHotelId = getHotelDetailsRequest.hotelId;
 
-  const getHotelDetailsResult = await getHotelDetailsHandler(searchFlowContextQuery);
+  const getHotelDetailsResult =
+    await getHotelDetailsHandler(searchFlowContextQuery);
   const getHotelMappedRoomRatesResult =
     await getHotelMappedRoomRatesHandler(searchFlowContextQuery);
 
@@ -129,8 +130,6 @@ function buildHotelMappedRoomRatesRequest(searchFlowContextQuery) {
     DEFAULT_LANGUAGE;
   const normalizedGuestNationality =
     normalizedLanguage.toUpperCase() || DEFAULT_GUEST_NATIONALITY;
-  const getHotelMappedRoomRatesOccupancies =
-    buildHotelMappedRoomRatesRequestOccupancies(searchFlowContextQuery);
 
   if (!normalizedHotelId) {
     throw new Error("hotelId is required.");
@@ -139,6 +138,9 @@ function buildHotelMappedRoomRatesRequest(searchFlowContextQuery) {
   if (!normalizedCheckin || !normalizedCheckout) {
     throw new Error("checkin and checkout are required.");
   }
+
+  const getHotelMappedRoomRatesOccupancies =
+    deriveOccupanciesFromSearchFlowContextQuery(searchFlowContextQuery);
 
   if (!getHotelMappedRoomRatesOccupancies.length) {
     throw new Error("occupancies is required.");
@@ -158,7 +160,7 @@ function buildHotelMappedRoomRatesRequest(searchFlowContextQuery) {
   };
 }
 
-function buildHotelMappedRoomRatesRequestOccupancies(searchFlowContextQuery) {
+function deriveOccupanciesFromSearchFlowContextQuery(searchFlowContextQuery) {
   const normalizedRooms = normalizePositiveInteger(
     searchFlowContextQuery?.rooms,
     DEFAULT_ROOMS
@@ -204,7 +206,7 @@ function buildHotelMappedRoomRatesRequestOccupancies(searchFlowContextQuery) {
     normalizedChildrenByRoom.get(normalizedRoomNumber).push(normalizedChildAge);
   }
 
-  const getHotelMappedRoomRatesOccupancies = [];
+  const derivedOccupancies = [];
 
   for (
     let normalizedRoomNumber = 1;
@@ -218,7 +220,7 @@ function buildHotelMappedRoomRatesRequestOccupancies(searchFlowContextQuery) {
           ? DEFAULT_FIRST_ROOM_ADULTS
           : DEFAULT_EXTRA_ROOM_ADULTS;
 
-    getHotelMappedRoomRatesOccupancies.push({
+    derivedOccupancies.push({
       adults: normalizePositiveInteger(
         normalizedAdults,
         DEFAULT_FIRST_ROOM_ADULTS
@@ -227,9 +229,8 @@ function buildHotelMappedRoomRatesRequestOccupancies(searchFlowContextQuery) {
     });
   }
 
-  return getHotelMappedRoomRatesOccupancies.filter(
-    (getHotelMappedRoomRatesOccupancyItem) =>
-      getHotelMappedRoomRatesOccupancyItem.adults > 0
+  return derivedOccupancies.filter(
+    (derivedOccupancyItem) => derivedOccupancyItem.adults > 0
   );
 }
 
