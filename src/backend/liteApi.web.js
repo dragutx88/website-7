@@ -1,5 +1,5 @@
 import { Permissions, webMethod } from "wix-web-module";
-import { searchHotelRatesHandler, searchPlacesHandler } from "./liteApiSearch";
+import { getHotelsRatesHandler, searchPlacesHandler } from "./liteApiSearch";
 import {
   getHotelDetailsHandler,
   getHotelMappedRoomRatesHandler,
@@ -14,43 +14,49 @@ export const searchPlaces = webMethod(Permissions.Anyone, async (textQuery) =>
   searchPlacesHandler(textQuery)
 );
 
-export const searchHotelRates = webMethod(
+export const getHotelsRates = webMethod(
   Permissions.Anyone,
-  async (searchFormData) => searchHotelRatesHandler(searchFormData)
+  async (searchFlowContextQuery) =>
+    getHotelsRatesHandler(searchFlowContextQuery)
 );
 
 export const getHotelDetails = webMethod(
   Permissions.Anyone,
-  async (hotelId) => getHotelDetailsHandler(hotelId)
+  async (searchFlowContextQuery) =>
+    getHotelDetailsHandler(searchFlowContextQuery)
 );
 
-export const getMappedRoomRatesByHotelId = webMethod(
+export const getHotelMappedRoomRates = webMethod(
   Permissions.Anyone,
-  async (payload) => {
-    const getHotelMappedRoomRatesResult = await getHotelMappedRoomRatesHandler(payload);
+  async (searchFlowContextQuery) => {
+    const getHotelMappedRoomRatesResult =
+      await getHotelMappedRoomRatesHandler(searchFlowContextQuery);
 
     return {
       hotelId: getHotelMappedRoomRatesResult.hotelId,
-      getMappedRoomRatesByHotelIdResponse:
+      getHotelMappedRoomRatesResponse:
         getHotelMappedRoomRatesResult.getHotelMappedRoomRatesResponse,
-      normalizedMappedRoomRatesByHotelId:
+      normalizedHotelMappedRoomRates:
         getHotelMappedRoomRatesResult.normalizedHotelMappedRoomRates
     };
   }
 );
 
-export const getMergedMappedRoomOffers = webMethod(
+export const getHotelMappedRoomOffers = webMethod(
   Permissions.Anyone,
-  async (payload) => {
-    const getHotelMappedRoomOffersResult = await getHotelMappedRoomOffersHandler(payload);
+  async (searchFlowContextQuery) => {
+    const getHotelMappedRoomOffersResult =
+      await getHotelMappedRoomOffersHandler(searchFlowContextQuery);
 
     return {
       hotelId: getHotelMappedRoomOffersResult.hotelId,
-      getHotelDetailsResponse: getHotelMappedRoomOffersResult.getHotelDetailsResponse,
-      getMappedRoomRatesByHotelIdResponse:
+      getHotelDetailsResponse:
+        getHotelMappedRoomOffersResult.getHotelDetailsResponse,
+      getHotelMappedRoomRatesResponse:
         getHotelMappedRoomOffersResult.getHotelMappedRoomRatesResponse,
-      normalizedHotelDetails: getHotelMappedRoomOffersResult.normalizedHotelDetails,
-      normalizedMergedMappedRoomOffers:
+      normalizedHotelDetails:
+        getHotelMappedRoomOffersResult.normalizedHotelDetails,
+      normalizedHotelMappedRoomOffers:
         getHotelMappedRoomOffersResult.normalizedHotelMappedRoomOffers
     };
   }
