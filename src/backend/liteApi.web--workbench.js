@@ -1,5 +1,5 @@
 import { Permissions, webMethod } from "wix-web-module";
-import { getHotelsRatesHandler, searchPlacesHandler } from "./liteApiSearch";
+import { searchHotelRatesHandler, searchPlacesHandler } from "./liteApiSearch";
 import {
   getHotelDetailsHandler,
   getHotelMappedRoomRatesHandler,
@@ -14,10 +14,9 @@ export const searchPlaces = webMethod(Permissions.Anyone, async (textQuery) =>
   searchPlacesHandler(textQuery)
 );
 
-export const getHotelsRates = webMethod(
+export const searchHotelRates = webMethod(
   Permissions.Anyone,
-  async (searchFlowContextQuery) =>
-    getHotelsRatesHandler(searchFlowContextQuery)
+  async (searchFlowContextQuery) => searchHotelRatesHandler(searchFlowContextQuery)
 );
 
 export const getHotelDetails = webMethod(
