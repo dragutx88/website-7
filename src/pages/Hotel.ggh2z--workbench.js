@@ -5,14 +5,15 @@ import { session } from "wix-storage-frontend";
 import { currentCart } from "wix-ecom-backend";
 import {
   createPrebookSession,
-  getHotelPageData
+  getHotelMappedRoomOffers
 } from "backend/liteApi.web";
 import { importCatalogImages } from "backend/wix.web";
 import {
   buildCheckoutPageUrl,
   formatGuestRating,
   formatPrice,
-  formatReviewCount
+  formatReviewCount,
+  persistSelectedOfferPayload
 } from "public/liteApiFlow";
 import {
   safeCollapseAndHide,
@@ -46,7 +47,7 @@ const CART_PAGE_PATH = "/cart-page";
 const CART_RETURN_URL_STORAGE_KEY = "liteapi.cartReturnUrl.v1";
 const RETURN_SEARCH_FLOW_CONTEXT_URL_STORAGE_KEY = "returnSearchFlowContextUrl";
 
-let currentSearchFlowContextQuery = {};
+let searchFlowContextQuery = {};
 let currentSearchFlowContextUrl = "";
 let hotelPageState = null;
 
@@ -55,9 +56,9 @@ $w.onReady(async function () {
 });
 
 async function initializeHotelPage() {
-  currentSearchFlowContextQuery = wixLocationFrontend.query || {};
+  searchFlowContextQuery = wixLocationFrontend.query || {};
   currentSearchFlowContextUrl = buildCurrentSearchFlowContextUrl(
-    currentSearchFlowContextQuery
+    searchFlowContextQuery
   );
 
   session.setItem(
@@ -65,7 +66,7 @@ async function initializeHotelPage() {
     currentSearchFlowContextUrl
   );
 
-  const resolvedHotelId = normalizeText(currentSearchFlowContextQuery?.hotelId);
+  const resolvedHotelId = normalizeText(searchFlowContextQuery?.hotelId);
 
   if (!resolvedHotelId) {
     console.error("HOTEL PAGE missing hotelId.");
@@ -74,7 +75,7 @@ async function initializeHotelPage() {
   }
 
   try {
-    hotelPageState = await getHotelPageData(currentSearchFlowContextQuery);
+    hotelPageState = await getHotelMappedRoomOffers(searchFlowContextQuery);
 
     bindHotelHero(
       hotelPageState?.normalizedHotelDetails || null,
@@ -88,7 +89,7 @@ async function initializeHotelPage() {
   } catch (error) {
     console.error("HOTEL PAGE initialization failed", error);
     setTextIfExists("#hotelNameText", "Hotel");
-    setOptionalTextIfExists("#hotelAddressText", "");
+    setTextIfExists("#hotelAddressText", "");
   }
 }
 
@@ -465,7 +466,7 @@ function bindRoomOfferSlot($item, slotNumber, roomOffer, mappedRoomOfferItem, ro
         roomImage: normalizeText(room?.roomMainImage),
         roomDetailsPopupData: buildRoomDetailsPopupData(room),
         offer: buildSelectedOfferOffer(roomOffer),
-        ctx: currentSearchFlowContextQuery
+        ctx: searchFlowContextQuery
       });
     } catch (error) {
       console.error(
@@ -522,6 +523,8 @@ async function handleOfferSelection(selectionPayload) {
     JSON.stringify(selectedOfferPayload, null, 2)
   );
 
+  persistSelectedOfferPayload(selectedOfferPayload);
+
   if (PURCHASE_FLOW_MODE === PURCHASE_FLOW_MODES.WIX_CART) {
     await handleWixCartFlow(selectedOfferPayload);
     return;
@@ -551,7 +554,7 @@ function buildSelectedOfferPayload(selectionPayload) {
     roomDetailsPopupData: selectionPayload?.roomDetailsPopupData || null,
     offer: selectionPayload?.offer || null,
     offerId: normalizeText(selectionPayload?.offer?.offerId),
-    ctx: selectionPayload?.ctx || currentSearchFlowContextQuery
+    ctx: selectionPayload?.ctx || searchFlowContextQuery
   };
 }
 
@@ -1069,7 +1072,7 @@ function syncItemVisibilityWithCurrentPrice($item, selector, currentPriceText) {
   safeExpand(element);
 }
 
-function buildCurrentSearchFlowContextUrl(searchFlowContextQuery) {
+function buildCurrentSearchFlowContextUrl(currentSearchFlowContextQuery) {
   const currentPath =
     Array.isArray(wixLocationFrontend.path) && wixLocationFrontend.path.length
       ? `/${wixLocationFrontend.path.join("/")}`
@@ -1077,16 +1080,16 @@ function buildCurrentSearchFlowContextUrl(searchFlowContextQuery) {
 
   const currentSearchFlowParams = new URLSearchParams();
 
-  Object.entries(searchFlowContextQuery || {}).forEach(
-    ([searchFlowContextQueryKey, searchFlowContextQueryValue]) => {
-      const normalizedSearchFlowContextQueryValue = normalizeText(
-        searchFlowContextQueryValue
+  Object.entries(currentSearchFlowContextQuery || {}).forEach(
+    ([currentSearchFlowContextQueryKey, currentSearchFlowContextQueryValue]) => {
+      const normalizedCurrentSearchFlowContextQueryValue = normalizeText(
+        currentSearchFlowContextQueryValue
       );
 
-      if (normalizedSearchFlowContextQueryValue) {
+      if (normalizedCurrentSearchFlowContextQueryValue) {
         currentSearchFlowParams.set(
-          searchFlowContextQueryKey,
-          normalizedSearchFlowContextQueryValue
+          currentSearchFlowContextQueryKey,
+          normalizedCurrentSearchFlowContextQueryValue
         );
       }
     }
