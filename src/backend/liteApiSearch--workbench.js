@@ -190,7 +190,10 @@ function buildHotelsRatesRequestOccupancies(searchFlowContextQuery) {
           : DEFAULT_EXTRA_ROOM_ADULTS;
 
     getHotelsRatesOccupancies.push({
-      adults: normalizePositiveInteger(normalizedAdults, DEFAULT_FIRST_ROOM_ADULTS),
+      adults: normalizePositiveInteger(
+        normalizedAdults,
+        DEFAULT_FIRST_ROOM_ADULTS
+      ),
       children: normalizedChildrenByRoom.get(normalizedRoomNumber) || []
     });
   }
@@ -272,33 +275,32 @@ function normalizeHotelsRates(getHotelsRatesResponse, searchFlowContextQuery) {
     }
 
     const matchedHotelAddress = normalizeText(matchedHotel?.address) || null;
-    const matchedHotelReviewCount = normalizeIntegerOrNull(
-      matchedHotel?.reviewCount
-    );
     const matchedHotelRating = normalizeNumberOrNull(matchedHotel?.rating);
     const matchedHotelMainImage = normalizeText(matchedHotel?.main_photo) || null;
-    const matchedHotelStarRating = normalizeNumberOrNull(matchedHotel?.stars);
 
     const matchedRateBeforeCurrentPrice = normalizeNumberOrNull(
-      matchedRate?.retailRate?.suggestedSellingPrice?.[0]?.amount
+      dataItem?.roomTypes?.[0]?.rates?.[0]?.retailRate?.suggestedSellingPrice?.[0]
+        ?.amount
     );
 
     const matchedRateCurrentPrice = normalizeNumberOrNull(
-      matchedRate?.retailRate?.total?.[0]?.amount
+      dataItem?.roomTypes?.[0]?.rates?.[0]?.retailRate?.total?.[0]?.amount
     );
 
     const matchedRateCurrency =
-      normalizeText(matchedRate?.retailRate?.total?.[0]?.currency) || null;
+      normalizeText(
+        dataItem?.roomTypes?.[0]?.rates?.[0]?.retailRate?.total?.[0]?.currency
+      ) || null;
 
     const matchedRateOccupancyNumber = normalizePositiveInteger(
-      matchedRate?.occupancyNumber,
+      dataItem?.roomTypes?.[0]?.rates?.[0]?.occupancyNumber,
       1
     );
 
     const matchedRateTaxesAndFees = Array.isArray(
-      matchedRate?.retailRate?.taxesAndFees
+      dataItem?.roomTypes?.[0]?.rates?.[0]?.retailRate?.taxesAndFees
     )
-      ? matchedRate.retailRate.taxesAndFees
+      ? dataItem.roomTypes[0].rates[0].retailRate.taxesAndFees
       : [];
 
     const matchedRateHasExcludedTaxesAndFees = matchedRateTaxesAndFees.some(
@@ -331,13 +333,11 @@ function normalizeHotelsRates(getHotelsRatesResponse, searchFlowContextQuery) {
       hotelId: dataItemHotelId,
       hotelName: matchedHotelName,
       hotelAddress: matchedHotelAddress,
-      hotelReviewCountText: formatReviewCountText(matchedHotelReviewCount),
       hotelRating: matchedHotelRating,
       hotelOffersBeforeMinCurrentPriceText,
       hotelOffersMinCurrentPriceText,
       hotelOffersMinCurrentPriceNoteText,
-      hotelMainImage: matchedHotelMainImage,
-      hotelStarRating: matchedHotelStarRating
+      hotelMainImage: matchedHotelMainImage
     });
   }
 
@@ -353,8 +353,7 @@ function formatCurrencyText(amount, currency, language) {
     return null;
   }
 
-  const normalizedLocale =
-    normalizedLanguage === "tr" ? "tr-TR" : "en-US";
+  const normalizedLocale = normalizedLanguage === "tr" ? "tr-TR" : "en-US";
 
   try {
     return new Intl.NumberFormat(normalizedLocale, {
@@ -366,16 +365,6 @@ function formatCurrencyText(amount, currency, language) {
   } catch (formatCurrencyError) {
     return `${normalizedCurrency} ${normalizedAmount.toFixed(2)}`;
   }
-}
-
-function formatReviewCountText(reviewCount) {
-  const normalizedReviewCount = normalizeIntegerOrNull(reviewCount);
-
-  if (!Number.isFinite(normalizedReviewCount) || normalizedReviewCount <= 0) {
-    return null;
-  }
-
-  return `${new Intl.NumberFormat("en-US").format(normalizedReviewCount)} Reviews`;
 }
 
 function normalizeText(value) {
