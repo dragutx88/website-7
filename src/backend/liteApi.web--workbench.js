@@ -42,7 +42,7 @@ export const getHotelMappedRoomRates = webMethod(
   }
 );
 
-export const getHotelPageData = webMethod(
+export const getHotelMappedRoomOffers = webMethod(
   Permissions.Anyone,
   async (searchFlowContextQuery) => {
     const getHotelMappedRoomOffersResult =
@@ -50,19 +50,17 @@ export const getHotelPageData = webMethod(
 
     return {
       hotelId: getHotelMappedRoomOffersResult.hotelId,
-      getHotelDetailsResponse: getHotelMappedRoomOffersResult.getHotelDetailsResponse,
+      getHotelDetailsResponse:
+        getHotelMappedRoomOffersResult.getHotelDetailsResponse,
       getHotelMappedRoomRatesResponse:
         getHotelMappedRoomOffersResult.getHotelMappedRoomRatesResponse,
-      normalizedHotelDetails: getHotelMappedRoomOffersResult.normalizedHotelDetails,
+      normalizedHotelDetails:
+        getHotelMappedRoomOffersResult.normalizedHotelDetails,
       normalizedHotelMappedRoomOffers:
         getHotelMappedRoomOffersResult.normalizedHotelMappedRoomOffers
     };
   }
 );
-
-/* compatibility aliases for current page migration */
-export const getMappedRoomRatesByHotelId = getHotelMappedRoomRates;
-export const getMergedMappedRoomOffers = getHotelPageData;
 
 export const createPrebookSession = webMethod(
   Permissions.Anyone,
