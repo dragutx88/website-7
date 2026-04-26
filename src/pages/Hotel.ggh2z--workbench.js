@@ -1,7 +1,6 @@
 import wixLocationFrontend from "wix-location-frontend";
 import wixWindowFrontend from "wix-window-frontend";
 import wixEcomFrontend from "wix-ecom-frontend";
-import { session } from "wix-storage-frontend";
 import { currentCart } from "wix-ecom-backend";
 import {
   createPrebookSession,
@@ -28,9 +27,6 @@ const LITEAPI_CATALOG_APP_ID = "e7f94f4b-7e6a-41c6-8ee1-52c1d5f31cf4";
 const HOTEL_PAGE_PATH = "/hotel";
 const CART_PAGE_PATH = "/cart-page";
 const CHECKOUT_PAGE_PATH = "/checkout";
-
-const REDIRECT_SOURCE_SEARCH_FLOW_CONTEXT_URL_STORAGE_KEY =
-  "redirectSourceSearchFlowContextUrl";
 
 let searchFlowContextQuery = {};
 let searchFlowContextUrl = "";
@@ -670,8 +666,6 @@ async function handleWixCartFlow(purchaseSelection) {
 
   wixEcomFrontend.refreshCart();
 
-  setRedirectSourceSearchFlowContextUrl();
-
   const redirectSearchFlowContextUrl = buildRedirectSearchFlowContextUrl(
     CART_PAGE_PATH,
     searchFlowContextQuery,
@@ -735,8 +729,6 @@ async function handlePaymentSdkFlow(purchaseSelection) {
   if (!prebookId) {
     throw new Error("normalizedPrebook.prebookId is required for payment SDK flow.");
   }
-
-  setRedirectSourceSearchFlowContextUrl();
 
   const redirectSearchFlowContextUrl = buildRedirectSearchFlowContextUrl(
     CHECKOUT_PAGE_PATH,
@@ -938,28 +930,6 @@ async function resolveCatalogImageRefs({
       wixHotelMainImageRef: "",
       wixRoomMainImageRef: ""
     };
-  }
-}
-
-function setRedirectSourceSearchFlowContextUrl() {
-  session.setItem(
-    REDIRECT_SOURCE_SEARCH_FLOW_CONTEXT_URL_STORAGE_KEY,
-    String(wixLocationFrontend.url || "")
-  );
-}
-
-function getRedirectSourceSearchFlowContextUrl() {
-  return String(
-    session.getItem(REDIRECT_SOURCE_SEARCH_FLOW_CONTEXT_URL_STORAGE_KEY) || ""
-  ).trim();
-}
-
-function redirectToRedirectSourceSearchFlowContextUrl() {
-  const redirectSourceSearchFlowContextUrl =
-    getRedirectSourceSearchFlowContextUrl();
-
-  if (redirectSourceSearchFlowContextUrl) {
-    wixLocationFrontend.to(redirectSourceSearchFlowContextUrl);
   }
 }
 
