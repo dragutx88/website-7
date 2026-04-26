@@ -8,10 +8,6 @@ import {
   getHotelMappedRoomOffers
 } from "backend/liteApi.web";
 import { importCatalogImages } from "backend/wix.web";
-import {
-  buildCheckoutPageUrl,
-  persistSelectedOfferPayload
-} from "public/liteApiFlow";
 
 const ROOM_DETAILS_LIGHTBOX = "roomDetailsPopup";
 const HOTEL_POLICIES_LIGHTBOX = "hotelPoliciesPopup";
@@ -22,18 +18,22 @@ const FALLBACK_IMAGE_URL =
 
 const PURCHASE_FLOW_MODES = Object.freeze({
   WIX_CART: "wix_cart",
-  LITEAPI_DIRECT: "liteapi_direct"
+  PAYMENT_SDK: "payment_sdk"
 });
 
 const PURCHASE_FLOW_MODE = PURCHASE_FLOW_MODES.WIX_CART;
 
 const LITEAPI_CATALOG_APP_ID = "e7f94f4b-7e6a-41c6-8ee1-52c1d5f31cf4";
+
+const HOTEL_PAGE_PATH = "/hotel";
 const CART_PAGE_PATH = "/cart-page";
-const CART_RETURN_URL_STORAGE_KEY = "liteapi.cartReturnUrl.v1";
-const RETURN_SEARCH_FLOW_CONTEXT_URL_STORAGE_KEY = "returnSearchFlowContextUrl";
+const CHECKOUT_PAGE_PATH = "/checkout";
+
+const REDIRECT_SOURCE_SEARCH_FLOW_CONTEXT_URL_STORAGE_KEY =
+  "redirectSourceSearchFlowContextUrl";
 
 let searchFlowContextQuery = {};
-let currentSearchFlowContextUrl = "";
+let searchFlowContextUrl = "";
 let hotelPageState = null;
 
 $w.onReady(async function () {
@@ -46,14 +46,7 @@ $w.onReady(async function () {
 
 async function initializeHotelPage() {
   searchFlowContextQuery = wixLocationFrontend.query || {};
-  currentSearchFlowContextUrl = buildCurrentSearchFlowContextUrl(
-    searchFlowContextQuery
-  );
-
-  session.setItem(
-    RETURN_SEARCH_FLOW_CONTEXT_URL_STORAGE_KEY,
-    currentSearchFlowContextUrl
-  );
+  searchFlowContextUrl = buildSearchFlowContextUrl(searchFlowContextQuery);
 
   const resolvedHotelId = normalizeText(searchFlowContextQuery?.hotelId);
 
@@ -481,30 +474,13 @@ function bindRoomOfferSlot($item, slotNumber, roomOffer, mappedRoomOfferItem, ro
 
   $item(`#roomOfferSelectionButton${slotNumber}`).onClick(async () => {
     try {
-      await handleOfferSelection({
-        hotelId: normalizeText(hotelPageState?.normalizedHotelDetails?.hotelId),
-        hotelName: normalizeText(hotelPageState?.normalizedHotelDetails?.hotelName),
-        hotelAddress: normalizeText(
-          hotelPageState?.normalizedHotelDetails?.hotelAddress
-        ),
-        hotelMainPhoto: normalizeText(
-          hotelPageState?.normalizedHotelDetails?.hotelMainImage
-        ),
-        hotelStarRating:
-          hotelPageState?.normalizedHotelDetails?.hotelStarRating ?? null,
-        hotelStarRatingText: normalizeText(
-          hotelPageState?.normalizedHotelDetails?.hotelStarRatingText
-        ),
-        hotelReviewText: normalizeText(
-          hotelPageState?.normalizedHotelDetails?.hotelReviewText
-        ),
-        mappedRoomId: normalizeText(mappedRoomOfferItem?.mappedRoomId),
-        roomName: normalizeText(room?.roomName),
-        roomImage: normalizeText(room?.roomMainImage),
-        roomDetailsPopupData: buildRoomDetailsPopupData(room),
-        offer: buildSelectedOfferOffer(roomOffer),
-        ctx: searchFlowContextQuery
+      const purchaseSelection = buildPurchaseSelection({
+        mappedRoomOfferItem,
+        room,
+        roomOffer
       });
+
+      await handleOfferSelection(purchaseSelection);
     } catch (error) {
       console.error(
         "HOTEL PAGE offer selection failed",
@@ -515,92 +491,79 @@ function bindRoomOfferSlot($item, slotNumber, roomOffer, mappedRoomOfferItem, ro
   });
 }
 
-function buildSelectedOfferOffer(roomOffer) {
-  const roomOfferCurrentPriceAmount = normalizeNumberOrNull(
-    roomOffer?.roomOfferCurrentPrice
-  );
-  const roomOfferBeforeCurrentPriceAmount = normalizeNumberOrNull(
-    roomOffer?.roomOfferBeforeCurrentPrice
-  );
-  const roomOfferCurrency = normalizeText(roomOffer?.roomOfferCurrency);
-
+function buildPurchaseSelection({ mappedRoomOfferItem, room, roomOffer }) {
   return {
     offerId: normalizeText(roomOffer?.offerId),
-    name: normalizeText(roomOffer?.roomOfferName) || "Room rate",
-    boardName: normalizeText(roomOffer?.roomOfferBoardName),
-    refundableTag: normalizeText(roomOffer?.roomOfferRefundableTag) || null,
-    refundableTagText: normalizeText(roomOffer?.roomOfferRefundableTagText),
-    currentPrice:
-      Number.isFinite(roomOfferCurrentPriceAmount) && roomOfferCurrency
-        ? {
-            amount: roomOfferCurrentPriceAmount,
-            currency: roomOfferCurrency
-          }
-        : null,
-    currentPriceText: normalizeText(roomOffer?.roomOfferCurrentPriceText),
-    beforePrice:
-      Number.isFinite(roomOfferBeforeCurrentPriceAmount) && roomOfferCurrency
-        ? {
-            amount: roomOfferBeforeCurrentPriceAmount,
-            currency: roomOfferCurrency
-          }
-        : null,
-    beforePriceText: normalizeText(roomOffer?.roomOfferBeforeCurrentPriceText),
-    priceNote: normalizeText(roomOffer?.roomOfferCurrentPriceNoteText)
+    mappedRoomId: normalizeText(mappedRoomOfferItem?.mappedRoomId),
+
+    hotelId: normalizeText(hotelPageState?.normalizedHotelDetails?.hotelId),
+    hotelName: normalizeText(hotelPageState?.normalizedHotelDetails?.hotelName),
+    hotelAddress: normalizeText(
+      hotelPageState?.normalizedHotelDetails?.hotelAddress
+    ),
+    hotelMainImage: normalizeText(
+      hotelPageState?.normalizedHotelDetails?.hotelMainImage
+    ),
+    hotelStarRating:
+      hotelPageState?.normalizedHotelDetails?.hotelStarRating ?? null,
+    hotelStarRatingText: normalizeText(
+      hotelPageState?.normalizedHotelDetails?.hotelStarRatingText
+    ),
+    hotelReviewText: normalizeText(
+      hotelPageState?.normalizedHotelDetails?.hotelReviewText
+    ),
+
+    roomName: normalizeText(room?.roomName),
+    roomImage: normalizeText(room?.roomMainImage),
+
+    roomOfferName: normalizeText(roomOffer?.roomOfferName),
+    roomOfferBoardName: normalizeText(roomOffer?.roomOfferBoardName),
+    roomOfferRefundableTag: normalizeText(roomOffer?.roomOfferRefundableTag),
+    roomOfferRefundableTagText: normalizeText(
+      roomOffer?.roomOfferRefundableTagText
+    ),
+    roomOfferCurrentPrice: normalizeNumberOrNull(
+      roomOffer?.roomOfferCurrentPrice
+    ),
+    roomOfferBeforeCurrentPrice: normalizeNumberOrNull(
+      roomOffer?.roomOfferBeforeCurrentPrice
+    ),
+    roomOfferCurrency: normalizeText(roomOffer?.roomOfferCurrency),
+    roomOfferCurrentPriceText: normalizeText(
+      roomOffer?.roomOfferCurrentPriceText
+    ),
+    roomOfferBeforeCurrentPriceText: normalizeText(
+      roomOffer?.roomOfferBeforeCurrentPriceText
+    ),
+    roomOfferCurrentPriceNoteText: normalizeText(
+      roomOffer?.roomOfferCurrentPriceNoteText
+    )
   };
 }
 
-async function handleOfferSelection(selectionPayload) {
+async function handleOfferSelection(purchaseSelection) {
   console.log(
-    "HOTEL PAGE handleOfferSelection input",
-    JSON.stringify(selectionPayload, null, 2)
+    "HOTEL PAGE handleOfferSelection purchaseSelection",
+    JSON.stringify(purchaseSelection, null, 2)
   );
-
-  const selectedOfferPayload = buildSelectedOfferPayload(selectionPayload);
-
-  console.log(
-    "HOTEL PAGE selectedOfferPayload",
-    JSON.stringify(selectedOfferPayload, null, 2)
-  );
-
-  persistSelectedOfferPayload(selectedOfferPayload);
 
   if (PURCHASE_FLOW_MODE === PURCHASE_FLOW_MODES.WIX_CART) {
-    await handleWixCartFlow(selectedOfferPayload);
+    await handleWixCartFlow(purchaseSelection);
     return;
   }
 
-  if (PURCHASE_FLOW_MODE === PURCHASE_FLOW_MODES.LITEAPI_DIRECT) {
-    handleLiteApiDirectCheckout(selectedOfferPayload);
+  if (PURCHASE_FLOW_MODE === PURCHASE_FLOW_MODES.PAYMENT_SDK) {
+    await handlePaymentSdkFlow(purchaseSelection);
     return;
   }
 
   throw new Error(`Unsupported PURCHASE_FLOW_MODE: ${PURCHASE_FLOW_MODE}`);
 }
 
-function buildSelectedOfferPayload(selectionPayload) {
-  return {
-    selectedAt: Date.now(),
-    hotelId: normalizeText(selectionPayload?.hotelId),
-    hotelName: normalizeText(selectionPayload?.hotelName),
-    hotelAddress: normalizeText(selectionPayload?.hotelAddress),
-    hotelMainPhoto: normalizeText(selectionPayload?.hotelMainPhoto),
-    hotelStarRating: selectionPayload?.hotelStarRating ?? null,
-    hotelStarRatingText: normalizeText(selectionPayload?.hotelStarRatingText),
-    hotelReviewText: normalizeText(selectionPayload?.hotelReviewText),
-    mappedRoomId: normalizeText(selectionPayload?.mappedRoomId),
-    roomName: normalizeText(selectionPayload?.roomName),
-    roomImage: normalizeText(selectionPayload?.roomImage),
-    roomDetailsPopupData: selectionPayload?.roomDetailsPopupData || null,
-    offer: selectionPayload?.offer || null,
-    offerId: normalizeText(selectionPayload?.offer?.offerId),
-    ctx: selectionPayload?.ctx || searchFlowContextQuery
-  };
-}
-
-async function handleWixCartFlow(selectedOfferPayload) {
-  const mappedRoomId = normalizeText(selectedOfferPayload?.mappedRoomId);
-  const offerId = normalizeText(selectedOfferPayload?.offerId);
+async function handleWixCartFlow(purchaseSelection) {
+  const mappedRoomId = normalizeText(purchaseSelection?.mappedRoomId);
+  const offerId = normalizeText(purchaseSelection?.offerId);
+  const hotelId = normalizeText(purchaseSelection?.hotelId);
 
   console.log(
     "HOTEL PAGE handleWixCartFlow start",
@@ -608,6 +571,7 @@ async function handleWixCartFlow(selectedOfferPayload) {
       {
         mappedRoomId,
         offerId,
+        hotelId,
         purchaseFlowMode: PURCHASE_FLOW_MODE,
         catalogAppId: LITEAPI_CATALOG_APP_ID
       },
@@ -624,7 +588,6 @@ async function handleWixCartFlow(selectedOfferPayload) {
     throw new Error("offerId is required for Wix cart flow.");
   }
 
-  setCartReturnUrl();
   await removePrebookItemsIfCartExists();
 
   const prebookResult = await createPrebookSession({
@@ -659,25 +622,24 @@ async function handleWixCartFlow(selectedOfferPayload) {
   }
 
   const importedImageRefs = await resolveCatalogImageRefs({
-    hotelMainImage: selectedOfferPayload.hotelMainPhoto,
-    roomMainImage: selectedOfferPayload.roomImage,
-    hotelName: selectedOfferPayload.hotelName,
-    mappedRoomName:
-      selectedOfferPayload.roomName || selectedOfferPayload.mappedRoomId
+    hotelMainImage: purchaseSelection.hotelMainImage,
+    roomMainImage: purchaseSelection.roomImage,
+    hotelName: purchaseSelection.hotelName,
+    mappedRoomName: purchaseSelection.roomName || purchaseSelection.mappedRoomId
   });
 
   const prebookShell = buildPrebookShell({
     mappedRoomId,
     prebookSnapshot,
     normalizedPrebook,
-    hotelName: selectedOfferPayload.hotelName,
-    hotelMainImage: selectedOfferPayload.hotelMainPhoto,
-    roomMainImage: selectedOfferPayload.roomImage,
+    hotelName: purchaseSelection.hotelName,
+    hotelMainImage: purchaseSelection.hotelMainImage,
+    roomMainImage: purchaseSelection.roomImage,
     wixHotelMainImageRef: importedImageRefs.wixHotelMainImageRef,
     wixRoomMainImageRef: importedImageRefs.wixRoomMainImageRef,
-    hotelStars: selectedOfferPayload.hotelStarRatingText,
-    hotelReview: selectedOfferPayload.hotelReviewText,
-    hotelAddress: selectedOfferPayload.hotelAddress
+    hotelStars: purchaseSelection.hotelStarRatingText,
+    hotelReview: purchaseSelection.hotelReviewText,
+    hotelAddress: purchaseSelection.hotelAddress
   });
 
   const lineItem = buildWixCatalogLineItem({
@@ -707,7 +669,86 @@ async function handleWixCartFlow(selectedOfferPayload) {
   );
 
   wixEcomFrontend.refreshCart();
-  wixLocationFrontend.to(CART_PAGE_PATH);
+
+  setRedirectSourceSearchFlowContextUrl();
+
+  const redirectSearchFlowContextUrl = buildRedirectSearchFlowContextUrl(
+    CART_PAGE_PATH,
+    searchFlowContextQuery,
+    {
+      hotelId,
+      prebookId,
+      mode: PURCHASE_FLOW_MODES.WIX_CART
+    }
+  );
+
+  wixLocationFrontend.to(redirectSearchFlowContextUrl);
+}
+
+async function handlePaymentSdkFlow(purchaseSelection) {
+  const offerId = normalizeText(purchaseSelection?.offerId);
+  const hotelId = normalizeText(purchaseSelection?.hotelId);
+
+  console.log(
+    "HOTEL PAGE handlePaymentSdkFlow start",
+    JSON.stringify(
+      {
+        offerId,
+        hotelId,
+        purchaseFlowMode: PURCHASE_FLOW_MODE
+      },
+      null,
+      2
+    )
+  );
+
+  if (!offerId) {
+    throw new Error("offerId is required for payment SDK flow.");
+  }
+
+  if (!hotelId) {
+    throw new Error("hotelId is required for payment SDK flow.");
+  }
+
+  const prebookResult = await createPrebookSession({
+    offerId,
+    usePaymentSdk: true
+  });
+
+  console.log(
+    "HOTEL PAGE payment SDK prebookResult",
+    JSON.stringify(prebookResult, null, 2)
+  );
+
+  const normalizedPrebook =
+    prebookResult?.normalizedPrebook &&
+    typeof prebookResult.normalizedPrebook === "object"
+      ? prebookResult.normalizedPrebook
+      : null;
+
+  if (!normalizedPrebook) {
+    throw new Error("normalizedPrebook is required for payment SDK flow.");
+  }
+
+  const prebookId = normalizeText(normalizedPrebook?.prebookId);
+
+  if (!prebookId) {
+    throw new Error("normalizedPrebook.prebookId is required for payment SDK flow.");
+  }
+
+  setRedirectSourceSearchFlowContextUrl();
+
+  const redirectSearchFlowContextUrl = buildRedirectSearchFlowContextUrl(
+    CHECKOUT_PAGE_PATH,
+    searchFlowContextQuery,
+    {
+      hotelId,
+      prebookId,
+      mode: PURCHASE_FLOW_MODES.PAYMENT_SDK
+    }
+  );
+
+  wixLocationFrontend.to(redirectSearchFlowContextUrl);
 }
 
 async function removePrebookItemsIfCartExists() {
@@ -788,16 +829,6 @@ function isMissingCurrentCartError(error) {
     message.includes("cart not found") ||
     message.includes("no active current cart found") ||
     message.includes("owned_cart_not_found")
-  );
-}
-
-function handleLiteApiDirectCheckout(selectedOfferPayload) {
-  wixLocationFrontend.to(
-    buildCheckoutPageUrl(
-      selectedOfferPayload.ctx,
-      selectedOfferPayload.hotelId,
-      selectedOfferPayload.offerId
-    )
   );
 }
 
@@ -910,107 +941,131 @@ async function resolveCatalogImageRefs({
   }
 }
 
-function setCartReturnUrl() {
-  const currentUrl = normalizeText(wixLocationFrontend?.url);
+function setRedirectSourceSearchFlowContextUrl() {
+  session.setItem(
+    REDIRECT_SOURCE_SEARCH_FLOW_CONTEXT_URL_STORAGE_KEY,
+    String(wixLocationFrontend.url || "")
+  );
+}
 
-  if (!currentUrl) {
-    return;
+function getRedirectSourceSearchFlowContextUrl() {
+  return String(
+    session.getItem(REDIRECT_SOURCE_SEARCH_FLOW_CONTEXT_URL_STORAGE_KEY) || ""
+  ).trim();
+}
+
+function redirectToRedirectSourceSearchFlowContextUrl() {
+  const redirectSourceSearchFlowContextUrl =
+    getRedirectSourceSearchFlowContextUrl();
+
+  if (redirectSourceSearchFlowContextUrl) {
+    wixLocationFrontend.to(redirectSourceSearchFlowContextUrl);
   }
+}
 
-  session.setItem(CART_RETURN_URL_STORAGE_KEY, currentUrl);
+function buildSearchFlowContextUrl(query = {}) {
+  return buildRedirectSearchFlowContextUrl(HOTEL_PAGE_PATH, query, {});
+}
+
+function buildRedirectSearchFlowContextUrl(
+  path,
+  query = {},
+  additionalSearchFlowContextQuery = {}
+) {
+  const params = new URLSearchParams();
+
+  Object.entries({
+    ...query,
+    ...additionalSearchFlowContextQuery
+  }).forEach(([key, value]) => {
+    if (value === undefined || value === null) {
+      return;
+    }
+
+    const text = String(value).trim();
+
+    if (!text) {
+      return;
+    }
+
+    params.set(key, text);
+  });
+
+  const queryString = params.toString();
+  return queryString ? `${path}?${queryString}` : path;
 }
 
 function bindMapElements(hotelMapUrl) {
-  const hotelMapUrlText = normalizeText(hotelMapUrl);
+  const normalizedHotelMapUrl = normalizeText(hotelMapUrl);
 
-  if (!hotelMapUrlText) {
-    $w("#hotelMapLinkIconButton").collapse();
-    $w("#hotelMapLinkIconText").collapse();
+  if (normalizedHotelMapUrl) {
+    $w("#hotelMapLinkIconButton").expand();
+    $w("#hotelMapLinkIconText").expand();
+
+    $w("#hotelMapLinkIconButton").onClick(() => {
+      wixLocationFrontend.to(normalizedHotelMapUrl);
+    });
+
+    $w("#hotelMapLinkIconText").onClick(() => {
+      wixLocationFrontend.to(normalizedHotelMapUrl);
+    });
+
     return;
   }
 
-  $w("#hotelMapLinkIconButton").expand();
-  $w("#hotelMapLinkIconButton").onClick(() => {
-    wixLocationFrontend.to(hotelMapUrlText);
-  });
-
-  $w("#hotelMapLinkIconText").expand();
-  $w("#hotelMapLinkIconText").onClick(() => {
-    wixLocationFrontend.to(hotelMapUrlText);
-  });
+  $w("#hotelMapLinkIconButton").collapse();
+  $w("#hotelMapLinkIconText").collapse();
 }
 
-function bindHeroGallery(hotelGalleryImageUrls) {
-  const hotelHeroGalleryItems = dedupeStringArray(hotelGalleryImageUrls)
+function bindHeroGallery(hotelImageUrls) {
+  const hotelHeroGalleryItems = (Array.isArray(hotelImageUrls)
+    ? hotelImageUrls
+    : []
+  )
+    .map((imageUrl) => normalizeText(imageUrl))
     .filter(Boolean)
-    .map((hotelGalleryImageUrl, hotelGalleryImageIndex) => ({
+    .map((imageUrl, imageIndex) => ({
       type: "image",
-      src: hotelGalleryImageUrl,
-      title: `Image ${hotelGalleryImageIndex + 1}`
+      src: imageUrl,
+      title: `Hotel image ${imageIndex + 1}`
     }));
 
-  $w("#hotelHeroGallery").items = hotelHeroGalleryItems;
-}
+  $w("#hotelHeroGallery").items = hotelHeroGalleryItems.length
+    ? hotelHeroGalleryItems
+    : [
+        {
+          type: "image",
+          src: FALLBACK_IMAGE_URL,
+          title: "Hotel image"
+        }
+      ];
 
-function buildCurrentSearchFlowContextUrl(currentSearchFlowContextQuery) {
-  const currentPath =
-    Array.isArray(wixLocationFrontend.path) && wixLocationFrontend.path.length
-      ? `/${wixLocationFrontend.path.join("/")}`
-      : "/hotel";
-
-  const currentSearchFlowParams = new URLSearchParams();
-
-  Object.entries(currentSearchFlowContextQuery || {}).forEach(
-    ([currentSearchFlowContextQueryKey, currentSearchFlowContextQueryValue]) => {
-      const normalizedCurrentSearchFlowContextQueryValue = normalizeText(
-        currentSearchFlowContextQueryValue
-      );
-
-      if (normalizedCurrentSearchFlowContextQueryValue) {
-        currentSearchFlowParams.set(
-          currentSearchFlowContextQueryKey,
-          normalizedCurrentSearchFlowContextQueryValue
-        );
-      }
-    }
-  );
-
-  const currentQueryString = currentSearchFlowParams.toString();
-
-  return currentQueryString ? `${currentPath}?${currentQueryString}` : currentPath;
+  $w("#hotelHeroGallery").expand();
 }
 
 function buildRepeaterId(value) {
-  return (
-    normalizeText(value)
-      .replace(/[^a-zA-Z0-9-]/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "")
-      .slice(0, 128) || "room"
-  );
-}
-
-function dedupeStringArray(values) {
-  const seenValues = new Set();
-
-  return (Array.isArray(values) ? values : [])
-    .map((value) => normalizeText(value))
-    .filter((value) => {
-      if (!value || seenValues.has(value)) {
-        return false;
-      }
-
-      seenValues.add(value);
-      return true;
-    });
+  return normalizeText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 100);
 }
 
 function normalizeText(value) {
-  return String(value ?? "").trim();
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  return String(value).trim();
 }
 
 function normalizeNumberOrNull(value) {
-  const normalizedNumber = Number(value);
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
 
-  return Number.isFinite(normalizedNumber) ? normalizedNumber : null;
+  const numberValue = Number(value);
+
+  return Number.isFinite(numberValue) ? numberValue : null;
 }
