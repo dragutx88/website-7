@@ -637,7 +637,7 @@ async function handleWixCartFlow(purchaseSelection) {
     roomMainImage: purchaseSelection.roomImage,
     wixHotelMainImageRef: importedImageRefs.wixHotelMainImageRef,
     wixRoomMainImageRef: importedImageRefs.wixRoomMainImageRef,
-    hotelStars: purchaseSelection.hotelStarRatingText,
+    starRating: purchaseSelection.hotelStarRatingText,
     hotelReview: purchaseSelection.hotelReviewText,
     hotelAddress: purchaseSelection.hotelAddress
   });
@@ -837,7 +837,7 @@ function buildPrebookShell({
   roomMainImage,
   wixHotelMainImageRef,
   wixRoomMainImageRef,
-  hotelStars,
+  starRating,
   hotelReview,
   hotelAddress
 }) {
@@ -851,7 +851,7 @@ function buildPrebookShell({
     roomMainImage: normalizeText(roomMainImage),
     wixHotelMainImageRef: normalizeText(wixHotelMainImageRef),
     wixRoomMainImageRef: normalizeText(wixRoomMainImageRef),
-    hotelStars: normalizeText(hotelStars),
+    starRating: normalizeText(starRating),
     hotelReview: normalizeText(hotelReview),
     hotelAddress: normalizeText(hotelAddress),
 
