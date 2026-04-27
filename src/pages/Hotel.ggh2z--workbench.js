@@ -509,6 +509,7 @@ function buildPurchaseSelection({ mappedRoomOfferItem, room, roomOffer }) {
       hotelPageState?.normalizedHotelDetails?.hotelReviewText
     ),
 
+    roomId: normalizeText(room?.roomId),
     roomName: normalizeText(room?.roomName),
     roomImage: normalizeText(room?.roomMainImage),
 
@@ -618,10 +619,13 @@ async function handleWixCartFlow(purchaseSelection) {
   }
 
   const importedImageRefs = await resolveCatalogImageRefs({
-    hotelMainImage: purchaseSelection.hotelMainImage,
-    roomMainImage: purchaseSelection.roomImage,
+    hotelId: purchaseSelection.hotelId,
     hotelName: purchaseSelection.hotelName,
-    mappedRoomName: purchaseSelection.roomName || purchaseSelection.mappedRoomId
+    hotelMainImage: purchaseSelection.hotelMainImage,
+
+    roomId: purchaseSelection.roomId,
+    roomName: purchaseSelection.roomName,
+    roomMainImage: purchaseSelection.roomImage
   });
 
   const prebookShell = buildPrebookShell({
@@ -891,10 +895,12 @@ function getLineItemShellOptions(lineItem) {
 }
 
 async function resolveCatalogImageRefs({
-  hotelMainImage,
-  roomMainImage,
+  hotelId,
   hotelName,
-  mappedRoomName
+  hotelMainImage,
+  roomId,
+  roomName,
+  roomMainImage
 }) {
   const hasAnyImage = Boolean(
     normalizeText(hotelMainImage) || normalizeText(roomMainImage)
@@ -909,10 +915,13 @@ async function resolveCatalogImageRefs({
 
   try {
     const result = await importCatalogImages({
-      hotelMainImage: normalizeText(hotelMainImage),
-      roomMainImage: normalizeText(roomMainImage),
+      hotelId: normalizeText(hotelId),
       hotelName: normalizeText(hotelName),
-      mappedRoomName: normalizeText(mappedRoomName)
+      hotelMainImage: normalizeText(hotelMainImage),
+
+      roomId: normalizeText(roomId),
+      roomName: normalizeText(roomName),
+      roomMainImage: normalizeText(roomMainImage)
     });
 
     return {
