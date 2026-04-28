@@ -23,6 +23,13 @@ $w.onReady(async function () {
 
   try {
     const cart = await currentCart.getCurrentCart();
+    const cartLineItems = getCartLineItems(cart);
+
+    if (!cartLineItems.length) {
+      redirectToHotelWithSearchFlowContextQuery("empty-cart-on-ready");
+      return;
+    }
+
     hydrateReservationTypeUi(cart);
   } catch (error) {
     if (isMissingCurrentCartError(error)) {
@@ -57,6 +64,15 @@ function bindCartChangeListener() {
     onCartChange(async () => {
       try {
         const cart = await currentCart.getCurrentCart();
+        const cartLineItems = getCartLineItems(cart);
+
+        if (!cartLineItems.length) {
+          redirectToHotelWithSearchFlowContextQuery(
+            "empty-cart-on-cart-change"
+          );
+          return;
+        }
+
         hydrateReservationTypeUi(cart);
       } catch (error) {
         if (isMissingCurrentCartError(error)) {
@@ -135,6 +151,12 @@ async function applyReservationType(isFlexible, source) {
   try {
     const cart = await currentCart.getCurrentCart();
     const cartLineItems = getCartLineItems(cart);
+
+    if (!cartLineItems.length) {
+      redirectToHotelWithSearchFlowContextQuery("empty-cart-during-apply");
+      return;
+    }
+
     const relevantLineItems = getRelevantLiteApiLineItems(cart);
 
     if (!relevantLineItems.length) {
@@ -166,6 +188,13 @@ async function applyReservationType(isFlexible, source) {
       );
 
       const freshCart = await currentCart.getCurrentCart();
+      const freshCartLineItems = getCartLineItems(freshCart);
+
+      if (!freshCartLineItems.length) {
+        redirectToHotelWithSearchFlowContextQuery("empty-cart-during-noop");
+        return;
+      }
+
       hydrateReservationTypeUi(freshCart);
       return;
     }
@@ -205,6 +234,12 @@ async function applyReservationType(isFlexible, source) {
 
     const updatedCart = await currentCart.getCurrentCart();
     const updatedCartLineItems = getCartLineItems(updatedCart);
+
+    if (!updatedCartLineItems.length) {
+      redirectToHotelWithSearchFlowContextQuery("empty-cart-after-update");
+      return;
+    }
+
     const updatedRelevantLineItems = getRelevantLiteApiLineItems(updatedCart);
 
     const verificationPassed = verifyReservationTypeState({
