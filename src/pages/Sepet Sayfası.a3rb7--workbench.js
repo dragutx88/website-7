@@ -6,8 +6,8 @@ import { onCartChange, refreshCart } from "wix-ecom-frontend";
 const LITEAPI_CATALOG_APP_ID = "e7f94f4b-7e6a-41c6-8ee1-52c1d5f31cf4";
 const RESERVATION_TYPE_KEY = "reservationType";
 const FLEXIBLE_RESERVATION_TYPE_VALUE = "flexible";
-const REDIRECTED_SEARCH_FLOW_CONTEXT_QUERY_STRING_SESSION_KEY =
-  "redirectedSearchFlowContextQueryString";
+const SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY =
+  "searchFlowContextQueryStringify";
 
 let isApplyingReservationType = false;
 let isProgrammaticSwitchUpdate = false;
@@ -16,13 +16,17 @@ $w.onReady(async function () {
   bindReservationTypeControls();
   bindCartChangeListener();
 
+  session.setItem(
+    SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY,
+    JSON.stringify(wixLocationFrontend.query || {})
+  );
+
   try {
     const cart = await currentCart.getCurrentCart();
-    setRedirectedSearchFlowContextQueryString();
     hydrateReservationTypeUi(cart);
   } catch (error) {
     if (isMissingCurrentCartError(error)) {
-      redirectToHotelWithSearchFlowContextQueryString("missing-current-cart");
+      redirectToHotelWithSearchFlowContextQuery("missing-current-cart");
       return;
     }
 
@@ -52,11 +56,11 @@ function bindCartChangeListener() {
   try {
     onCartChange(async () => {
       try {
-        await currentCart.getCurrentCart();
-        setRedirectedSearchFlowContextQueryString();
+        const cart = await currentCart.getCurrentCart();
+        hydrateReservationTypeUi(cart);
       } catch (error) {
         if (isMissingCurrentCartError(error)) {
-          redirectToHotelWithSearchFlowContextQueryString(
+          redirectToHotelWithSearchFlowContextQuery(
             "missing-current-cart-on-cart-change"
           );
           return;
@@ -244,7 +248,7 @@ async function applyReservationType(isFlexible, source) {
         })
       );
 
-      redirectToHotelWithSearchFlowContextQueryString(
+      redirectToHotelWithSearchFlowContextQuery(
         "reservation-type-verification-failed"
       );
       return;
@@ -253,7 +257,7 @@ async function applyReservationType(isFlexible, source) {
     hydrateReservationTypeUi(updatedCart);
   } catch (error) {
     if (isMissingCurrentCartError(error)) {
-      redirectToHotelWithSearchFlowContextQueryString(
+      redirectToHotelWithSearchFlowContextQuery(
         "missing-current-cart-during-apply"
       );
       return;
@@ -480,37 +484,29 @@ function buildUpdatePayloadSummary(lineItem) {
   };
 }
 
-function getSearchFlowContextQueryString() {
-  const searchFlowContextUrl = String(wixLocationFrontend.url || "");
+function redirectToHotelWithSearchFlowContextQuery(reason) {
+  let searchFlowContextQuery = {};
 
-  if (!searchFlowContextUrl) {
-    return "";
+  try {
+    searchFlowContextQuery = JSON.parse(
+      session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
+    );
+  } catch (error) {
+    console.error(
+      "CART PAGE failed to parse search flow context query session",
+      error,
+      safeJson(error)
+    );
+    searchFlowContextQuery = {};
   }
 
-  return new URL(searchFlowContextUrl).search || "";
-}
+  const redirectSearchFlowContextQueryString = new URLSearchParams({
+    ...wixLocationFrontend.query,
+    ...searchFlowContextQuery
+  }).toString();
 
-function setRedirectedSearchFlowContextQueryString() {
-  session.setItem(
-    REDIRECTED_SEARCH_FLOW_CONTEXT_QUERY_STRING_SESSION_KEY,
-    getSearchFlowContextQueryString()
-  );
-}
-
-function getRedirectedSearchFlowContextQueryString() {
-  return String(
-    session.getItem(REDIRECTED_SEARCH_FLOW_CONTEXT_QUERY_STRING_SESSION_KEY) ||
-      ""
-  ).trim();
-}
-
-function redirectToHotelWithSearchFlowContextQueryString(reason) {
-  const redirectedSearchFlowContextQueryString =
-    getRedirectedSearchFlowContextQueryString() ||
-    getSearchFlowContextQueryString();
-
-  const redirectSearchFlowContextUrl = redirectedSearchFlowContextQueryString
-    ? `/hotel${redirectedSearchFlowContextQueryString}`
+  const redirectSearchFlowContextUrl = redirectSearchFlowContextQueryString
+    ? `/hotel?${redirectSearchFlowContextQueryString}`
     : "/hotel";
 
   console.warn(
