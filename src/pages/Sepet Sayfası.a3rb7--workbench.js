@@ -26,18 +26,40 @@ $w.onReady(async function () {
     const cartLineItems = getCartLineItems(cart);
 
     if (!cartLineItems.length) {
-      redirectToHotelWithSearchFlowContextQuery("empty-cart-on-ready");
+      console.warn("CART PAGE empty-cart-on-ready redirecting to /hotel", {
+        query: wixLocationFrontend.query
+      });
+
+      wixLocationFrontend.to(`/hotel?${new URLSearchParams({
+        ...wixLocationFrontend.query,
+        ...JSON.parse(
+          session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) ||
+            "{}"
+        )
+      })}`);
+
       return;
     }
 
     hydrateReservationTypeUi(cart);
   } catch (error) {
     if (isMissingCurrentCartError(error)) {
-      redirectToHotelWithSearchFlowContextQuery("missing-current-cart");
+      console.warn("CART PAGE missing-current-cart redirecting to /hotel", {
+        query: wixLocationFrontend.query
+      });
+
+      wixLocationFrontend.to(`/hotel?${new URLSearchParams({
+        ...wixLocationFrontend.query,
+        ...JSON.parse(
+          session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) ||
+            "{}"
+        )
+      })}`);
+
       return;
     }
 
-    console.error("CART PAGE onReady failed", error, safeJson(error));
+    console.error("CART PAGE onReady failed", error);
   }
 });
 
@@ -67,26 +89,52 @@ function bindCartChangeListener() {
         const cartLineItems = getCartLineItems(cart);
 
         if (!cartLineItems.length) {
-          redirectToHotelWithSearchFlowContextQuery(
-            "empty-cart-on-cart-change"
+          console.warn(
+            "CART PAGE empty-cart-on-cart-change redirecting to /hotel",
+            {
+              query: wixLocationFrontend.query
+            }
           );
+
+          wixLocationFrontend.to(`/hotel?${new URLSearchParams({
+            ...wixLocationFrontend.query,
+            ...JSON.parse(
+              session.getItem(
+                SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY
+              ) || "{}"
+            )
+          })}`);
+
           return;
         }
 
         hydrateReservationTypeUi(cart);
       } catch (error) {
         if (isMissingCurrentCartError(error)) {
-          redirectToHotelWithSearchFlowContextQuery(
-            "missing-current-cart-on-cart-change"
+          console.warn(
+            "CART PAGE missing-current-cart-on-cart-change redirecting to /hotel",
+            {
+              query: wixLocationFrontend.query
+            }
           );
+
+          wixLocationFrontend.to(`/hotel?${new URLSearchParams({
+            ...wixLocationFrontend.query,
+            ...JSON.parse(
+              session.getItem(
+                SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY
+              ) || "{}"
+            )
+          })}`);
+
           return;
         }
 
-        console.error("CART PAGE onCartChange failed", error, safeJson(error));
+        console.error("CART PAGE onCartChange failed", error);
       }
     });
   } catch (error) {
-    console.warn("CART PAGE onCartChange binding failed", safeJson(error));
+    console.warn("CART PAGE onCartChange binding failed", error);
   }
 }
 
@@ -101,12 +149,9 @@ function hydrateReservationTypeUi(cart) {
       isProgrammaticSwitchUpdate = false;
     }, 0);
 
-    console.warn(
-      "CART PAGE hydrateReservationTypeUi no relevant LiteAPI line items",
-      safeJson({
-        totalCartLineItemsCount: cartLineItems.length
-      })
-    );
+    console.warn("CART PAGE hydrateReservationTypeUi no relevant LiteAPI line items", {
+      totalCartLineItemsCount: cartLineItems.length
+    });
     return;
   }
 
@@ -120,15 +165,12 @@ function hydrateReservationTypeUi(cart) {
     isProgrammaticSwitchUpdate = false;
   }, 0);
 
-  console.log(
-    "CART PAGE hydrateReservationTypeUi",
-    safeJson({
-      totalCartLineItemsCount: cartLineItems.length,
-      relevantLineItemsCount: relevantLineItems.length,
-      allFlexible,
-      lineItems: relevantLineItems.map(buildLineItemSummary)
-    })
-  );
+  console.log("CART PAGE hydrateReservationTypeUi", {
+    totalCartLineItemsCount: cartLineItems.length,
+    relevantLineItemsCount: relevantLineItems.length,
+    allFlexible,
+    lineItems: relevantLineItems.map(buildLineItemSummary)
+  });
 }
 
 async function applyReservationType(isFlexible, source) {
@@ -153,7 +195,20 @@ async function applyReservationType(isFlexible, source) {
     const cartLineItems = getCartLineItems(cart);
 
     if (!cartLineItems.length) {
-      redirectToHotelWithSearchFlowContextQuery("empty-cart-during-apply");
+      console.warn("CART PAGE empty-cart-during-apply redirecting to /hotel", {
+        source,
+        isFlexible,
+        query: wixLocationFrontend.query
+      });
+
+      wixLocationFrontend.to(`/hotel?${new URLSearchParams({
+        ...wixLocationFrontend.query,
+        ...JSON.parse(
+          session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) ||
+            "{}"
+        )
+      })}`);
+
       return;
     }
 
@@ -162,11 +217,11 @@ async function applyReservationType(isFlexible, source) {
     if (!relevantLineItems.length) {
       console.warn(
         "CART PAGE applyReservationType skipped: no relevant LiteAPI line items",
-        safeJson({
+        {
           source,
           isFlexible,
           totalCartLineItemsCount: cartLineItems.length
-        })
+        }
       );
       return;
     }
@@ -176,22 +231,32 @@ async function applyReservationType(isFlexible, source) {
     );
 
     if (!changedRelevantLineItems.length) {
-      console.log(
-        "CART PAGE applyReservationType noop",
-        safeJson({
-          source,
-          isFlexible,
-          totalCartLineItemsCount: cartLineItems.length,
-          relevantLineItemsCount: relevantLineItems.length,
-          relevantLineItems: relevantLineItems.map(buildLineItemSummary)
-        })
-      );
+      console.log("CART PAGE applyReservationType noop", {
+        source,
+        isFlexible,
+        totalCartLineItemsCount: cartLineItems.length,
+        relevantLineItemsCount: relevantLineItems.length,
+        relevantLineItems: relevantLineItems.map(buildLineItemSummary)
+      });
 
       const freshCart = await currentCart.getCurrentCart();
       const freshCartLineItems = getCartLineItems(freshCart);
 
       if (!freshCartLineItems.length) {
-        redirectToHotelWithSearchFlowContextQuery("empty-cart-during-noop");
+        console.warn("CART PAGE empty-cart-during-noop redirecting to /hotel", {
+          source,
+          isFlexible,
+          query: wixLocationFrontend.query
+        });
+
+        wixLocationFrontend.to(`/hotel?${new URLSearchParams({
+          ...wixLocationFrontend.query,
+          ...JSON.parse(
+            session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) ||
+              "{}"
+          )
+        })}`);
+
         return;
       }
 
@@ -204,21 +269,18 @@ async function applyReservationType(isFlexible, source) {
       isFlexible
     );
 
-    console.log(
-      "CART PAGE applyReservationType payload",
-      safeJson({
-        source,
-        isFlexible,
-        totalCartLineItemsCount: cartLineItems.length,
-        relevantLineItemsCount: relevantLineItems.length,
-        changedRelevantLineItemsCount: changedRelevantLineItems.length,
-        payloadLineItemsCount: allLineItemsToUpdate.length,
-        expectedPayloadIncludesAllCartLineItems:
-          allLineItemsToUpdate.length === cartLineItems.length,
-        beforeRelevantLineItems: relevantLineItems.map(buildLineItemSummary),
-        lineItemsToUpdate: allLineItemsToUpdate.map(buildUpdatePayloadSummary)
-      })
-    );
+    console.log("CART PAGE applyReservationType payload", {
+      source,
+      isFlexible,
+      totalCartLineItemsCount: cartLineItems.length,
+      relevantLineItemsCount: relevantLineItems.length,
+      changedRelevantLineItemsCount: changedRelevantLineItems.length,
+      payloadLineItemsCount: allLineItemsToUpdate.length,
+      expectedPayloadIncludesAllCartLineItems:
+        allLineItemsToUpdate.length === cartLineItems.length,
+      beforeRelevantLineItems: relevantLineItems.map(buildLineItemSummary),
+      lineItemsToUpdate: allLineItemsToUpdate.map(buildUpdatePayloadSummary)
+    });
 
     if (allLineItemsToUpdate.length !== cartLineItems.length) {
       throw new Error(
@@ -236,7 +298,20 @@ async function applyReservationType(isFlexible, source) {
     const updatedCartLineItems = getCartLineItems(updatedCart);
 
     if (!updatedCartLineItems.length) {
-      redirectToHotelWithSearchFlowContextQuery("empty-cart-after-update");
+      console.warn("CART PAGE empty-cart-after-update redirecting to /hotel", {
+        source,
+        isFlexible,
+        query: wixLocationFrontend.query
+      });
+
+      wixLocationFrontend.to(`/hotel?${new URLSearchParams({
+        ...wixLocationFrontend.query,
+        ...JSON.parse(
+          session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) ||
+            "{}"
+        )
+      })}`);
+
       return;
     }
 
@@ -251,58 +326,68 @@ async function applyReservationType(isFlexible, source) {
       isFlexible
     });
 
-    console.log(
-      "CART PAGE applyReservationType after update",
-      safeJson({
+    console.log("CART PAGE applyReservationType after update", {
+      source,
+      isFlexible,
+      verificationPassed,
+      totalCartLineItemsCountBefore: cartLineItems.length,
+      totalCartLineItemsCountAfter: updatedCartLineItems.length,
+      relevantLineItemsCountBefore: relevantLineItems.length,
+      relevantLineItemsCountAfter: updatedRelevantLineItems.length,
+      updatedRelevantLineItems: updatedRelevantLineItems.map(
+        buildLineItemSummary
+      )
+    });
+
+    if (!verificationPassed) {
+      console.warn("CART PAGE applyReservationType verification failed", {
         source,
         isFlexible,
-        verificationPassed,
         totalCartLineItemsCountBefore: cartLineItems.length,
         totalCartLineItemsCountAfter: updatedCartLineItems.length,
         relevantLineItemsCountBefore: relevantLineItems.length,
         relevantLineItemsCountAfter: updatedRelevantLineItems.length,
         updatedRelevantLineItems: updatedRelevantLineItems.map(
           buildLineItemSummary
+        ),
+        query: wixLocationFrontend.query
+      });
+
+      wixLocationFrontend.to(`/hotel?${new URLSearchParams({
+        ...wixLocationFrontend.query,
+        ...JSON.parse(
+          session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) ||
+            "{}"
         )
-      })
-    );
+      })}`);
 
-    if (!verificationPassed) {
-      console.warn(
-        "CART PAGE applyReservationType verification failed",
-        safeJson({
-          source,
-          isFlexible,
-          totalCartLineItemsCountBefore: cartLineItems.length,
-          totalCartLineItemsCountAfter: updatedCartLineItems.length,
-          relevantLineItemsCountBefore: relevantLineItems.length,
-          relevantLineItemsCountAfter: updatedRelevantLineItems.length,
-          updatedRelevantLineItems: updatedRelevantLineItems.map(
-            buildLineItemSummary
-          )
-        })
-      );
-
-      redirectToHotelWithSearchFlowContextQuery(
-        "reservation-type-verification-failed"
-      );
       return;
     }
 
     hydrateReservationTypeUi(updatedCart);
   } catch (error) {
     if (isMissingCurrentCartError(error)) {
-      redirectToHotelWithSearchFlowContextQuery(
-        "missing-current-cart-during-apply"
+      console.warn(
+        "CART PAGE missing-current-cart-during-apply redirecting to /hotel",
+        {
+          source,
+          isFlexible,
+          query: wixLocationFrontend.query
+        }
       );
+
+      wixLocationFrontend.to(`/hotel?${new URLSearchParams({
+        ...wixLocationFrontend.query,
+        ...JSON.parse(
+          session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) ||
+            "{}"
+        )
+      })}`);
+
       return;
     }
 
-    console.error(
-      "CART PAGE applyReservationType failed",
-      error,
-      safeJson(error)
-    );
+    console.error("CART PAGE applyReservationType failed", error);
   } finally {
     $w("#reservationModeSwitch").enable();
     $w("#reservationFlexibleModeButton").enable();
@@ -519,42 +604,6 @@ function buildUpdatePayloadSummary(lineItem) {
   };
 }
 
-function redirectToHotelWithSearchFlowContextQuery(reason) {
-  let searchFlowContextQuery = {};
-
-  try {
-    searchFlowContextQuery = JSON.parse(
-      session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
-    );
-  } catch (error) {
-    console.error(
-      "CART PAGE failed to parse search flow context query session",
-      error,
-      safeJson(error)
-    );
-    searchFlowContextQuery = {};
-  }
-
-  const redirectSearchFlowContextQueryString = new URLSearchParams({
-    ...wixLocationFrontend.query,
-    ...searchFlowContextQuery
-  }).toString();
-
-  const redirectSearchFlowContextUrl = redirectSearchFlowContextQueryString
-    ? `/hotel?${redirectSearchFlowContextQueryString}`
-    : "/hotel";
-
-  console.warn(
-    "CART PAGE redirecting to hotel",
-    safeJson({
-      reason,
-      redirectSearchFlowContextUrl
-    })
-  );
-
-  wixLocationFrontend.to(redirectSearchFlowContextUrl);
-}
-
 function isMissingCurrentCartError(error) {
   const status =
     Number(error?.status) ||
@@ -591,32 +640,4 @@ function normalizeRequiredQuantity(value, fieldPath) {
   }
 
   return quantity;
-}
-
-function safeJson(value) {
-  try {
-    return JSON.stringify(
-      value,
-      (key, currentValue) => {
-        if (currentValue instanceof Error) {
-          const errorPayload = {
-            name: currentValue.name,
-            message: currentValue.message,
-            stack: currentValue.stack
-          };
-
-          Object.getOwnPropertyNames(currentValue).forEach((propName) => {
-            errorPayload[propName] = currentValue[propName];
-          });
-
-          return errorPayload;
-        }
-
-        return currentValue;
-      },
-      2
-    );
-  } catch (error) {
-    return `[unserializable: ${String(error?.message || error)}]`;
-  }
 }
