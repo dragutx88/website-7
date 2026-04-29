@@ -119,12 +119,64 @@ async function completeWalletBookingHandler(payload) {
     throw new Error("orderId is required for WALLET booking.");
   }
 
-  const getOrderResult = await elevate(orders.getOrder)(orderId);
-  const currentOrder = getOrderResult?.order;
+  const currentOrder = await elevate(orders.getOrder)(orderId);
 
-  if (!currentOrder || typeof currentOrder !== "object") {
-    throw new Error("order is missing from Wix getOrder response.");
-  }
+  console.log("LITEAPI WALLET backend getOrder shape diagnostic", {
+    orderId,
+    orderKeys:
+      currentOrder && typeof currentOrder === "object"
+        ? Object.keys(currentOrder).sort()
+        : [],
+    orderIdPaths: {
+      _id: currentOrder?._id,
+      id: currentOrder?.id,
+      number: currentOrder?.number
+    },
+    paymentStatus: currentOrder?.paymentStatus,
+    status: currentOrder?.status,
+    hasExtendedFields: Boolean(currentOrder?.extendedFields),
+    extendedFieldsKeys:
+      currentOrder?.extendedFields &&
+      typeof currentOrder.extendedFields === "object"
+        ? Object.keys(currentOrder.extendedFields).sort()
+        : [],
+    extendedFields: currentOrder?.extendedFields,
+    lineItemsCount: Array.isArray(currentOrder?.lineItems)
+      ? currentOrder.lineItems.length
+      : 0,
+    lineItems: Array.isArray(currentOrder?.lineItems)
+      ? currentOrder.lineItems.map((lineItem, index) => ({
+          index,
+          keys:
+            lineItem && typeof lineItem === "object"
+              ? Object.keys(lineItem).sort()
+              : [],
+          _id: lineItem?._id,
+          id: lineItem?.id,
+          lineItemId: lineItem?.lineItemId,
+          _lineItemId: lineItem?._lineItemId,
+          productName: lineItem?.productName,
+          name: lineItem?.name,
+          quantity: lineItem?.quantity,
+          itemType: lineItem?.itemType,
+          catalogReference: lineItem?.catalogReference,
+          catalogReferenceKeys:
+            lineItem?.catalogReference &&
+            typeof lineItem.catalogReference === "object"
+              ? Object.keys(lineItem.catalogReference).sort()
+              : [],
+          catalogReferenceOptions:
+            lineItem?.catalogReference?.options,
+          catalogReferenceOptionsKeys:
+            lineItem?.catalogReference?.options &&
+            typeof lineItem.catalogReference.options === "object"
+              ? Object.keys(lineItem.catalogReference.options).sort()
+              : [],
+          options: lineItem?.options,
+          descriptionLines: lineItem?.descriptionLines
+        }))
+      : []
+  });
 
   const bookingCandidate = resolveSingleLiteApiOrderLineItem(currentOrder);
 
@@ -160,7 +212,10 @@ async function completeWalletBookingHandler(payload) {
     console.log("LITEAPI WALLET native order booking snapshot cache hit", {
       orderId,
       orderLineItemId,
-      bookingId: orderBookingId
+      bookingId: orderBookingId,
+      bookingClientReference: normalizeText(
+        orderUserFields[ORDER_EXTENDED_FIELDS_BOOKING_CLIENT_REFERENCE_KEY]
+      )
     });
 
     return {
