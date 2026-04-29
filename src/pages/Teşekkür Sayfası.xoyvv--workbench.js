@@ -79,7 +79,9 @@ async function initializeCompleteBookingFlow() {
     thankYouPageHidden: Boolean(thankYouPage.hidden),
     thankYouPageIsVisible: Boolean(thankYouPage.isVisible),
     stateBoxSelector: COMPLETE_BOOKING_STATE_BOX_SELECTOR,
-    stateBoxCurrentStateId: normalizeText(completeBookingStateBox.currentState?.id),
+    stateBoxCurrentStateId: normalizeText(
+      completeBookingStateBox.currentState?.id
+    ),
     stateBoxCollapsed: Boolean(completeBookingStateBox.collapsed),
     stateBoxHidden: Boolean(completeBookingStateBox.hidden),
     stateBoxIsVisible: Boolean(completeBookingStateBox.isVisible)
@@ -93,7 +95,9 @@ async function initializeCompleteBookingFlow() {
     thankYouPageCollapsed: Boolean(thankYouPage.collapsed),
     thankYouPageHidden: Boolean(thankYouPage.hidden),
     thankYouPageIsVisible: Boolean(thankYouPage.isVisible),
-    stateBoxCurrentStateId: normalizeText(completeBookingStateBox.currentState?.id),
+    stateBoxCurrentStateId: normalizeText(
+      completeBookingStateBox.currentState?.id
+    ),
     stateBoxCollapsed: Boolean(completeBookingStateBox.collapsed),
     stateBoxHidden: Boolean(completeBookingStateBox.hidden),
     stateBoxIsVisible: Boolean(completeBookingStateBox.isVisible)
@@ -113,7 +117,9 @@ async function initializeCompleteBookingFlow() {
       completedStateId: COMPLETE_BOOKING_PROGRESS_COMPLETED_STATE_ID,
       thankYouPageCollapsed: Boolean(thankYouPage.collapsed),
       thankYouPageIsVisible: Boolean(thankYouPage.isVisible),
-      stateBoxCurrentStateId: normalizeText(completeBookingStateBox.currentState?.id)
+      stateBoxCurrentStateId: normalizeText(
+        completeBookingStateBox.currentState?.id
+      )
     });
 
     return;
@@ -159,7 +165,9 @@ async function initializeCompleteBookingFlow() {
         completedStateId: COMPLETE_BOOKING_PROGRESS_COMPLETED_STATE_ID,
         thankYouPageCollapsed: Boolean(thankYouPage.collapsed),
         thankYouPageIsVisible: Boolean(thankYouPage.isVisible),
-        stateBoxCurrentStateId: normalizeText(completeBookingStateBox.currentState?.id)
+        stateBoxCurrentStateId: normalizeText(
+          completeBookingStateBox.currentState?.id
+        )
       });
 
       return;
@@ -195,7 +203,9 @@ async function initializeCompleteBookingFlow() {
       completedStateId: COMPLETE_BOOKING_PROGRESS_COMPLETED_STATE_ID,
       thankYouPageCollapsed: Boolean(thankYouPage.collapsed),
       thankYouPageIsVisible: Boolean(thankYouPage.isVisible),
-      stateBoxCurrentStateId: normalizeText(completeBookingStateBox.currentState?.id)
+      stateBoxCurrentStateId: normalizeText(
+        completeBookingStateBox.currentState?.id
+      )
     });
   } catch (error) {
     console.error("COMPLETE BOOKING failed", error);
@@ -215,7 +225,9 @@ async function initializeCompleteBookingFlow() {
       completedStateId: COMPLETE_BOOKING_PROGRESS_COMPLETED_STATE_ID,
       thankYouPageCollapsed: Boolean(thankYouPage.collapsed),
       thankYouPageIsVisible: Boolean(thankYouPage.isVisible),
-      stateBoxCurrentStateId: normalizeText(completeBookingStateBox.currentState?.id)
+      stateBoxCurrentStateId: normalizeText(
+        completeBookingStateBox.currentState?.id
+      )
     });
   } finally {
     console.log("COMPLETE BOOKING initialize-end", {
@@ -390,15 +402,6 @@ function summarizeCompleteBookingResult(completeBookingResult) {
     ),
     orderPersistenceBookingId: normalizeText(
       completeBookingResult?.persistence?.order?.bookingId
-    ),
-    cmsPersistenceStatus: normalizeText(
-      completeBookingResult?.persistence?.cms?.status
-    ),
-    cmsPersistenceBookingId: normalizeText(
-      completeBookingResult?.persistence?.cms?.bookingId
-    ),
-    cmsSnapshotId: normalizeText(
-      completeBookingResult?.persistence?.cms?.cmsSnapshotId
     )
   };
 }
