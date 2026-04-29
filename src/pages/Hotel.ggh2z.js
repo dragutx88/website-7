@@ -1,32 +1,12 @@
 import wixLocationFrontend from "wix-location-frontend";
 import wixWindowFrontend from "wix-window-frontend";
 import wixEcomFrontend from "wix-ecom-frontend";
-import { session } from "wix-storage-frontend";
 import { currentCart } from "wix-ecom-backend";
 import {
   createPrebookSession,
   getHotelMappedRoomOffers
 } from "backend/liteApi.web";
 import { importCatalogImages } from "backend/wix.web";
-import {
-  buildCheckoutPageUrl,
-  formatGuestRating,
-  formatPrice,
-  formatReviewCount,
-  persistSelectedOfferPayload
-} from "public/liteApiFlow";
-import {
-  safeCollapseAndHide,
-  safeExpand,
-  safeGetItemElement,
-  safeGetPageElement,
-  safeShow,
-  setItemImage,
-  setItemText,
-  setOptionalItemText,
-  setOptionalTextIfExists,
-  setTextIfExists
-} from "public/liteApiHelpers";
 
 const ROOM_DETAILS_LIGHTBOX = "roomDetailsPopup";
 const HOTEL_POLICIES_LIGHTBOX = "hotelPoliciesPopup";
@@ -37,40 +17,39 @@ const FALLBACK_IMAGE_URL =
 
 const PURCHASE_FLOW_MODES = Object.freeze({
   WIX_CART: "wix_cart",
-  LITEAPI_DIRECT: "liteapi_direct"
+  PAYMENT_SDK: "payment_sdk"
 });
 
 const PURCHASE_FLOW_MODE = PURCHASE_FLOW_MODES.WIX_CART;
 
 const LITEAPI_CATALOG_APP_ID = "e7f94f4b-7e6a-41c6-8ee1-52c1d5f31cf4";
+
+const HOTEL_PAGE_PATH = "/hotel";
 const CART_PAGE_PATH = "/cart-page";
-const CART_RETURN_URL_STORAGE_KEY = "liteapi.cartReturnUrl.v1";
-const RETURN_SEARCH_FLOW_CONTEXT_URL_STORAGE_KEY = "returnSearchFlowContextUrl";
+const CHECKOUT_PAGE_PATH = "/checkout";
 
 let searchFlowContextQuery = {};
-let currentSearchFlowContextUrl = "";
+let searchFlowContextUrl = "";
 let hotelPageState = null;
 
 $w.onReady(async function () {
+  $w("#mappedRoomOffersRepeater").onItemReady(($item, itemData) => {
+    bindMappedRoomOfferItem($item, itemData);
+  });
+
   await initializeHotelPage();
 });
 
 async function initializeHotelPage() {
   searchFlowContextQuery = wixLocationFrontend.query || {};
-  currentSearchFlowContextUrl = buildCurrentSearchFlowContextUrl(
-    searchFlowContextQuery
-  );
-
-  session.setItem(
-    RETURN_SEARCH_FLOW_CONTEXT_URL_STORAGE_KEY,
-    currentSearchFlowContextUrl
-  );
+  searchFlowContextUrl = buildSearchFlowContextUrl(searchFlowContextQuery);
 
   const resolvedHotelId = normalizeText(searchFlowContextQuery?.hotelId);
 
   if (!resolvedHotelId) {
     console.error("HOTEL PAGE missing hotelId.");
-    setTextIfExists("#hotelNameText", "Hotel");
+    $w("#hotelNameText").text = "Hotel";
+    $w("#hotelNameText").expand();
     return;
   }
 
@@ -81,15 +60,21 @@ async function initializeHotelPage() {
       hotelPageState?.normalizedHotelDetails || null,
       hotelPageState?.normalizedHotelMappedRoomOffers || null
     );
+
     bindHotelDescriptionSections(hotelPageState?.normalizedHotelDetails || null);
     bindHotelPopupButtons(hotelPageState?.normalizedHotelDetails || null);
+
     bindMappedRoomOffersRepeater(
       hotelPageState?.normalizedHotelMappedRoomOffers?.mappedRoomOffers || []
     );
   } catch (error) {
     console.error("HOTEL PAGE initialization failed", error);
-    setTextIfExists("#hotelNameText", "Hotel");
-    setTextIfExists("#hotelAddressText", "");
+
+    $w("#hotelNameText").text = "Hotel";
+    $w("#hotelNameText").expand();
+
+    $w("#hotelAddressText").text = "";
+    $w("#hotelAddressText").expand();
   }
 }
 
@@ -97,151 +82,157 @@ function bindHotelHero(normalizedHotelDetails, normalizedHotelMappedRoomOffers) 
   const hotelMainImage =
     normalizeText(normalizedHotelDetails?.hotelMainImage) || FALLBACK_IMAGE_URL;
 
-  const hotelGalleryImageUrls = collectHotelImageUrls(
-    normalizedHotelDetails?.hotelImages,
-    hotelMainImage
+  const hotelName = normalizeText(normalizedHotelDetails?.hotelName) || "Hotel";
+  $w("#hotelNameText").text = hotelName;
+  $w("#hotelNameText").expand();
+
+  $w("#hotelAddressText").text = normalizeText(
+    normalizedHotelDetails?.hotelAddress
+  );
+  $w("#hotelAddressText").expand();
+
+  const hotelStarRating = normalizedHotelDetails?.hotelStarRating;
+
+  if (
+    hotelStarRating !== null &&
+    hotelStarRating !== undefined &&
+    hotelStarRating !== ""
+  ) {
+    $w("#hotelStarRatingDisplay").rating = hotelStarRating;
+    $w("#hotelStarRatingDisplay").expand();
+  } else {
+    $w("#hotelStarRatingDisplay").collapse();
+  }
+
+  const hotelRatingText = normalizeText(normalizedHotelDetails?.hotelRatingText);
+
+  if (hotelRatingText) {
+    $w("#hotelRatingText").text = hotelRatingText;
+    $w("#hotelRatingText").expand();
+  } else {
+    $w("#hotelRatingText").text = "";
+    $w("#hotelRatingText").collapse();
+  }
+
+  const hotelReviewCountText = normalizeText(
+    normalizedHotelDetails?.hotelReviewCountText
   );
 
-  setTextIfExists(
-    "#hotelNameText",
-    normalizeText(normalizedHotelDetails?.hotelName) || "Hotel"
-  );
-  setTextIfExists(
-    "#hotelAddressText",
-    normalizeText(normalizedHotelDetails?.hotelAddress)
-  );
-  setRatingIfExists(
-    "#hotelStarRatingDisplay",
-    normalizedHotelDetails?.hotelStarRating
-  );
-  setOptionalTextIfExists(
-    "#hotelRatingText",
-    formatGuestRating(normalizedHotelDetails?.hotelRating)
-  );
-  setOptionalTextIfExists(
-    "#hotelReviewCountText",
-    formatReviewCount(normalizedHotelDetails?.hotelReviewCount)
-  );
+  if (hotelReviewCountText) {
+    $w("#hotelReviewCountText").text = hotelReviewCountText;
+    $w("#hotelReviewCountText").expand();
+  } else {
+    $w("#hotelReviewCountText").text = "";
+    $w("#hotelReviewCountText").collapse();
+  }
 
   bindMapElements(normalizedHotelDetails?.hotelMapUrl);
-  bindHeroGallery(hotelGalleryImageUrls);
 
-  const roomOffersMinCurrentPrice = normalizeNumberOrNull(
-    normalizedHotelMappedRoomOffers?.roomOffersMinCurrentPrice
-  );
-  const roomOfferCurrency = normalizeText(
-    normalizedHotelMappedRoomOffers?.roomOfferCurrency
+  bindHeroGallery(
+    Array.isArray(normalizedHotelDetails?.hotelImageUrls) &&
+      normalizedHotelDetails.hotelImageUrls.length
+      ? normalizedHotelDetails.hotelImageUrls
+      : [hotelMainImage]
   );
 
-  const roomOffersMinCurrentPriceText =
-    Number.isFinite(roomOffersMinCurrentPrice) && roomOfferCurrency
-      ? formatPrice({
-          amount: roomOffersMinCurrentPrice,
-          currency: roomOfferCurrency
-        })
-      : "";
+  const roomOffersMinCurrentPriceText = normalizeText(
+    normalizedHotelMappedRoomOffers?.roomOffersMinCurrentPriceText
+  );
 
-  setOptionalTextIfExists(
-    "#roomOffersMinCurrentPriceText",
-    roomOffersMinCurrentPriceText
-  );
-  syncVisibilityWithCurrentPrice(
-    "#roomOffersMinCurrentPricePrefixText",
-    roomOffersMinCurrentPriceText
-  );
-  syncVisibilityWithCurrentPrice(
-    "#roomOffersMinCurrentPriceText",
-    roomOffersMinCurrentPriceText
-  );
-  syncVisibilityWithCurrentPrice(
-    "#roomOffersMinCurrentPricePerNightText",
-    roomOffersMinCurrentPriceText
-  );
+  if (roomOffersMinCurrentPriceText) {
+    $w("#roomOffersMinCurrentPriceText").text = roomOffersMinCurrentPriceText;
+    $w("#roomOffersMinCurrentPriceText").expand();
+
+    $w("#roomOffersMinCurrentPricePrefixText").expand();
+    $w("#roomOffersMinCurrentPricePerNightText").expand();
+  } else {
+    $w("#roomOffersMinCurrentPriceText").text = "";
+    $w("#roomOffersMinCurrentPriceText").collapse();
+
+    $w("#roomOffersMinCurrentPricePrefixText").collapse();
+    $w("#roomOffersMinCurrentPricePerNightText").collapse();
+  }
 }
 
 function bindHotelDescriptionSections(normalizedHotelDetails) {
-  setOptionalTextIfExists(
-    "#hotelDescriptionBodyText",
-    normalizeText(normalizedHotelDetails?.hotelDescription)
+  const hotelDescription = normalizeText(
+    normalizedHotelDetails?.hotelDescription
   );
-  setOptionalTextIfExists(
-    "#hotelImportantInformationBodyText",
-    normalizeText(normalizedHotelDetails?.hotelImportantInformation)
+
+  if (hotelDescription) {
+    $w("#hotelDescriptionBodyText").text = hotelDescription;
+    $w("#hotelDescriptionBodyText").expand();
+  } else {
+    $w("#hotelDescriptionBodyText").text = "";
+    $w("#hotelDescriptionBodyText").collapse();
+  }
+
+  const hotelImportantInformation = normalizeText(
+    normalizedHotelDetails?.hotelImportantInformation
   );
+
+  if (hotelImportantInformation) {
+    $w("#hotelImportantInformationBodyText").text = hotelImportantInformation;
+    $w("#hotelImportantInformationBodyText").expand();
+  } else {
+    $w("#hotelImportantInformationBodyText").text = "";
+    $w("#hotelImportantInformationBodyText").collapse();
+  }
 }
 
 function bindHotelPopupButtons(normalizedHotelDetails) {
-  const hotelFacilitiesPopupButton = safeGetPageElement("#hotelFacilitiesPopupButton");
   const hotelFacilities = Array.isArray(normalizedHotelDetails?.hotelFacilities)
     ? normalizedHotelDetails.hotelFacilities
     : [];
 
-  if (hotelFacilitiesPopupButton) {
-    if (hotelFacilities.length > 0) {
-      safeShow(hotelFacilitiesPopupButton);
-      safeExpand(hotelFacilitiesPopupButton);
-
-      if (typeof hotelFacilitiesPopupButton.onClick === "function") {
-        hotelFacilitiesPopupButton.onClick(() => {
-          wixWindowFrontend.openLightbox(HOTEL_FACILITIES_LIGHTBOX, {
-            facilities: hotelFacilities
-          });
-        });
-      }
-    } else {
-      safeCollapseAndHide(hotelFacilitiesPopupButton);
-    }
+  if (hotelFacilities.length > 0) {
+    $w("#hotelFacilitiesPopupButton").expand();
+    $w("#hotelFacilitiesPopupButton").onClick(() => {
+      wixWindowFrontend.openLightbox(HOTEL_FACILITIES_LIGHTBOX, {
+        facilities: hotelFacilities
+      });
+    });
+  } else {
+    $w("#hotelFacilitiesPopupButton").collapse();
   }
 
-  const hotelPoliciesPopupButton = safeGetPageElement("#hotelPoliciesPopupButton");
   const hotelPolicies = Array.isArray(normalizedHotelDetails?.hotelPolicies)
     ? normalizedHotelDetails.hotelPolicies
     : [];
 
-  if (hotelPoliciesPopupButton) {
-    if (hotelPolicies.length > 0) {
-      safeShow(hotelPoliciesPopupButton);
-      safeExpand(hotelPoliciesPopupButton);
-
-      if (typeof hotelPoliciesPopupButton.onClick === "function") {
-        hotelPoliciesPopupButton.onClick(() => {
-          wixWindowFrontend.openLightbox(HOTEL_POLICIES_LIGHTBOX, {
-            policies: hotelPolicies
-          });
-        });
-      }
-    } else {
-      safeCollapseAndHide(hotelPoliciesPopupButton);
-    }
+  if (hotelPolicies.length > 0) {
+    $w("#hotelPoliciesPopupButton").expand();
+    $w("#hotelPoliciesPopupButton").onClick(() => {
+      wixWindowFrontend.openLightbox(HOTEL_POLICIES_LIGHTBOX, {
+        policies: hotelPolicies
+      });
+    });
+  } else {
+    $w("#hotelPoliciesPopupButton").collapse();
   }
 }
 
 function bindMappedRoomOffersRepeater(mappedRoomOffers) {
-  const mappedRoomOffersRepeater = safeGetPageElement("#mappedRoomOffersRepeater");
+  const hotelId = normalizeText(hotelPageState?.normalizedHotelDetails?.hotelId);
 
-  if (!mappedRoomOffersRepeater) {
-    console.error("Missing #mappedRoomOffersRepeater");
-    return;
-  }
-
-  mappedRoomOffersRepeater.onItemReady(($item, itemData) => {
-    bindMappedRoomOfferItem($item, itemData);
-  });
-
-  mappedRoomOffersRepeater.data = (Array.isArray(mappedRoomOffers)
+  const mappedRoomOffersRepeaterData = (Array.isArray(mappedRoomOffers)
     ? mappedRoomOffers
     : []
   ).map((mappedRoomOfferItem, mappedRoomOfferIndex) => ({
     ...mappedRoomOfferItem,
-    _id: buildRepeaterId(
-      mappedRoomOfferItem?.mappedRoomId || `mapped-room-${mappedRoomOfferIndex + 1}`
-    )
+    _id: buildRepeaterId(`room-${mappedRoomOfferIndex + 1}-${hotelId || "hotel"}`)
   }));
+
+  $w("#mappedRoomOffersRepeater").data = mappedRoomOffersRepeaterData;
 }
 
 function bindMappedRoomOfferItem($item, itemData) {
-  const room = itemData?.room && typeof itemData.room === "object" ? itemData.room : null;
-  const roomOffers = Array.isArray(itemData?.roomOffers) ? itemData.roomOffers : [];
+  const room =
+    itemData?.room && typeof itemData.room === "object" ? itemData.room : null;
+
+  const roomOffers = Array.isArray(itemData?.roomOffers)
+    ? itemData.roomOffers
+    : [];
 
   const roomName =
     normalizeText(room?.roomName) ||
@@ -253,20 +244,51 @@ function bindMappedRoomOfferItem($item, itemData) {
     normalizeText(hotelPageState?.normalizedHotelDetails?.hotelMainImage) ||
     FALLBACK_IMAGE_URL;
 
-  setItemImage($item, "#roomMainImage", roomMainImage, FALLBACK_IMAGE_URL);
-  setItemText($item, "#roomNameText", roomName);
-  setOptionalItemText($item, "#roomSizeText", normalizeText(room?.roomSizeText));
-  setOptionalItemText($item, "#roomSleepsText", normalizeText(room?.roomSleepsText));
-  setOptionalItemText(
-    $item,
-    "#roomDescriptionText",
-    normalizeText(room?.roomDescription)
-  );
-  setOptionalItemText(
-    $item,
-    "#roomBedTypesText",
-    normalizeText(room?.roomBedTypesText)
-  );
+  $item("#roomMainImage").src = roomMainImage || FALLBACK_IMAGE_URL;
+  $item("#roomMainImage").expand();
+
+  $item("#roomNameText").text = roomName;
+  $item("#roomNameText").expand();
+
+  const roomSizeText = normalizeText(room?.roomSizeText);
+
+  if (roomSizeText) {
+    $item("#roomSizeText").text = roomSizeText;
+    $item("#roomSizeText").expand();
+  } else {
+    $item("#roomSizeText").text = "";
+    $item("#roomSizeText").collapse();
+  }
+
+  const roomSleepsText = normalizeText(room?.roomSleepsText);
+
+  if (roomSleepsText) {
+    $item("#roomSleepsText").text = roomSleepsText;
+    $item("#roomSleepsText").expand();
+  } else {
+    $item("#roomSleepsText").text = "";
+    $item("#roomSleepsText").collapse();
+  }
+
+  const roomDescription = normalizeText(room?.roomDescription);
+
+  if (roomDescription) {
+    $item("#roomDescriptionText").text = roomDescription;
+    $item("#roomDescriptionText").expand();
+  } else {
+    $item("#roomDescriptionText").text = "";
+    $item("#roomDescriptionText").collapse();
+  }
+
+  const roomBedTypesText = normalizeText(room?.roomBedTypesText);
+
+  if (roomBedTypesText) {
+    $item("#roomBedTypesText").text = roomBedTypesText;
+    $item("#roomBedTypesText").expand();
+  } else {
+    $item("#roomBedTypesText").text = "";
+    $item("#roomBedTypesText").collapse();
+  }
 
   bindRoomDetailsButton($item, room);
 
@@ -282,12 +304,6 @@ function bindMappedRoomOfferItem($item, itemData) {
 }
 
 function bindRoomDetailsButton($item, room) {
-  const roomDetailsButton = safeGetItemElement($item, "#roomDetailsButton");
-
-  if (!roomDetailsButton) {
-    return;
-  }
-
   const roomDetailsPopupData = buildRoomDetailsPopupData(room);
 
   const shouldShowRoomDetailsButton =
@@ -300,18 +316,15 @@ function bindRoomDetailsButton($item, room) {
     roomDetailsPopupData.images.length > 0;
 
   if (!shouldShowRoomDetailsButton) {
-    safeCollapseAndHide(roomDetailsButton);
+    $item("#roomDetailsButton").collapse();
     return;
   }
 
-  safeShow(roomDetailsButton);
-  safeExpand(roomDetailsButton);
+  $item("#roomDetailsButton").expand();
 
-  if (typeof roomDetailsButton.onClick === "function") {
-    roomDetailsButton.onClick(() => {
-      wixWindowFrontend.openLightbox(ROOM_DETAILS_LIGHTBOX, roomDetailsPopupData);
-    });
-  }
+  $item("#roomDetailsButton").onClick(() => {
+    wixWindowFrontend.openLightbox(ROOM_DETAILS_LIGHTBOX, roomDetailsPopupData);
+  });
 }
 
 function buildRoomDetailsPopupData(room) {
@@ -333,7 +346,7 @@ function buildRoomDetailsPopupData(room) {
     sizeText: normalizeText(room?.roomSizeText),
     sleepsText: normalizeText(room?.roomSleepsText),
     bedTypesText: normalizeText(room?.roomBedTypesText),
-    amenities: deriveRoomAmenityNames(room?.roomAmenities),
+    amenities: Array.isArray(room?.roomAmenities) ? room.roomAmenities : [],
     images: Array.isArray(room?.roomImages)
       ? room.roomImages.filter(Boolean)
       : [normalizeText(room?.roomMainImage)].filter(Boolean)
@@ -341,133 +354,129 @@ function buildRoomDetailsPopupData(room) {
 }
 
 function bindRoomOfferSlot($item, slotNumber, roomOffer, mappedRoomOfferItem, room) {
-  const roomOfferRowSlot = safeGetItemElement($item, `#roomOfferRowSlot${slotNumber}`);
-  const roomOfferColumnFlex = safeGetItemElement(
-    $item,
-    `#roomOfferColumnFlex${slotNumber}`
+  const roomOfferId = normalizeText(roomOffer?.offerId);
+  const roomOfferName = normalizeText(roomOffer?.roomOfferName);
+  const roomOfferBoardName = normalizeText(roomOffer?.roomOfferBoardName);
+  const roomOfferRefundableTagText = normalizeText(
+    roomOffer?.roomOfferRefundableTagText
+  );
+  const roomOfferCurrentPriceText = normalizeText(
+    roomOffer?.roomOfferCurrentPriceText
+  );
+  const roomOfferBeforeCurrentPriceText = normalizeText(
+    roomOffer?.roomOfferBeforeCurrentPriceText
+  );
+  const roomOfferCurrentPriceNoteText = normalizeText(
+    roomOffer?.roomOfferCurrentPriceNoteText
   );
 
-  if (!roomOfferRowSlot && !roomOfferColumnFlex) {
-    return;
-  }
+  const isBindableRoomOffer = Boolean(
+    roomOffer &&
+      typeof roomOffer === "object" &&
+      roomOfferId &&
+      roomOfferCurrentPriceText
+  );
 
-  if (!roomOffer) {
-    if (roomOfferColumnFlex) {
-      safeCollapseAndHide(roomOfferColumnFlex);
+  if (!isBindableRoomOffer) {
+    if (slotNumber === 1) {
+      $item("#roomOfferRowSlot1").collapse();
+      return;
     }
 
-    if (roomOfferRowSlot) {
-      safeCollapseAndHide(roomOfferRowSlot);
+    if (slotNumber === 2) {
+      $item("#roomOfferRowSlot2").collapse();
+      return;
+    }
+
+    if (slotNumber === 3) {
+      $item("#roomOfferRowSlot3").collapse();
+      return;
+    }
+
+    if (slotNumber === 4) {
+      $item("#roomOfferRowSlot4").collapse();
+      return;
     }
 
     return;
   }
 
-  if (roomOfferRowSlot) {
-    safeShow(roomOfferRowSlot);
-    safeExpand(roomOfferRowSlot);
+  if (slotNumber === 1) {
+    $item("#roomOfferRowSlot1").expand();
   }
 
-  if (roomOfferColumnFlex) {
-    safeShow(roomOfferColumnFlex);
-    safeExpand(roomOfferColumnFlex);
+  if (slotNumber === 2) {
+    $item("#roomOfferRowSlot2").expand();
   }
 
-  const roomOfferCurrentPriceAmount = normalizeNumberOrNull(
-    roomOffer?.roomOfferCurrentPrice
-  );
-  const roomOfferBeforeCurrentPriceAmount = normalizeNumberOrNull(
-    roomOffer?.roomOfferBeforeCurrentPrice
-  );
-  const roomOfferCurrency = normalizeText(roomOffer?.roomOfferCurrency);
-
-  const roomOfferCurrentPriceText =
-    Number.isFinite(roomOfferCurrentPriceAmount) && roomOfferCurrency
-      ? formatPrice({
-          amount: roomOfferCurrentPriceAmount,
-          currency: roomOfferCurrency
-        })
-      : "";
-
-  const roomOfferBeforeCurrentPriceText =
-    Number.isFinite(roomOfferBeforeCurrentPriceAmount) && roomOfferCurrency
-      ? formatPrice({
-          amount: roomOfferBeforeCurrentPriceAmount,
-          currency: roomOfferCurrency
-        })
-      : "";
-
-  setOptionalItemText(
-    $item,
-    `#roomOfferNameText${slotNumber}`,
-    normalizeText(roomOffer?.roomOfferName)
-  );
-  setOptionalItemText(
-    $item,
-    `#roomOfferBoardNameText${slotNumber}`,
-    normalizeText(roomOffer?.roomOfferBoardName)
-  );
-  setOptionalItemText(
-    $item,
-    `#roomOfferRefundableTagText${slotNumber}`,
-    normalizeText(roomOffer?.roomOfferRefundableTagText)
-  );
-  setOptionalItemText(
-    $item,
-    `#roomOfferCurrentPriceText${slotNumber}`,
-    roomOfferCurrentPriceText
-  );
-  setOptionalItemText(
-    $item,
-    `#roomOfferBeforeCurrentPriceText${slotNumber}`,
-    roomOfferBeforeCurrentPriceText
-  );
-  setOptionalItemText(
-    $item,
-    `#roomOfferCurrentPriceNoteText${slotNumber}`,
-    normalizeText(roomOffer?.roomOfferCurrentPriceNoteText)
-  );
-
-  syncItemVisibilityWithCurrentPrice(
-    $item,
-    `#roomOfferPerNightText${slotNumber}`,
-    roomOfferCurrentPriceText
-  );
-
-  const roomOfferSelectionButton = safeGetItemElement(
-    $item,
-    `#roomOfferSelectionButton${slotNumber}`
-  );
-
-  if (!roomOfferSelectionButton || typeof roomOfferSelectionButton.onClick !== "function") {
-    return;
+  if (slotNumber === 3) {
+    $item("#roomOfferRowSlot3").expand();
   }
 
-  safeShow(roomOfferSelectionButton);
-  safeExpand(roomOfferSelectionButton);
+  if (slotNumber === 4) {
+    $item("#roomOfferRowSlot4").expand();
+  }
 
-  roomOfferSelectionButton.onClick(async () => {
+  if (roomOfferName) {
+    $item(`#roomOfferNameText${slotNumber}`).text = roomOfferName;
+    $item(`#roomOfferNameText${slotNumber}`).expand();
+  } else {
+    $item(`#roomOfferNameText${slotNumber}`).text = "";
+    $item(`#roomOfferNameText${slotNumber}`).collapse();
+  }
+
+  if (roomOfferBoardName) {
+    $item(`#roomOfferBoardNameText${slotNumber}`).text = roomOfferBoardName;
+    $item(`#roomOfferBoardNameText${slotNumber}`).expand();
+  } else {
+    $item(`#roomOfferBoardNameText${slotNumber}`).text = "";
+    $item(`#roomOfferBoardNameText${slotNumber}`).collapse();
+  }
+
+  if (roomOfferRefundableTagText) {
+    $item(`#roomOfferRefundableTagText${slotNumber}`).text =
+      roomOfferRefundableTagText;
+    $item(`#roomOfferRefundableTagText${slotNumber}`).expand();
+  } else {
+    $item(`#roomOfferRefundableTagText${slotNumber}`).text = "";
+    $item(`#roomOfferRefundableTagText${slotNumber}`).collapse();
+  }
+
+  $item(`#roomOfferCurrentPriceText${slotNumber}`).text =
+    roomOfferCurrentPriceText;
+  $item(`#roomOfferCurrentPriceText${slotNumber}`).expand();
+
+  $item(`#roomOfferPerNightText${slotNumber}`).expand();
+
+  if (roomOfferBeforeCurrentPriceText) {
+    $item(`#roomOfferBeforeCurrentPriceText${slotNumber}`).text =
+      roomOfferBeforeCurrentPriceText;
+    $item(`#roomOfferBeforeCurrentPriceText${slotNumber}`).expand();
+  } else {
+    $item(`#roomOfferBeforeCurrentPriceText${slotNumber}`).text = "";
+    $item(`#roomOfferBeforeCurrentPriceText${slotNumber}`).collapse();
+  }
+
+  if (roomOfferCurrentPriceNoteText) {
+    $item(`#roomOfferCurrentPriceNoteText${slotNumber}`).text =
+      roomOfferCurrentPriceNoteText;
+    $item(`#roomOfferCurrentPriceNoteText${slotNumber}`).expand();
+  } else {
+    $item(`#roomOfferCurrentPriceNoteText${slotNumber}`).text = "";
+    $item(`#roomOfferCurrentPriceNoteText${slotNumber}`).collapse();
+  }
+
+  $item(`#roomOfferSelectionButton${slotNumber}`).expand();
+
+  $item(`#roomOfferSelectionButton${slotNumber}`).onClick(async () => {
     try {
-      await handleOfferSelection({
-        hotelId: normalizeText(hotelPageState?.normalizedHotelDetails?.hotelId),
-        hotelName: normalizeText(hotelPageState?.normalizedHotelDetails?.hotelName),
-        hotelAddress: normalizeText(
-          hotelPageState?.normalizedHotelDetails?.hotelAddress
-        ),
-        hotelMainPhoto: normalizeText(
-          hotelPageState?.normalizedHotelDetails?.hotelMainImage
-        ),
-        hotelStars: hotelPageState?.normalizedHotelDetails?.hotelStarRating ?? null,
-        hotelGuestRating: hotelPageState?.normalizedHotelDetails?.hotelRating ?? null,
-        hotelReviewCount:
-          hotelPageState?.normalizedHotelDetails?.hotelReviewCount ?? null,
-        mappedRoomId: normalizeText(mappedRoomOfferItem?.mappedRoomId),
-        roomName: normalizeText(room?.roomName),
-        roomImage: normalizeText(room?.roomMainImage),
-        roomDetailsPopupData: buildRoomDetailsPopupData(room),
-        offer: buildSelectedOfferOffer(roomOffer),
-        ctx: searchFlowContextQuery
+      const purchaseSelection = buildPurchaseSelection({
+        mappedRoomOfferItem,
+        room,
+        roomOffer
       });
+
+      await handleOfferSelection(purchaseSelection);
     } catch (error) {
       console.error(
         "HOTEL PAGE offer selection failed",
@@ -478,89 +487,80 @@ function bindRoomOfferSlot($item, slotNumber, roomOffer, mappedRoomOfferItem, ro
   });
 }
 
-function buildSelectedOfferOffer(roomOffer) {
-  const roomOfferCurrentPriceAmount = normalizeNumberOrNull(
-    roomOffer?.roomOfferCurrentPrice
-  );
-  const roomOfferBeforeCurrentPriceAmount = normalizeNumberOrNull(
-    roomOffer?.roomOfferBeforeCurrentPrice
-  );
-  const roomOfferCurrency = normalizeText(roomOffer?.roomOfferCurrency);
-
+function buildPurchaseSelection({ mappedRoomOfferItem, room, roomOffer }) {
   return {
     offerId: normalizeText(roomOffer?.offerId),
-    name: normalizeText(roomOffer?.roomOfferName) || "Room rate",
-    boardName: normalizeText(roomOffer?.roomOfferBoardName),
-    refundableTag: normalizeText(roomOffer?.roomOfferRefundableTag) || null,
-    currentPrice:
-      Number.isFinite(roomOfferCurrentPriceAmount) && roomOfferCurrency
-        ? {
-            amount: roomOfferCurrentPriceAmount,
-            currency: roomOfferCurrency
-          }
-        : null,
-    beforePrice:
-      Number.isFinite(roomOfferBeforeCurrentPriceAmount) && roomOfferCurrency
-        ? {
-            amount: roomOfferBeforeCurrentPriceAmount,
-            currency: roomOfferCurrency
-          }
-        : null,
-    priceNote: normalizeText(roomOffer?.roomOfferCurrentPriceNoteText)
+    mappedRoomId: normalizeText(mappedRoomOfferItem?.mappedRoomId),
+
+    hotelId: normalizeText(hotelPageState?.normalizedHotelDetails?.hotelId),
+    hotelName: normalizeText(hotelPageState?.normalizedHotelDetails?.hotelName),
+    hotelAddress: normalizeText(
+      hotelPageState?.normalizedHotelDetails?.hotelAddress
+    ),
+    hotelMainImage: normalizeText(
+      hotelPageState?.normalizedHotelDetails?.hotelMainImage
+    ),
+    hotelStarRating:
+      hotelPageState?.normalizedHotelDetails?.hotelStarRating ?? null,
+    hotelStarRatingText: normalizeText(
+      hotelPageState?.normalizedHotelDetails?.hotelStarRatingText
+    ),
+    hotelReviewText: normalizeText(
+      hotelPageState?.normalizedHotelDetails?.hotelReviewText
+    ),
+
+    roomId: normalizeText(room?.roomId),
+    roomName: normalizeText(room?.roomName),
+    roomImage: normalizeText(room?.roomMainImage),
+
+    roomOfferName: normalizeText(roomOffer?.roomOfferName),
+    roomOfferBoardName: normalizeText(roomOffer?.roomOfferBoardName),
+    roomOfferRefundableTag: normalizeText(roomOffer?.roomOfferRefundableTag),
+    roomOfferRefundableTagText: normalizeText(
+      roomOffer?.roomOfferRefundableTagText
+    ),
+    roomOfferCurrentPrice: normalizeNumberOrNull(
+      roomOffer?.roomOfferCurrentPrice
+    ),
+    roomOfferBeforeCurrentPrice: normalizeNumberOrNull(
+      roomOffer?.roomOfferBeforeCurrentPrice
+    ),
+    roomOfferCurrency: normalizeText(roomOffer?.roomOfferCurrency),
+    roomOfferCurrentPriceText: normalizeText(
+      roomOffer?.roomOfferCurrentPriceText
+    ),
+    roomOfferBeforeCurrentPriceText: normalizeText(
+      roomOffer?.roomOfferBeforeCurrentPriceText
+    ),
+    roomOfferCurrentPriceNoteText: normalizeText(
+      roomOffer?.roomOfferCurrentPriceNoteText
+    )
   };
 }
 
-async function handleOfferSelection(selectionPayload) {
+async function handleOfferSelection(purchaseSelection) {
   console.log(
-    "HOTEL PAGE handleOfferSelection input",
-    JSON.stringify(selectionPayload, null, 2)
+    "HOTEL PAGE handleOfferSelection purchaseSelection",
+    JSON.stringify(purchaseSelection, null, 2)
   );
-
-  const selectedOfferPayload = buildSelectedOfferPayload(selectionPayload);
-
-  console.log(
-    "HOTEL PAGE selectedOfferPayload",
-    JSON.stringify(selectedOfferPayload, null, 2)
-  );
-
-  persistSelectedOfferPayload(selectedOfferPayload);
 
   if (PURCHASE_FLOW_MODE === PURCHASE_FLOW_MODES.WIX_CART) {
-    await handleWixCartFlow(selectedOfferPayload);
+    await handleWixCartFlow(purchaseSelection);
     return;
   }
 
-  if (PURCHASE_FLOW_MODE === PURCHASE_FLOW_MODES.LITEAPI_DIRECT) {
-    handleLiteApiDirectCheckout(selectedOfferPayload);
+  if (PURCHASE_FLOW_MODE === PURCHASE_FLOW_MODES.PAYMENT_SDK) {
+    await handlePaymentSdkFlow(purchaseSelection);
     return;
   }
 
   throw new Error(`Unsupported PURCHASE_FLOW_MODE: ${PURCHASE_FLOW_MODE}`);
 }
 
-function buildSelectedOfferPayload(selectionPayload) {
-  return {
-    selectedAt: Date.now(),
-    hotelId: normalizeText(selectionPayload?.hotelId),
-    hotelName: normalizeText(selectionPayload?.hotelName),
-    hotelAddress: normalizeText(selectionPayload?.hotelAddress),
-    hotelMainPhoto: normalizeText(selectionPayload?.hotelMainPhoto),
-    hotelStars: selectionPayload?.hotelStars ?? null,
-    hotelGuestRating: selectionPayload?.hotelGuestRating ?? null,
-    hotelReviewCount: selectionPayload?.hotelReviewCount ?? null,
-    mappedRoomId: normalizeText(selectionPayload?.mappedRoomId),
-    roomName: normalizeText(selectionPayload?.roomName),
-    roomImage: normalizeText(selectionPayload?.roomImage),
-    roomDetailsPopupData: selectionPayload?.roomDetailsPopupData || null,
-    offer: selectionPayload?.offer || null,
-    offerId: normalizeText(selectionPayload?.offer?.offerId),
-    ctx: selectionPayload?.ctx || searchFlowContextQuery
-  };
-}
-
-async function handleWixCartFlow(selectedOfferPayload) {
-  const mappedRoomId = normalizeText(selectedOfferPayload?.mappedRoomId);
-  const offerId = normalizeText(selectedOfferPayload?.offerId);
+async function handleWixCartFlow(purchaseSelection) {
+  const mappedRoomId = normalizeText(purchaseSelection?.mappedRoomId);
+  const offerId = normalizeText(purchaseSelection?.offerId);
+  const hotelId = normalizeText(purchaseSelection?.hotelId);
 
   console.log(
     "HOTEL PAGE handleWixCartFlow start",
@@ -568,6 +568,7 @@ async function handleWixCartFlow(selectedOfferPayload) {
       {
         mappedRoomId,
         offerId,
+        hotelId,
         purchaseFlowMode: PURCHASE_FLOW_MODE,
         catalogAppId: LITEAPI_CATALOG_APP_ID
       },
@@ -584,7 +585,6 @@ async function handleWixCartFlow(selectedOfferPayload) {
     throw new Error("offerId is required for Wix cart flow.");
   }
 
-  setCartReturnUrl();
   await removePrebookItemsIfCartExists();
 
   const prebookResult = await createPrebookSession({
@@ -619,28 +619,27 @@ async function handleWixCartFlow(selectedOfferPayload) {
   }
 
   const importedImageRefs = await resolveCatalogImageRefs({
-    hotelMainImage: selectedOfferPayload.hotelMainPhoto,
-    roomMainImage: selectedOfferPayload.roomImage,
-    hotelName: selectedOfferPayload.hotelName,
-    mappedRoomName:
-      selectedOfferPayload.roomName || selectedOfferPayload.mappedRoomId
+    hotelId: purchaseSelection.hotelId,
+    hotelName: purchaseSelection.hotelName,
+    hotelMainImage: purchaseSelection.hotelMainImage,
+
+    roomId: purchaseSelection.roomId,
+    roomName: purchaseSelection.roomName,
+    roomMainImage: purchaseSelection.roomImage
   });
 
   const prebookShell = buildPrebookShell({
     mappedRoomId,
     prebookSnapshot,
     normalizedPrebook,
-    hotelName: selectedOfferPayload.hotelName,
-    hotelMainImage: selectedOfferPayload.hotelMainPhoto,
-    roomMainImage: selectedOfferPayload.roomImage,
+    hotelName: purchaseSelection.hotelName,
+    hotelMainImage: purchaseSelection.hotelMainImage,
+    roomMainImage: purchaseSelection.roomImage,
     wixHotelMainImageRef: importedImageRefs.wixHotelMainImageRef,
     wixRoomMainImageRef: importedImageRefs.wixRoomMainImageRef,
-    hotelStars: formatHotelStarsText(selectedOfferPayload.hotelStars),
-    hotelReview: buildHotelReviewText(
-      selectedOfferPayload.hotelGuestRating,
-      selectedOfferPayload.hotelReviewCount
-    ),
-    hotelAddress: selectedOfferPayload.hotelAddress
+    starRating: purchaseSelection.hotelStarRatingText,
+    hotelReview: purchaseSelection.hotelReviewText,
+    hotelAddress: purchaseSelection.hotelAddress
   });
 
   const lineItem = buildWixCatalogLineItem({
@@ -670,7 +669,82 @@ async function handleWixCartFlow(selectedOfferPayload) {
   );
 
   wixEcomFrontend.refreshCart();
-  wixLocationFrontend.to(CART_PAGE_PATH);
+
+  const redirectSearchFlowContextUrl = buildRedirectSearchFlowContextUrl(
+    CART_PAGE_PATH,
+    searchFlowContextQuery,
+    {
+      hotelId,
+      prebookId,
+      mode: PURCHASE_FLOW_MODES.WIX_CART
+    }
+  );
+
+  wixLocationFrontend.to(redirectSearchFlowContextUrl);
+}
+
+async function handlePaymentSdkFlow(purchaseSelection) {
+  const offerId = normalizeText(purchaseSelection?.offerId);
+  const hotelId = normalizeText(purchaseSelection?.hotelId);
+
+  console.log(
+    "HOTEL PAGE handlePaymentSdkFlow start",
+    JSON.stringify(
+      {
+        offerId,
+        hotelId,
+        purchaseFlowMode: PURCHASE_FLOW_MODE
+      },
+      null,
+      2
+    )
+  );
+
+  if (!offerId) {
+    throw new Error("offerId is required for payment SDK flow.");
+  }
+
+  if (!hotelId) {
+    throw new Error("hotelId is required for payment SDK flow.");
+  }
+
+  const prebookResult = await createPrebookSession({
+    offerId,
+    usePaymentSdk: true
+  });
+
+  console.log(
+    "HOTEL PAGE payment SDK prebookResult",
+    JSON.stringify(prebookResult, null, 2)
+  );
+
+  const normalizedPrebook =
+    prebookResult?.normalizedPrebook &&
+    typeof prebookResult.normalizedPrebook === "object"
+      ? prebookResult.normalizedPrebook
+      : null;
+
+  if (!normalizedPrebook) {
+    throw new Error("normalizedPrebook is required for payment SDK flow.");
+  }
+
+  const prebookId = normalizeText(normalizedPrebook?.prebookId);
+
+  if (!prebookId) {
+    throw new Error("normalizedPrebook.prebookId is required for payment SDK flow.");
+  }
+
+  const redirectSearchFlowContextUrl = buildRedirectSearchFlowContextUrl(
+    CHECKOUT_PAGE_PATH,
+    searchFlowContextQuery,
+    {
+      hotelId,
+      prebookId,
+      mode: PURCHASE_FLOW_MODES.PAYMENT_SDK
+    }
+  );
+
+  wixLocationFrontend.to(redirectSearchFlowContextUrl);
 }
 
 async function removePrebookItemsIfCartExists() {
@@ -754,16 +828,6 @@ function isMissingCurrentCartError(error) {
   );
 }
 
-function handleLiteApiDirectCheckout(selectedOfferPayload) {
-  wixLocationFrontend.to(
-    buildCheckoutPageUrl(
-      selectedOfferPayload.ctx,
-      selectedOfferPayload.hotelId,
-      selectedOfferPayload.offerId
-    )
-  );
-}
-
 function buildPrebookShell({
   mappedRoomId,
   prebookSnapshot,
@@ -773,7 +837,7 @@ function buildPrebookShell({
   roomMainImage,
   wixHotelMainImageRef,
   wixRoomMainImageRef,
-  hotelStars,
+  starRating,
   hotelReview,
   hotelAddress
 }) {
@@ -787,7 +851,7 @@ function buildPrebookShell({
     roomMainImage: normalizeText(roomMainImage),
     wixHotelMainImageRef: normalizeText(wixHotelMainImageRef),
     wixRoomMainImageRef: normalizeText(wixRoomMainImageRef),
-    hotelStars: normalizeText(hotelStars),
+    starRating: normalizeText(starRating),
     hotelReview: normalizeText(hotelReview),
     hotelAddress: normalizeText(hotelAddress),
 
@@ -831,10 +895,12 @@ function getLineItemShellOptions(lineItem) {
 }
 
 async function resolveCatalogImageRefs({
-  hotelMainImage,
-  roomMainImage,
+  hotelId,
   hotelName,
-  mappedRoomName
+  hotelMainImage,
+  roomId,
+  roomName,
+  roomMainImage
 }) {
   const hasAnyImage = Boolean(
     normalizeText(hotelMainImage) || normalizeText(roomMainImage)
@@ -849,10 +915,13 @@ async function resolveCatalogImageRefs({
 
   try {
     const result = await importCatalogImages({
-      hotelMainImage: normalizeText(hotelMainImage),
-      roomMainImage: normalizeText(roomMainImage),
+      hotelId: normalizeText(hotelId),
       hotelName: normalizeText(hotelName),
-      mappedRoomName: normalizeText(mappedRoomName)
+      hotelMainImage: normalizeText(hotelMainImage),
+
+      roomId: normalizeText(roomId),
+      roomName: normalizeText(roomName),
+      roomMainImage: normalizeText(roomMainImage)
     });
 
     return {
@@ -873,246 +942,109 @@ async function resolveCatalogImageRefs({
   }
 }
 
-function setCartReturnUrl() {
-  const currentUrl = normalizeText(wixLocationFrontend?.url);
-
-  if (!currentUrl) {
-    return;
-  }
-
-  session.setItem(CART_RETURN_URL_STORAGE_KEY, currentUrl);
+function buildSearchFlowContextUrl(query = {}) {
+  return buildRedirectSearchFlowContextUrl(HOTEL_PAGE_PATH, query, {});
 }
 
-function buildHotelReviewText(hotelGuestRating, hotelReviewCount) {
-  const hotelGuestRatingText = formatGuestRating(hotelGuestRating);
-  const hotelReviewCountText = formatReviewCount(hotelReviewCount);
+function buildRedirectSearchFlowContextUrl(
+  path,
+  query = {},
+  additionalSearchFlowContextQuery = {}
+) {
+  const params = new URLSearchParams();
 
-  if (hotelGuestRatingText && hotelReviewCountText) {
-    return `${hotelGuestRatingText} • ${hotelReviewCountText}`;
-  }
-
-  return hotelGuestRatingText || hotelReviewCountText || "";
-}
-
-function formatHotelStarsText(hotelStarRating) {
-  const numericHotelStarRating = Number(hotelStarRating || 0);
-
-  if (!Number.isFinite(numericHotelStarRating) || numericHotelStarRating <= 0) {
-    return "";
-  }
-
-  const roundedHotelStars = Math.max(
-    1,
-    Math.min(5, Math.round(numericHotelStarRating))
-  );
-
-  return "★".repeat(roundedHotelStars);
-}
-
-function bindMapElements(hotelMapUrl) {
-  const hotelMapLinkIconButton = safeGetPageElement("#hotelMapLinkIconButton");
-  const hotelMapLinkIconText = safeGetPageElement("#hotelMapLinkIconText");
-
-  if (!normalizeText(hotelMapUrl)) {
-    if (hotelMapLinkIconButton) {
-      safeCollapseAndHide(hotelMapLinkIconButton);
-    }
-
-    if (hotelMapLinkIconText) {
-      safeCollapseAndHide(hotelMapLinkIconText);
-    }
-
-    return;
-  }
-
-  [hotelMapLinkIconButton, hotelMapLinkIconText].forEach((element) => {
-    if (!element) {
+  Object.entries({
+    ...query,
+    ...additionalSearchFlowContextQuery
+  }).forEach(([key, value]) => {
+    if (value === undefined || value === null) {
       return;
     }
 
-    safeShow(element);
-    safeExpand(element);
+    const text = String(value).trim();
 
-    if (typeof element.onClick === "function") {
-      element.onClick(() => {
-        wixLocationFrontend.to(hotelMapUrl);
-      });
+    if (!text) {
+      return;
     }
+
+    params.set(key, text);
   });
+
+  const queryString = params.toString();
+  return queryString ? `${path}?${queryString}` : path;
 }
 
-function bindHeroGallery(hotelGalleryImageUrls) {
-  const hotelHeroGallery = safeGetPageElement("#hotelHeroGallery");
+function bindMapElements(hotelMapUrl) {
+  const normalizedHotelMapUrl = normalizeText(hotelMapUrl);
 
-  if (!hotelHeroGallery) {
+  if (normalizedHotelMapUrl) {
+    $w("#hotelMapLinkIconButton").expand();
+    $w("#hotelMapLinkIconText").expand();
+
+    $w("#hotelMapLinkIconButton").onClick(() => {
+      wixLocationFrontend.to(normalizedHotelMapUrl);
+    });
+
+    $w("#hotelMapLinkIconText").onClick(() => {
+      wixLocationFrontend.to(normalizedHotelMapUrl);
+    });
+
     return;
   }
 
-  const hotelHeroGalleryItems = dedupeStringArray(hotelGalleryImageUrls)
+  $w("#hotelMapLinkIconButton").collapse();
+  $w("#hotelMapLinkIconText").collapse();
+}
+
+function bindHeroGallery(hotelImageUrls) {
+  const hotelHeroGalleryItems = (Array.isArray(hotelImageUrls)
+    ? hotelImageUrls
+    : []
+  )
+    .map((imageUrl) => normalizeText(imageUrl))
     .filter(Boolean)
-    .map((hotelGalleryImageUrl, hotelGalleryImageIndex) => ({
+    .map((imageUrl, imageIndex) => ({
       type: "image",
-      src: hotelGalleryImageUrl,
-      title: `Image ${hotelGalleryImageIndex + 1}`
+      src: imageUrl,
+      title: `Hotel image ${imageIndex + 1}`
     }));
 
-  try {
-    hotelHeroGallery.items = hotelHeroGalleryItems;
-  } catch (error) {
-    console.error("Failed to bind #hotelHeroGallery", error);
-  }
-}
+  $w("#hotelHeroGallery").items = hotelHeroGalleryItems.length
+    ? hotelHeroGalleryItems
+    : [
+        {
+          type: "image",
+          src: FALLBACK_IMAGE_URL,
+          title: "Hotel image"
+        }
+      ];
 
-function collectHotelImageUrls(hotelImages, hotelMainImage) {
-  const hotelImageUrls = [];
-
-  if (normalizeText(hotelMainImage)) {
-    hotelImageUrls.push(normalizeText(hotelMainImage));
-  }
-
-  if (Array.isArray(hotelImages)) {
-    hotelImages.forEach((hotelImageItem) => {
-      const hotelImageUrl = normalizeText(hotelImageItem?.url);
-
-      if (hotelImageUrl) {
-        hotelImageUrls.push(hotelImageUrl);
-      }
-    });
-  }
-
-  if (!hotelImageUrls.length) {
-    hotelImageUrls.push(FALLBACK_IMAGE_URL);
-  }
-
-  return dedupeStringArray(hotelImageUrls);
-}
-
-function dedupeStringArray(values) {
-  return Array.from(
-    new Set(
-      (Array.isArray(values) ? values : [])
-        .map((value) => normalizeText(value))
-        .filter(Boolean)
-    )
-  );
-}
-
-function deriveRoomAmenityNames(roomAmenities) {
-  if (!Array.isArray(roomAmenities)) {
-    return [];
-  }
-
-  return Array.from(
-    new Set(
-      roomAmenities
-        .map((roomAmenityItem) => {
-          if (typeof roomAmenityItem === "string") {
-            return normalizeText(roomAmenityItem);
-          }
-
-          return normalizeText(roomAmenityItem?.name || roomAmenityItem?.title);
-        })
-        .filter(Boolean)
-    )
-  );
-}
-
-function setRatingIfExists(selector, ratingValue) {
-  const element = safeGetPageElement(selector);
-
-  if (!element) {
-    return;
-  }
-
-  const numericRating = Number(ratingValue || 0);
-
-  if (!Number.isFinite(numericRating) || numericRating <= 0) {
-    safeCollapseAndHide(element);
-    return;
-  }
-
-  try {
-    element.rating = Math.max(0, Math.min(5, Math.round(numericRating)));
-    safeShow(element);
-    safeExpand(element);
-  } catch (error) {
-    console.error(`Failed to set rating for ${selector}`, error);
-  }
-}
-
-function syncVisibilityWithCurrentPrice(selector, currentPriceText) {
-  const element = safeGetPageElement(selector);
-
-  if (!element) {
-    return;
-  }
-
-  if (!normalizeText(currentPriceText)) {
-    safeCollapseAndHide(element);
-    return;
-  }
-
-  safeShow(element);
-  safeExpand(element);
-}
-
-function syncItemVisibilityWithCurrentPrice($item, selector, currentPriceText) {
-  const element = safeGetItemElement($item, selector);
-
-  if (!element) {
-    return;
-  }
-
-  if (!normalizeText(currentPriceText)) {
-    safeCollapseAndHide(element);
-    return;
-  }
-
-  safeShow(element);
-  safeExpand(element);
-}
-
-function buildCurrentSearchFlowContextUrl(currentSearchFlowContextQuery) {
-  const currentPath =
-    Array.isArray(wixLocationFrontend.path) && wixLocationFrontend.path.length
-      ? `/${wixLocationFrontend.path.join("/")}`
-      : "/hotel";
-
-  const currentSearchFlowParams = new URLSearchParams();
-
-  Object.entries(currentSearchFlowContextQuery || {}).forEach(
-    ([currentSearchFlowContextQueryKey, currentSearchFlowContextQueryValue]) => {
-      const normalizedCurrentSearchFlowContextQueryValue = normalizeText(
-        currentSearchFlowContextQueryValue
-      );
-
-      if (normalizedCurrentSearchFlowContextQueryValue) {
-        currentSearchFlowParams.set(
-          currentSearchFlowContextQueryKey,
-          normalizedCurrentSearchFlowContextQueryValue
-        );
-      }
-    }
-  );
-
-  const currentQueryString = currentSearchFlowParams.toString();
-
-  return currentQueryString ? `${currentPath}?${currentQueryString}` : currentPath;
+  $w("#hotelHeroGallery").expand();
 }
 
 function buildRepeaterId(value) {
-  const safeValue = String(value || "")
-    .replace(/[^a-zA-Z0-9-]/g, "")
-    .slice(0, 40);
-
-  return safeValue || `item-${Date.now()}`;
+  return normalizeText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 100);
 }
 
 function normalizeText(value) {
-  return String(value || "").trim();
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  return String(value).trim();
 }
 
 function normalizeNumberOrNull(value) {
-  const parsedValue = Number(value);
-  return Number.isFinite(parsedValue) ? parsedValue : null;
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const numberValue = Number(value);
+
+  return Number.isFinite(numberValue) ? numberValue : null;
 }
