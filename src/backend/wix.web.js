@@ -20,30 +20,70 @@ async function importCatalogImagesHandler(payload) {
     payload
   });
 
-  const hotelMainImage = normalizeText(payload?.hotelMainImage);
-  const roomMainImage = normalizeText(payload?.roomMainImage);
+  const hotelId = normalizeText(payload?.hotelId);
   const hotelName = normalizeDisplayName(payload?.hotelName) || "Hotel";
-  const mappedRoomName =
-    normalizeDisplayName(payload?.mappedRoomName) || "Room";
+  const hotelMainImage = normalizeText(
+    payload?.hotelMainImage || payload?.hotelMainImageUrl
+  );
+
+  const roomId = normalizeText(payload?.roomId);
+  const roomName =
+    normalizeDisplayName(payload?.roomName || payload?.mappedRoomName) ||
+    "Room";
+  const roomMainImage = normalizeText(
+    payload?.roomMainImage || payload?.roomMainImageUrl
+  );
+
+  const hotelDisplayName = buildHotelImageDisplayName({
+    hotelId,
+    hotelName
+  });
+
+  const roomDisplayName = buildRoomImageDisplayName({
+    hotelId,
+    hotelName,
+    roomId,
+    roomName
+  });
 
   logInfo("WIX WEB importCatalogImages normalized input", {
-    hotelMainImage,
-    roomMainImage,
+    hotelId,
     hotelName,
-    mappedRoomName
+    hotelMainImage,
+    hotelDisplayName,
+    roomId,
+    roomName,
+    roomMainImage,
+    roomDisplayName
+  });
+
+  const hotelImageImportPromise = importSingleImage({
+    imageKind: "hotelMainImage",
+    sourceUrl: hotelMainImage,
+    displayName: hotelDisplayName,
+    importContext: {
+      hotelId,
+      hotelName,
+      hotelMainImage
+    }
+  });
+
+  const roomImageImportPromise = importSingleImage({
+    imageKind: "roomMainImage",
+    sourceUrl: roomMainImage,
+    displayName: roomDisplayName,
+    importContext: {
+      hotelId,
+      hotelName,
+      roomId,
+      roomName,
+      roomMainImage
+    }
   });
 
   const [wixHotelMainImageRef, wixRoomMainImageRef] = await Promise.all([
-    importSingleImage({
-      imageKind: "hotelMainImage",
-      sourceUrl: hotelMainImage,
-      displayName: hotelName
-    }),
-    importSingleImage({
-      imageKind: "roomMainImage",
-      sourceUrl: roomMainImage,
-      displayName: `${hotelName} - ${mappedRoomName}`
-    })
+    hotelImageImportPromise,
+    roomImageImportPromise
   ]);
 
   const result = {
@@ -56,16 +96,24 @@ async function importCatalogImagesHandler(payload) {
   return result;
 }
 
-async function importSingleImage({ imageKind, sourceUrl, displayName }) {
+async function importSingleImage({
+  imageKind,
+  sourceUrl,
+  displayName,
+  importContext = {}
+}) {
   logInfo("WIX WEB importSingleImage start", {
     imageKind,
     sourceUrl,
-    displayName
+    displayName,
+    importContext
   });
 
   if (!sourceUrl) {
     logWarn("WIX WEB importSingleImage skipped: missing sourceUrl", {
-      imageKind
+      imageKind,
+      displayName,
+      importContext
     });
     return "";
   }
@@ -83,6 +131,7 @@ async function importSingleImage({ imageKind, sourceUrl, displayName }) {
       imageKind,
       sourceUrl,
       displayName,
+      importContext,
       responseKeys: safeKeys(importResponse),
       response: importResponse
     });
@@ -91,6 +140,7 @@ async function importSingleImage({ imageKind, sourceUrl, displayName }) {
       imageKind,
       sourceUrl,
       displayName,
+      importContext,
       error
     });
     return "";
@@ -103,6 +153,7 @@ async function importSingleImage({ imageKind, sourceUrl, displayName }) {
     imageKind,
     sourceUrl,
     displayName,
+    importContext,
     fileId: fileIdExtraction.fileId,
     candidates: fileIdExtraction.candidates,
     immediateImportedRef
@@ -110,12 +161,16 @@ async function importSingleImage({ imageKind, sourceUrl, displayName }) {
 
   if (!fileIdExtraction.fileId) {
     if (immediateImportedRef) {
-      logWarn("WIX WEB importFile no fileId extracted, using immediate imported ref fallback", {
-        imageKind,
-        sourceUrl,
-        displayName,
-        immediateImportedRef
-      });
+      logWarn(
+        "WIX WEB importFile no fileId extracted, using immediate imported ref fallback",
+        {
+          imageKind,
+          sourceUrl,
+          displayName,
+          importContext,
+          immediateImportedRef
+        }
+      );
       return immediateImportedRef;
     }
 
@@ -123,6 +178,7 @@ async function importSingleImage({ imageKind, sourceUrl, displayName }) {
       imageKind,
       sourceUrl,
       displayName,
+      importContext,
       importResponse
     });
     return "";
@@ -131,13 +187,15 @@ async function importSingleImage({ imageKind, sourceUrl, displayName }) {
   const bestImageRef = await resolveBestImageRef({
     imageKind,
     fileId: fileIdExtraction.fileId,
-    fallbackRef: immediateImportedRef
+    fallbackRef: immediateImportedRef,
+    importContext
   });
 
   logInfo("WIX WEB importSingleImage final resolved ref", {
     imageKind,
     sourceUrl,
     displayName,
+    importContext,
     fileId: fileIdExtraction.fileId,
     bestImageRef
   });
@@ -145,14 +203,20 @@ async function importSingleImage({ imageKind, sourceUrl, displayName }) {
   return bestImageRef;
 }
 
-async function resolveBestImageRef({ imageKind, fileId, fallbackRef }) {
+async function resolveBestImageRef({
+  imageKind,
+  fileId,
+  fallbackRef,
+  importContext = {}
+}) {
   for (let attempt = 1; attempt <= IMPORT_RETRY_ATTEMPTS; attempt += 1) {
     try {
       logInfo("WIX WEB getFileDescriptor attempt start", {
         imageKind,
         fileId,
         attempt,
-        maxAttempts: IMPORT_RETRY_ATTEMPTS
+        maxAttempts: IMPORT_RETRY_ATTEMPTS,
+        importContext
       });
 
       const descriptor = await elevatedGetFileDescriptor(fileId);
@@ -161,6 +225,7 @@ async function resolveBestImageRef({ imageKind, fileId, fallbackRef }) {
         imageKind,
         fileId,
         attempt,
+        importContext,
         descriptorKeys: safeKeys(descriptor),
         descriptor
       });
@@ -171,6 +236,7 @@ async function resolveBestImageRef({ imageKind, fileId, fallbackRef }) {
         imageKind,
         fileId,
         attempt,
+        importContext,
         preferredRef: refExtraction.preferredRef,
         wixImageRef: refExtraction.wixImageRef,
         staticUrlRef: refExtraction.staticUrlRef,
@@ -184,13 +250,15 @@ async function resolveBestImageRef({ imageKind, fileId, fallbackRef }) {
       logWarn("WIX WEB getFileDescriptor returned no usable image ref", {
         imageKind,
         fileId,
-        attempt
+        attempt,
+        importContext
       });
     } catch (error) {
       logError("WIX WEB getFileDescriptor threw", {
         imageKind,
         fileId,
         attempt,
+        importContext,
         error
       });
     }
@@ -204,7 +272,8 @@ async function resolveBestImageRef({ imageKind, fileId, fallbackRef }) {
     logWarn("WIX WEB resolveBestImageRef fell back to immediate imported ref", {
       imageKind,
       fileId,
-      fallbackRef
+      fallbackRef,
+      importContext
     });
     return fallbackRef;
   }
@@ -212,10 +281,45 @@ async function resolveBestImageRef({ imageKind, fileId, fallbackRef }) {
   logWarn("WIX WEB resolveBestImageRef failed after retries", {
     imageKind,
     fileId,
-    maxAttempts: IMPORT_RETRY_ATTEMPTS
+    maxAttempts: IMPORT_RETRY_ATTEMPTS,
+    importContext
   });
 
   return "";
+}
+
+function buildHotelImageDisplayName({ hotelId, hotelName }) {
+  const normalizedHotelName = normalizeDisplayName(hotelName) || "Hotel";
+  const normalizedHotelId = normalizeDisplayName(hotelId);
+
+  return normalizeDisplayName(
+    [
+      "Hotel",
+      normalizedHotelName,
+      normalizedHotelId ? `hotelId_${normalizedHotelId}` : ""
+    ]
+      .filter(Boolean)
+      .join(" - ")
+  );
+}
+
+function buildRoomImageDisplayName({ hotelId, hotelName, roomId, roomName }) {
+  const normalizedHotelName = normalizeDisplayName(hotelName) || "Hotel";
+  const normalizedRoomName = normalizeDisplayName(roomName) || "Room";
+  const normalizedHotelId = normalizeDisplayName(hotelId);
+  const normalizedRoomId = normalizeDisplayName(roomId);
+
+  return normalizeDisplayName(
+    [
+      "Room",
+      normalizedHotelName,
+      normalizedRoomName,
+      normalizedHotelId ? `hotelId_${normalizedHotelId}` : "",
+      normalizedRoomId ? `roomId_${normalizedRoomId}` : ""
+    ]
+      .filter(Boolean)
+      .join(" - ")
+  );
 }
 
 function extractImportedFileId(importResponse) {
@@ -269,7 +373,9 @@ function extractImmediateImportedRef(importResponse) {
     return wixImageCandidate.value;
   }
 
-  const staticWixCandidate = candidates.find((item) => isStaticWixMediaUrl(item.value));
+  const staticWixCandidate = candidates.find((item) =>
+    isStaticWixMediaUrl(item.value)
+  );
   return staticWixCandidate?.value || "";
 }
 
@@ -406,4 +512,4 @@ function logError(message, payload) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-} 
+}
