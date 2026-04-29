@@ -5,7 +5,6 @@ import { completeBooking } from "backend/liteApi.web";
 const COMPLETE_BOOKING_FLOW_MODE = "WALLET";
 
 const COMPLETE_BOOKING_STATE_BOX_SELECTOR = "#completeBookingStateBox";
-const COMPLETE_BOOKING_PROGRESS_BAR_SELECTOR = "#completeBookingProgressBar";
 const THANK_YOU_PAGE_SELECTOR = "#thankYouPage1";
 
 const COMPLETE_BOOKING_PROGRESS_STATE_ID = "completeBookingProgressState";
@@ -23,82 +22,99 @@ const COMPLETE_BOOKING_ACCEPTED_ORDER_PAYMENT_STATUSES = new Set([
 
 let isCompleteBookingFlowRunning = false;
 
-$w.onReady(async function () {
+$w.onReady(function () {
   const renderingEnv = wixWindow.rendering.env;
 
-  console.log("COMPLETE BOOKING BRIDGE onReady", {
+  console.log("COMPLETE BOOKING onReady", {
     renderingEnv,
     url: wixLocationFrontend.url,
     path: Array.isArray(wixLocationFrontend.path)
       ? wixLocationFrontend.path.join("/")
       : wixLocationFrontend.path,
     query: wixLocationFrontend.query,
+    bookingMode: "browser-only",
+    uiMode: "statebox-only",
+    progressBarEnabled: false,
     backendBookingImportEnabled: true,
     backendBookingCallEnabled: true,
     completeBookingType: typeof completeBooking
   });
 
   if (renderingEnv !== "browser") {
-    console.log("COMPLETE BOOKING BRIDGE skipped outside browser", {
+    console.log("COMPLETE BOOKING skipped outside browser", {
       renderingEnv
     });
     return;
   }
 
   if (isCompleteBookingFlowRunning) {
-    console.warn(
-      "COMPLETE BOOKING BRIDGE skipped because flow is already running"
-    );
+    console.warn("COMPLETE BOOKING skipped because flow is already running");
     return;
   }
 
   isCompleteBookingFlowRunning = true;
 
-  try {
-    await initializeCompleteBookingBridgeFlow();
-  } catch (error) {
-    console.error("COMPLETE BOOKING BRIDGE onReady failed", error);
-  } finally {
-    isCompleteBookingFlowRunning = false;
-  }
+  initializeCompleteBookingFlow()
+    .catch((error) => {
+      console.error("COMPLETE BOOKING onReady flow failed", error);
+    })
+    .finally(() => {
+      isCompleteBookingFlowRunning = false;
+    });
 });
 
-async function initializeCompleteBookingBridgeFlow() {
+async function initializeCompleteBookingFlow() {
   const initializeStartedAt = Date.now();
-
-  console.log("COMPLETE BOOKING BRIDGE initialize-enter", {
-    url: wixLocationFrontend.url,
-    query: wixLocationFrontend.query,
-    completeBookingType: typeof completeBooking
-  });
 
   const thankYouPage = $w(THANK_YOU_PAGE_SELECTOR);
   const completeBookingStateBox = $w(COMPLETE_BOOKING_STATE_BOX_SELECTOR);
-  const completeBookingProgressBar = $w(COMPLETE_BOOKING_PROGRESS_BAR_SELECTOR);
 
-  console.log("COMPLETE BOOKING BRIDGE elements-resolved", {
+  console.log("COMPLETE BOOKING initialize-enter", {
+    url: wixLocationFrontend.url,
+    query: wixLocationFrontend.query,
+    completeBookingType: typeof completeBooking,
     thankYouPageSelector: THANK_YOU_PAGE_SELECTOR,
     thankYouPageHasGetOrder: typeof thankYouPage.getOrder === "function",
+    thankYouPageCollapsed: Boolean(thankYouPage.collapsed),
+    thankYouPageHidden: Boolean(thankYouPage.hidden),
+    thankYouPageIsVisible: Boolean(thankYouPage.isVisible),
     stateBoxSelector: COMPLETE_BOOKING_STATE_BOX_SELECTOR,
-    currentStateId: normalizeText(completeBookingStateBox.currentState?.id),
-    progressBarSelector: COMPLETE_BOOKING_PROGRESS_BAR_SELECTOR,
-    progressBarValue: Number(completeBookingProgressBar.value ?? 0)
+    stateBoxCurrentStateId: normalizeText(completeBookingStateBox.currentState?.id),
+    stateBoxCollapsed: Boolean(completeBookingStateBox.collapsed),
+    stateBoxHidden: Boolean(completeBookingStateBox.hidden),
+    stateBoxIsVisible: Boolean(completeBookingStateBox.isVisible)
   });
 
+  await thankYouPage.collapse();
+  await completeBookingStateBox.expand();
   await completeBookingStateBox.changeState(COMPLETE_BOOKING_PROGRESS_STATE_ID);
-  completeBookingProgressBar.value = 10;
-  await completeBookingProgressBar.show();
+
+  console.log("COMPLETE BOOKING ui-waiting-state", {
+    thankYouPageCollapsed: Boolean(thankYouPage.collapsed),
+    thankYouPageHidden: Boolean(thankYouPage.hidden),
+    thankYouPageIsVisible: Boolean(thankYouPage.isVisible),
+    stateBoxCurrentStateId: normalizeText(completeBookingStateBox.currentState?.id),
+    stateBoxCollapsed: Boolean(completeBookingStateBox.collapsed),
+    stateBoxHidden: Boolean(completeBookingStateBox.hidden),
+    stateBoxIsVisible: Boolean(completeBookingStateBox.isVisible)
+  });
 
   if (typeof thankYouPage.getOrder !== "function") {
-    console.warn("COMPLETE BOOKING BRIDGE getOrder missing", {
+    console.warn("COMPLETE BOOKING getOrder missing", {
       thankYouPageSelector: THANK_YOU_PAGE_SELECTOR
     });
 
-    completeBookingProgressBar.value = 100;
-    await completeBookingProgressBar.hide();
     await completeBookingStateBox.changeState(
       COMPLETE_BOOKING_PROGRESS_COMPLETED_STATE_ID
     );
+    await thankYouPage.expand();
+
+    console.log("COMPLETE BOOKING ui-completed-after-getOrder-missing", {
+      completedStateId: COMPLETE_BOOKING_PROGRESS_COMPLETED_STATE_ID,
+      thankYouPageCollapsed: Boolean(thankYouPage.collapsed),
+      thankYouPageIsVisible: Boolean(thankYouPage.isVisible),
+      stateBoxCurrentStateId: normalizeText(completeBookingStateBox.currentState?.id)
+    });
 
     return;
   }
@@ -106,15 +122,13 @@ async function initializeCompleteBookingBridgeFlow() {
   try {
     const getOrderStartedAt = Date.now();
 
-    console.log("COMPLETE BOOKING BRIDGE getOrder-start", {
+    console.log("COMPLETE BOOKING getOrder-start", {
       thankYouPageSelector: THANK_YOU_PAGE_SELECTOR
     });
 
     const currentOrder = await thankYouPage.getOrder();
 
-    completeBookingProgressBar.value = 35;
-
-    console.log("COMPLETE BOOKING BRIDGE getOrder-success", {
+    console.log("COMPLETE BOOKING getOrder-success", {
       elapsedMs: Date.now() - getOrderStartedAt,
       orderTopLevelKeys: currentOrder ? Object.keys(currentOrder).sort() : [],
       orderSummary: summarizeOrderForTrace(currentOrder)
@@ -122,7 +136,7 @@ async function initializeCompleteBookingBridgeFlow() {
 
     const completeBookingDecision = resolveCompleteBookingDecision(currentOrder);
 
-    console.log("COMPLETE BOOKING BRIDGE decision-resolved", {
+    console.log("COMPLETE BOOKING decision-resolved", {
       completeBookingDecision,
       orderId: resolveOrderId(currentOrder),
       lineItemOptionsSummary: summarizeOrderLineItemOptions(currentOrder),
@@ -131,15 +145,22 @@ async function initializeCompleteBookingBridgeFlow() {
     });
 
     if (!completeBookingDecision.shouldStartCompleteBooking) {
-      console.log("COMPLETE BOOKING BRIDGE decision-skip", {
+      console.log("COMPLETE BOOKING decision-skip", {
         completeBookingDecision
       });
 
-      completeBookingProgressBar.value = 100;
-      await completeBookingProgressBar.hide();
       await completeBookingStateBox.changeState(
         COMPLETE_BOOKING_PROGRESS_COMPLETED_STATE_ID
       );
+      await thankYouPage.expand();
+
+      console.log("COMPLETE BOOKING ui-completed-after-decision-skip", {
+        reason: completeBookingDecision.reason,
+        completedStateId: COMPLETE_BOOKING_PROGRESS_COMPLETED_STATE_ID,
+        thankYouPageCollapsed: Boolean(thankYouPage.collapsed),
+        thankYouPageIsVisible: Boolean(thankYouPage.isVisible),
+        stateBoxCurrentStateId: normalizeText(completeBookingStateBox.currentState?.id)
+      });
 
       return;
     }
@@ -149,9 +170,7 @@ async function initializeCompleteBookingBridgeFlow() {
       orderId: completeBookingDecision.orderId
     };
 
-    completeBookingProgressBar.value = 55;
-
-    console.warn("COMPLETE BOOKING BRIDGE call-start", {
+    console.warn("COMPLETE BOOKING call-start", {
       payload: completeBookingPayload,
       completeBookingDecision,
       orderSummary: summarizeOrderForTrace(currentOrder)
@@ -161,39 +180,45 @@ async function initializeCompleteBookingBridgeFlow() {
 
     const completeBookingResult = await completeBooking(completeBookingPayload);
 
-    completeBookingProgressBar.value = 100;
-
-    console.log("COMPLETE BOOKING BRIDGE call-success", {
+    console.log("COMPLETE BOOKING call-success", {
       elapsedMs: Date.now() - completeBookingStartedAt,
       payload: completeBookingPayload,
       resultSummary: summarizeCompleteBookingResult(completeBookingResult)
     });
 
-    console.log("COMPLETE BOOKING BRIDGE success", {
-      orderId: completeBookingDecision.orderId,
-      completeBookingResult
-    });
-
-    await completeBookingProgressBar.hide();
     await completeBookingStateBox.changeState(
       COMPLETE_BOOKING_PROGRESS_COMPLETED_STATE_ID
     );
-  } catch (error) {
-    console.error("COMPLETE BOOKING BRIDGE failed", error);
+    await thankYouPage.expand();
 
-    console.log("COMPLETE BOOKING BRIDGE initialize-failed", {
+    console.log("COMPLETE BOOKING ui-completed-after-call-success", {
+      completedStateId: COMPLETE_BOOKING_PROGRESS_COMPLETED_STATE_ID,
+      thankYouPageCollapsed: Boolean(thankYouPage.collapsed),
+      thankYouPageIsVisible: Boolean(thankYouPage.isVisible),
+      stateBoxCurrentStateId: normalizeText(completeBookingStateBox.currentState?.id)
+    });
+  } catch (error) {
+    console.error("COMPLETE BOOKING failed", error);
+
+    console.log("COMPLETE BOOKING initialize-failed", {
       elapsedMs: Date.now() - initializeStartedAt,
       url: wixLocationFrontend.url,
       query: wixLocationFrontend.query
     });
 
-    completeBookingProgressBar.value = 100;
-    await completeBookingProgressBar.hide();
     await completeBookingStateBox.changeState(
       COMPLETE_BOOKING_PROGRESS_COMPLETED_STATE_ID
     );
+    await thankYouPage.expand();
+
+    console.log("COMPLETE BOOKING ui-completed-after-failure", {
+      completedStateId: COMPLETE_BOOKING_PROGRESS_COMPLETED_STATE_ID,
+      thankYouPageCollapsed: Boolean(thankYouPage.collapsed),
+      thankYouPageIsVisible: Boolean(thankYouPage.isVisible),
+      stateBoxCurrentStateId: normalizeText(completeBookingStateBox.currentState?.id)
+    });
   } finally {
-    console.log("COMPLETE BOOKING BRIDGE initialize-end", {
+    console.log("COMPLETE BOOKING initialize-end", {
       elapsedMs: Date.now() - initializeStartedAt,
       url: wixLocationFrontend.url,
       query: wixLocationFrontend.query
@@ -289,7 +314,6 @@ function resolveReservationTypeFromLineItem(lineItem) {
 
   for (const optionItem of options) {
     const optionName = normalizeText(optionItem?.option || optionItem?.name);
-
     const selection = normalizeText(
       optionItem?.selection || optionItem?.value
     );
@@ -347,6 +371,7 @@ function summarizeOrderForTrace(currentOrder) {
     lineItemsCount: Array.isArray(currentOrder?.lineItems)
       ? currentOrder.lineItems.length
       : 0,
+    reservationType: resolveReservationTypeFromOrder(currentOrder),
     lineItemBookingContextSummary:
       summarizeOrderLineItemBookingContext(currentOrder),
     lineItemOptionsSummary: summarizeOrderLineItemOptions(currentOrder)
@@ -361,7 +386,10 @@ function summarizeOrderLineItemOptions(currentOrder) {
   return lineItems.map((lineItem, index) => ({
     index,
     lineItemId: normalizeText(
-      lineItem?._id || lineItem?.id || lineItem?.lineItemId || lineItem?._lineItemId
+      lineItem?._id ||
+        lineItem?.id ||
+        lineItem?.lineItemId ||
+        lineItem?._lineItemId
     ),
     name: normalizeText(
       lineItem?.name ||
@@ -391,7 +419,10 @@ function summarizeOrderLineItemBookingContext(currentOrder) {
   return lineItems.map((lineItem, index) => ({
     index,
     lineItemId: normalizeText(
-      lineItem?._id || lineItem?.id || lineItem?.lineItemId || lineItem?._lineItemId
+      lineItem?._id ||
+        lineItem?.id ||
+        lineItem?.lineItemId ||
+        lineItem?._lineItemId
     ),
     name: normalizeText(
       lineItem?.name ||
