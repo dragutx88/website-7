@@ -121,29 +121,24 @@ async function completeWalletBookingHandler(payload) {
 
   const currentOrder = await elevate(orders.getOrder)(orderId);
 
-  console.log("LITEAPI WALLET backend getOrder shape diagnostic", {
+  console.log("LITEAPI WALLET getOrder exact-path checkpoint", {
     orderId,
+    currentOrderId: normalizeText(currentOrder?._id),
     orderKeys:
       currentOrder && typeof currentOrder === "object"
         ? Object.keys(currentOrder).sort()
         : [],
-    orderIdPaths: {
-      _id: currentOrder?._id,
-      id: currentOrder?.id,
-      number: currentOrder?.number
-    },
-    paymentStatus: currentOrder?.paymentStatus,
-    status: currentOrder?.status,
+    paymentStatus: normalizeText(currentOrder?.paymentStatus),
+    status: normalizeText(currentOrder?.status),
+    lineItemsCount: Array.isArray(currentOrder?.lineItems)
+      ? currentOrder.lineItems.length
+      : 0,
     hasExtendedFields: Boolean(currentOrder?.extendedFields),
     extendedFieldsKeys:
       currentOrder?.extendedFields &&
       typeof currentOrder.extendedFields === "object"
         ? Object.keys(currentOrder.extendedFields).sort()
         : [],
-    extendedFields: currentOrder?.extendedFields,
-    lineItemsCount: Array.isArray(currentOrder?.lineItems)
-      ? currentOrder.lineItems.length
-      : 0,
     lineItems: Array.isArray(currentOrder?.lineItems)
       ? currentOrder.lineItems.map((lineItem, index) => ({
           index,
@@ -151,29 +146,28 @@ async function completeWalletBookingHandler(payload) {
             lineItem && typeof lineItem === "object"
               ? Object.keys(lineItem).sort()
               : [],
-          _id: lineItem?._id,
-          id: lineItem?.id,
-          lineItemId: lineItem?.lineItemId,
-          _lineItemId: lineItem?._lineItemId,
-          productName: lineItem?.productName,
-          name: lineItem?.name,
+          _id: normalizeText(lineItem?._id),
+          productName:
+            normalizeText(lineItem?.productName?.original) ||
+            normalizeText(lineItem?.productName?.translated),
           quantity: lineItem?.quantity,
-          itemType: lineItem?.itemType,
-          catalogReference: lineItem?.catalogReference,
-          catalogReferenceKeys:
-            lineItem?.catalogReference &&
-            typeof lineItem.catalogReference === "object"
-              ? Object.keys(lineItem.catalogReference).sort()
-              : [],
-          catalogReferenceOptions:
-            lineItem?.catalogReference?.options,
-          catalogReferenceOptionsKeys:
-            lineItem?.catalogReference?.options &&
-            typeof lineItem.catalogReference.options === "object"
-              ? Object.keys(lineItem.catalogReference.options).sort()
-              : [],
-          options: lineItem?.options,
-          descriptionLines: lineItem?.descriptionLines
+          catalogReference: {
+            appId: normalizeText(lineItem?.catalogReference?.appId),
+            catalogItemId: normalizeText(
+              lineItem?.catalogReference?.catalogItemId
+            ),
+            optionKeys:
+              lineItem?.catalogReference?.options &&
+              typeof lineItem.catalogReference.options === "object"
+                ? Object.keys(lineItem.catalogReference.options).sort()
+                : [],
+            prebookId: normalizeText(
+              lineItem?.catalogReference?.options?.prebookId
+            ),
+            hasPrebookSnapshot: Boolean(
+              lineItem?.catalogReference?.options?.prebookSnapshot
+            )
+          }
         }))
       : []
   });
@@ -188,12 +182,21 @@ async function completeWalletBookingHandler(payload) {
   const prebookId = normalizeText(bookingCandidate.prebookId);
 
   if (!orderLineItemId) {
-    throw new Error("order line item id is missing from the order.");
+    throw new Error("order line item _id is missing from the order.");
   }
 
   if (!prebookId) {
     throw new Error("prebookId is missing from the order.");
   }
+
+  console.log("LITEAPI WALLET booking line item candidate resolved", {
+    orderId,
+    orderLineItemId,
+    prebookId,
+    appId: normalizeText(bookingCandidate.appId),
+    catalogItemId: normalizeText(bookingCandidate.catalogItemId),
+    hasPrebookSnapshot: Boolean(bookingCandidate.prebookSnapshot)
+  });
 
   const orderUserFields =
     currentOrder?.extendedFields?.[ORDER_EXTENDED_FIELDS_NAMESPACES_KEY]?.[
@@ -208,14 +211,35 @@ async function completeWalletBookingHandler(payload) {
     orderUserFields[ORDER_EXTENDED_FIELDS_BOOKING_ID_KEY]
   );
 
+  const orderBookingClientReference = normalizeText(
+    orderUserFields[ORDER_EXTENDED_FIELDS_BOOKING_CLIENT_REFERENCE_KEY]
+  );
+
+  console.log("LITEAPI WALLET order _user_fields lookup", {
+    orderId,
+    orderLineItemId,
+    prebookId,
+    hasUserFields: Boolean(
+      currentOrder?.extendedFields?.[ORDER_EXTENDED_FIELDS_NAMESPACES_KEY]?.[
+        ORDER_EXTENDED_FIELDS_NAMESPACE_KEY
+      ]
+    ),
+    userFieldKeys:
+      orderUserFields && typeof orderUserFields === "object"
+        ? Object.keys(orderUserFields).sort()
+        : [],
+    bookingId: orderBookingId,
+    bookingClientReference: orderBookingClientReference,
+    hasBookingSnapshot: Boolean(orderBookingSnapshot)
+  });
+
   if (orderBookingSnapshot && orderBookingId) {
     console.log("LITEAPI WALLET native order booking snapshot cache hit", {
       orderId,
       orderLineItemId,
+      prebookId,
       bookingId: orderBookingId,
-      bookingClientReference: normalizeText(
-        orderUserFields[ORDER_EXTENDED_FIELDS_BOOKING_CLIENT_REFERENCE_KEY]
-      )
+      bookingClientReference: orderBookingClientReference
     });
 
     return {
@@ -227,7 +251,8 @@ async function completeWalletBookingHandler(payload) {
       persistence: {
         order: {
           status: "cache-hit",
-          bookingId: orderBookingId
+          bookingId: orderBookingId,
+          bookingClientReference: orderBookingClientReference
         }
       }
     };
@@ -329,6 +354,15 @@ async function persistOrderExtendedFieldsBookingSnapshot({
         ? currentOrder.extendedFields[ORDER_EXTENDED_FIELDS_NAMESPACES_KEY]
         : {};
 
+    console.log("LITEAPI WALLET order extended fields update start", {
+      orderId,
+      currentNamespaceKeys: Object.keys(currentNamespaces).sort(),
+      targetNamespace: ORDER_EXTENDED_FIELDS_NAMESPACE_KEY,
+      bookingId: normalizeText(bookingId),
+      bookingClientReference: normalizeText(bookingClientReference),
+      bookingSnapshotLength: normalizeText(bookingSnapshot).length
+    });
+
     await elevate(orders.updateOrder)(orderId, {
       extendedFields: {
         [ORDER_EXTENDED_FIELDS_NAMESPACES_KEY]: {
@@ -354,7 +388,8 @@ async function persistOrderExtendedFieldsBookingSnapshot({
 
     return {
       status: "updated",
-      bookingId: normalizeText(bookingId)
+      bookingId: normalizeText(bookingId),
+      bookingClientReference: normalizeText(bookingClientReference)
     };
   } catch (error) {
     console.warn("LITEAPI WALLET order extended fields update failed", {
@@ -567,7 +602,10 @@ function collectLiteApiOrderLineItemCandidates(order) {
       const appId = normalizeText(catalogReference?.appId);
       const catalogItemId = normalizeText(catalogReference?.catalogItemId);
       const prebookId = normalizeText(catalogReferenceOptions?.prebookId);
-      const orderLineItemId = normalizeText(lineItem?.id);
+      const prebookSnapshot = normalizeText(
+        catalogReferenceOptions?.prebookSnapshot
+      );
+      const orderLineItemId = normalizeText(lineItem?._id);
 
       const isLiteApiBookingCandidate =
         appId === LITEAPI_CATALOG_APP_ID &&
@@ -585,6 +623,7 @@ function collectLiteApiOrderLineItemCandidates(order) {
         appId,
         catalogItemId,
         prebookId,
+        prebookSnapshot,
         orderLineItemId
       };
     })
