@@ -13,7 +13,6 @@ const COMPLETE_BOOKING_PROGRESS_COMPLETED_STATE_ID =
 
 const RESERVATION_TYPE_LABEL = "Reservation Type";
 const FLEXIBLE_RESERVATION_TYPE_VALUE = "flexible";
-const FLEXIBLE_RESERVATION_TYPE_DISPLAY = "Flexible";
 
 const COMPLETE_BOOKING_ACCEPTED_ORDER_PAYMENT_STATUSES = new Set([
   "PAID",
@@ -35,6 +34,7 @@ $w.onReady(function () {
     bookingMode: "browser-only",
     uiMode: "statebox-only",
     progressBarEnabled: false,
+    exactPathMode: true,
     backendBookingImportEnabled: true,
     backendBookingCallEnabled: true,
     completeBookingType: typeof completeBooking
@@ -302,61 +302,14 @@ function resolveReservationTypeFromOrder(currentOrder) {
 }
 
 function resolveReservationTypeFromLineItem(lineItem) {
-  const shellReservationType = normalizeText(
-    lineItem?.catalogReference?.options?.reservationType
-  ).toLowerCase();
-
-  if (shellReservationType) {
-    return shellReservationType;
-  }
-
   const options = Array.isArray(lineItem?.options) ? lineItem.options : [];
 
   for (const optionItem of options) {
-    const optionName = normalizeText(optionItem?.option || optionItem?.name);
-    const selection = normalizeText(
-      optionItem?.selection || optionItem?.value
-    );
+    const optionName = normalizeText(optionItem?.option);
+    const selection = normalizeText(optionItem?.selection);
 
-    if (
-      optionName.toLowerCase() === RESERVATION_TYPE_LABEL.toLowerCase() &&
-      selection
-    ) {
+    if (optionName === RESERVATION_TYPE_LABEL && selection) {
       return selection.toLowerCase();
-    }
-
-    const combined = `${optionName} ${selection}`.toLowerCase();
-
-    if (
-      combined.includes(RESERVATION_TYPE_LABEL.toLowerCase()) &&
-      combined.includes(FLEXIBLE_RESERVATION_TYPE_DISPLAY.toLowerCase())
-    ) {
-      return FLEXIBLE_RESERVATION_TYPE_VALUE;
-    }
-  }
-
-  const descriptionLines = Array.isArray(lineItem?.descriptionLines)
-    ? lineItem.descriptionLines
-    : [];
-
-  for (const descriptionLine of descriptionLines) {
-    const nameText = normalizeDisplayText(descriptionLine?.name);
-    const plainText = normalizeDisplayText(descriptionLine?.plainText);
-
-    if (
-      nameText.toLowerCase() === RESERVATION_TYPE_LABEL.toLowerCase() &&
-      plainText
-    ) {
-      return plainText.toLowerCase();
-    }
-
-    const combined = `${nameText} ${plainText}`.toLowerCase();
-
-    if (
-      combined.includes(RESERVATION_TYPE_LABEL.toLowerCase()) &&
-      combined.includes(FLEXIBLE_RESERVATION_TYPE_DISPLAY.toLowerCase())
-    ) {
-      return FLEXIBLE_RESERVATION_TYPE_VALUE;
     }
   }
 
@@ -385,27 +338,11 @@ function summarizeOrderLineItemOptions(currentOrder) {
 
   return lineItems.map((lineItem, index) => ({
     index,
-    lineItemId: normalizeText(
-      lineItem?._id ||
-        lineItem?.id ||
-        lineItem?.lineItemId ||
-        lineItem?._lineItemId
-    ),
-    name: normalizeText(
-      lineItem?.name ||
-        lineItem?.productName?.translated ||
-        lineItem?.productName?.original
-    ),
+    name: normalizeText(lineItem?.name),
     options: Array.isArray(lineItem?.options)
       ? lineItem.options.map((optionItem) => ({
-          option: normalizeText(optionItem?.option || optionItem?.name),
-          selection: normalizeText(optionItem?.selection || optionItem?.value)
-        }))
-      : [],
-    descriptionLines: Array.isArray(lineItem?.descriptionLines)
-      ? lineItem.descriptionLines.map((descriptionLine) => ({
-          name: normalizeDisplayText(descriptionLine?.name),
-          plainText: normalizeDisplayText(descriptionLine?.plainText)
+          option: normalizeText(optionItem?.option),
+          selection: normalizeText(optionItem?.selection)
         }))
       : []
   }));
@@ -418,42 +355,26 @@ function summarizeOrderLineItemBookingContext(currentOrder) {
 
   return lineItems.map((lineItem, index) => ({
     index,
-    lineItemId: normalizeText(
-      lineItem?._id ||
-        lineItem?.id ||
-        lineItem?.lineItemId ||
-        lineItem?._lineItemId
-    ),
-    name: normalizeText(
-      lineItem?.name ||
-        lineItem?.productName?.translated ||
-        lineItem?.productName?.original
-    ),
-    appId: normalizeText(lineItem?.catalogReference?.appId),
-    catalogItemId: normalizeText(lineItem?.catalogReference?.catalogItemId),
-    prebookId: normalizeText(lineItem?.catalogReference?.options?.prebookId),
+    name: normalizeText(lineItem?.name),
     reservationType: resolveReservationTypeFromLineItem(lineItem),
     quantity: normalizeText(lineItem?.quantity)
   }));
 }
 
 function resolveOrderId(currentOrder) {
-  return normalizeText(currentOrder?.id || currentOrder?._id);
+  return normalizeText(currentOrder?._id);
 }
 
 function summarizeCompleteBookingResult(completeBookingResult) {
   return {
     completedBookingBookingId: normalizeText(
-      completeBookingResult?.completedBooking?.data?.bookingId ||
-        completeBookingResult?.completedBooking?.bookingId
+      completeBookingResult?.completedBooking?.data?.bookingId
     ),
     completedBookingStatus: normalizeText(
-      completeBookingResult?.completedBooking?.data?.status ||
-        completeBookingResult?.completedBooking?.status
+      completeBookingResult?.completedBooking?.data?.status
     ),
     completedBookingMessage: normalizeText(
-      completeBookingResult?.completedBooking?.data?.message ||
-        completeBookingResult?.completedBooking?.message
+      completeBookingResult?.completedBooking?.data?.message
     ),
     normalizedBookingId: normalizeText(
       completeBookingResult?.normalizedBooking?.bookingId
@@ -480,10 +401,6 @@ function summarizeCompleteBookingResult(completeBookingResult) {
       completeBookingResult?.persistence?.cms?.cmsSnapshotId
     )
   };
-}
-
-function normalizeDisplayText(value) {
-  return normalizeText(value?.translated || value?.original || value);
 }
 
 function normalizeText(value) {
