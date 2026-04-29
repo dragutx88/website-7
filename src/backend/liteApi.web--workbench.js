@@ -5,10 +5,8 @@ import {
   getHotelMappedRoomRatesHandler,
   getHotelMappedRoomOffersHandler
 } from "./liteApiHotel";
-import {
-  completeBookingHandler,
-  createPrebookSessionHandler
-} from "./liteApiBooking";
+import { createPrebookSessionHandler } from "./liteApiPrebook";
+import { completeBookingHandler } from "./liteApiBooking";
 
 export const searchPlaces = webMethod(Permissions.Anyone, async (textQuery) =>
   searchPlacesHandler(textQuery)
