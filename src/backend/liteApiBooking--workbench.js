@@ -21,9 +21,6 @@ const BOOKING_FLOW_MODES = Object.freeze({
   TRANSACTION: "TRANSACTION"
 });
 
-const elevatedGetOrder = elevate(orders.getOrder);
-const elevatedUpdateOrder = elevate(orders.updateOrder);
-
 export async function createPrebookSessionHandler(payload) {
   const offerId = normalizeText(payload?.offerId);
   const usePaymentSdk =
@@ -122,17 +119,11 @@ async function completeWalletBookingHandler(payload) {
     throw new Error("orderId is required for WALLET booking.");
   }
 
-  const currentOrder = await elevatedGetOrder(orderId);
-  const currentOrderId = resolveOrderId(currentOrder);
+  const getOrderResult = await elevate(orders.getOrder)(orderId);
+  const currentOrder = getOrderResult?.order;
 
-  if (!currentOrderId) {
-    throw new Error("order.id is missing from Wix order response.");
-  }
-
-  if (currentOrderId !== orderId) {
-    throw new Error(
-      `Fetched Wix order id mismatch. Expected ${orderId}, received ${currentOrderId}.`
-    );
+  if (!currentOrder || typeof currentOrder !== "object") {
+    throw new Error("order is missing from Wix getOrder response.");
   }
 
   const bookingCandidate = resolveSingleLiteApiOrderLineItem(currentOrder);
@@ -152,9 +143,18 @@ async function completeWalletBookingHandler(payload) {
     throw new Error("prebookId is missing from the order.");
   }
 
-  const orderBookingSnapshot =
-    loadOrderExtendedFieldsBookingSnapshot(currentOrder);
-  const orderBookingId = loadOrderExtendedFieldsBookingId(currentOrder);
+  const orderUserFields =
+    currentOrder?.extendedFields?.[ORDER_EXTENDED_FIELDS_NAMESPACES_KEY]?.[
+      ORDER_EXTENDED_FIELDS_NAMESPACE_KEY
+    ] || {};
+
+  const orderBookingSnapshot = normalizeBookingSnapshotValue(
+    orderUserFields[ORDER_EXTENDED_FIELDS_BOOKING_SNAPSHOT_KEY]
+  );
+
+  const orderBookingId = normalizeText(
+    orderUserFields[ORDER_EXTENDED_FIELDS_BOOKING_ID_KEY]
+  );
 
   if (orderBookingSnapshot && orderBookingId) {
     console.log("LITEAPI WALLET native order booking snapshot cache hit", {
@@ -266,14 +266,28 @@ async function persistOrderExtendedFieldsBookingSnapshot({
   bookingId
 }) {
   try {
-    const nextExtendedFields = buildNextOrderExtendedFields(currentOrder, {
-      bookingSnapshot,
-      bookingClientReference,
-      bookingId
-    });
+    const currentNamespaces =
+      currentOrder?.extendedFields?.[ORDER_EXTENDED_FIELDS_NAMESPACES_KEY] &&
+      typeof currentOrder.extendedFields[
+        ORDER_EXTENDED_FIELDS_NAMESPACES_KEY
+      ] === "object"
+        ? currentOrder.extendedFields[ORDER_EXTENDED_FIELDS_NAMESPACES_KEY]
+        : {};
 
-    await elevatedUpdateOrder(orderId, {
-      extendedFields: nextExtendedFields
+    await elevate(orders.updateOrder)(orderId, {
+      extendedFields: {
+        [ORDER_EXTENDED_FIELDS_NAMESPACES_KEY]: {
+          ...currentNamespaces,
+          [ORDER_EXTENDED_FIELDS_NAMESPACE_KEY]: {
+            [ORDER_EXTENDED_FIELDS_BOOKING_ID_KEY]: normalizeText(bookingId),
+            [ORDER_EXTENDED_FIELDS_BOOKING_SNAPSHOT_KEY]:
+              normalizeText(bookingSnapshot),
+            [ORDER_EXTENDED_FIELDS_BOOKING_CLIENT_REFERENCE_KEY]: normalizeText(
+              bookingClientReference
+            )
+          }
+        }
+      }
     });
 
     console.log("LITEAPI WALLET order extended fields updated", {
@@ -487,7 +501,7 @@ function collectLiteApiOrderLineItemCandidates(order) {
 
   return lineItems
     .map((lineItem) => {
-      const catalogReference = lineItem?.catalogReference || {};
+      const catalogReference = lineItem?.catalogReference;
       const catalogReferenceOptions =
         catalogReference?.options &&
         typeof catalogReference.options === "object" &&
@@ -498,7 +512,7 @@ function collectLiteApiOrderLineItemCandidates(order) {
       const appId = normalizeText(catalogReference?.appId);
       const catalogItemId = normalizeText(catalogReference?.catalogItemId);
       const prebookId = normalizeText(catalogReferenceOptions?.prebookId);
-      const orderLineItemId = resolveOrderLineItemId(lineItem);
+      const orderLineItemId = normalizeText(lineItem?.id);
 
       const isLiteApiBookingCandidate =
         appId === LITEAPI_CATALOG_APP_ID &&
@@ -522,76 +536,6 @@ function collectLiteApiOrderLineItemCandidates(order) {
     .filter(Boolean);
 }
 
-function resolveOrderLineItemId(lineItem) {
-  return normalizeText(lineItem?.id);
-}
-
-function loadOrderExtendedFieldsBookingSnapshot(currentOrder) {
-  return normalizeBookingSnapshotValue(
-    readOrderUserFieldValue(
-      currentOrder,
-      ORDER_EXTENDED_FIELDS_BOOKING_SNAPSHOT_KEY
-    )
-  );
-}
-
-function loadOrderExtendedFieldsBookingId(currentOrder) {
-  return normalizeText(
-    readOrderUserFieldValue(currentOrder, ORDER_EXTENDED_FIELDS_BOOKING_ID_KEY)
-  );
-}
-
-function readOrderUserFieldValue(currentOrder, fieldKey) {
-  const orderUserFields = readOrderUserFields(currentOrder);
-  return orderUserFields[fieldKey];
-}
-
-function readOrderUserFields(currentOrder) {
-  const currentExtendedFields = currentOrder?.extendedFields;
-  const currentNamespaces =
-    currentExtendedFields?.[ORDER_EXTENDED_FIELDS_NAMESPACES_KEY];
-
-  if (!currentNamespaces || typeof currentNamespaces !== "object") {
-    return {};
-  }
-
-  const currentUserFields =
-    currentNamespaces?.[ORDER_EXTENDED_FIELDS_NAMESPACE_KEY];
-
-  return currentUserFields &&
-    typeof currentUserFields === "object" &&
-    !Array.isArray(currentUserFields)
-    ? currentUserFields
-    : {};
-}
-
-function buildNextOrderExtendedFields(
-  currentOrder,
-  { bookingSnapshot, bookingClientReference, bookingId }
-) {
-  const currentExtendedFields = currentOrder?.extendedFields;
-  const currentNamespaces =
-    currentExtendedFields?.[ORDER_EXTENDED_FIELDS_NAMESPACES_KEY] &&
-    typeof currentExtendedFields[ORDER_EXTENDED_FIELDS_NAMESPACES_KEY] ===
-      "object"
-      ? currentExtendedFields[ORDER_EXTENDED_FIELDS_NAMESPACES_KEY]
-      : {};
-
-  return {
-    [ORDER_EXTENDED_FIELDS_NAMESPACES_KEY]: {
-      ...currentNamespaces,
-      [ORDER_EXTENDED_FIELDS_NAMESPACE_KEY]: {
-        [ORDER_EXTENDED_FIELDS_BOOKING_ID_KEY]: normalizeText(bookingId),
-        [ORDER_EXTENDED_FIELDS_BOOKING_SNAPSHOT_KEY]:
-          normalizeText(bookingSnapshot),
-        [ORDER_EXTENDED_FIELDS_BOOKING_CLIENT_REFERENCE_KEY]: normalizeText(
-          bookingClientReference
-        )
-      }
-    }
-  };
-}
-
 function normalizeBookingFlowMode(payload) {
   const normalizedMode = normalizeText(payload?.bookingFlowMode).toUpperCase();
 
@@ -608,10 +552,6 @@ function normalizeBookingFlowMode(payload) {
   }
 
   return BOOKING_FLOW_MODES.TRANSACTION;
-}
-
-function resolveOrderId(order) {
-  return normalizeText(order?.id);
 }
 
 function normalizeBookingSnapshotValue(bookingSnapshotValue) {
