@@ -1,4 +1,4 @@
-import { validatePrebook } from "../../../liteApiBooking";
+import { validatePrebook } from "../../../liteApiPrebook";
 
 const RESERVATION_TYPE_KEY = "reservationType";
 const RESERVATION_TYPE_LABEL = "Reservation Type";
