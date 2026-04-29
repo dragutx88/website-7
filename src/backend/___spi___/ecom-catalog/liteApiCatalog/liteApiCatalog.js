@@ -1,10 +1,10 @@
 import { validatePrebook } from "../../../liteApiBooking";
 
-const RESERVATION_DATE_TYPE_KEY = "reservationDateType";
-const RESERVATION_DATE_TYPE_LABEL = "Reservation Date Type";
-const FLEXIBLE_RESERVATION_DATE_TYPE_VALUE = "flexible";
-const FLEXIBLE_RESERVATION_DATE_TYPE_DISPLAY = "Flexible";
-const STANDARD_RESERVATION_DATE_TYPE_DISPLAY = "Standart";
+const RESERVATION_TYPE_KEY = "reservationType";
+const RESERVATION_TYPE_LABEL = "Reservation Type";
+const FLEXIBLE_RESERVATION_TYPE_VALUE = "flexible";
+const FLEXIBLE_RESERVATION_TYPE_DISPLAY = "Flexible";
+const STANDARD_RESERVATION_TYPE_DISPLAY = "Standart";
 const CHECK_IN_DATE_LABEL = "Check In Date";
 const CHECK_OUT_DATE_LABEL = "Check Out Date";
 
@@ -248,20 +248,20 @@ function extractPriceValue(prebookShell) {
 function buildDescriptionLines(prebookShell) {
   const lines = [];
 
-  pushDescriptionLine(lines, prebookShell?.hotelStars);
+  pushDescriptionLine(lines, prebookShell?.starRating);
   pushDescriptionLine(lines, prebookShell?.hotelReview);
   pushDescriptionLine(lines, prebookShell?.hotelAddress);
 
-  const isFlexibleReservation = isFlexibleReservationDateType(
-    prebookShell?.[RESERVATION_DATE_TYPE_KEY]
+  const isFlexibleReservation = isFlexibleReservationType(
+    prebookShell?.[RESERVATION_TYPE_KEY]
   );
 
   pushNamedDescriptionLineAllowEmptyText(
     lines,
-    RESERVATION_DATE_TYPE_LABEL,
+    RESERVATION_TYPE_LABEL,
     isFlexibleReservation
-      ? FLEXIBLE_RESERVATION_DATE_TYPE_DISPLAY
-      : STANDARD_RESERVATION_DATE_TYPE_DISPLAY
+      ? FLEXIBLE_RESERVATION_TYPE_DISPLAY
+      : STANDARD_RESERVATION_TYPE_DISPLAY
   );
 
   pushNamedDescriptionLineAllowEmptyText(
@@ -315,9 +315,9 @@ function buildDescriptionLines(prebookShell) {
   return lines;
 }
 
-function isFlexibleReservationDateType(value) {
+function isFlexibleReservationType(value) {
   return (
-    normalizeText(value).toLowerCase() === FLEXIBLE_RESERVATION_DATE_TYPE_VALUE
+    normalizeText(value).toLowerCase() === FLEXIBLE_RESERVATION_TYPE_VALUE
   );
 }
 
@@ -507,7 +507,7 @@ function buildShellSummary(prebookShell) {
     mappedRoomId: normalizeText(prebookShell?.mappedRoomId),
     prebookId: normalizeText(prebookShell?.prebookId),
     hotelName: normalizeText(prebookShell?.hotelName),
-    hotelStars: normalizeText(prebookShell?.hotelStars),
+    starRating: normalizeText(prebookShell?.starRating),
     hotelReview: normalizeText(prebookShell?.hotelReview),
     hotelAddress: normalizeText(prebookShell?.hotelAddress),
     checkInDate: normalizeText(prebookShell?.checkInDate),
@@ -521,7 +521,7 @@ function buildShellSummary(prebookShell) {
     currency: normalizeCurrencyCode(prebookShell?.currency),
     currentPrice: Number(prebookShell?.currentPrice),
     beforeCurrentPrice: Number(prebookShell?.beforeCurrentPrice),
-    reservationDateType: normalizeText(prebookShell?.[RESERVATION_DATE_TYPE_KEY]),
+    reservationType: normalizeText(prebookShell?.[RESERVATION_TYPE_KEY]),
     hotelMainImage: normalizeText(prebookShell?.hotelMainImage),
     roomMainImage: normalizeText(prebookShell?.roomMainImage),
     wixHotelMainImageRef: normalizeText(prebookShell?.wixHotelMainImageRef),
