@@ -1,6 +1,6 @@
 const LITEAPI_SEARCH_BAR_SDK_URL = "https://components.liteapi.travel/v1.0/sdk.umd.js";
 const ELEMENT_TAG_NAME = "liteapi-search-bar-element";
-const WHITELABEL_URL = "https://ozvia.travel/?language=en&currency=TRY";
+const WHITELABEL_DOMAIN = "ozvia.travel";
 const PRIMARY_COLOR = "#7057F0";
 const SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY = "searchFlowContextQueryStringify";
 
@@ -29,12 +29,24 @@ class LiteApiSearchBarElement extends HTMLElement {
   connectedCallback() {
     this.innerHTML = `<div id="search-bar" style="width: 100%;"></div>`;
 
-    const whiteLabelUrl = new URL(WHITELABEL_URL);
+    window.top.sessionStorage.setItem(
+      SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY,
+      JSON.stringify({
+        ...Object.fromEntries(new URLSearchParams(window.top.location.search)),
+        language: "tr",
+        currency: "TRY"
+      })
+    );
+
+    window.top.history.replaceState(null, "", `?${new URLSearchParams({
+      ...Object.fromEntries(new URLSearchParams(window.top.location.search)),
+      language: "tr",
+      currency: "TRY"
+    })}`);
 
     loadLiteApiSdkOnce().then((LiteAPI) => {
       LiteAPI.init({
-        domain: whiteLabelUrl.hostname,
-        deepLinkParams: whiteLabelUrl.searchParams.toString()
+        domain: WHITELABEL_DOMAIN
       });
 
       LiteAPI.SearchBar.create({
@@ -63,7 +75,9 @@ class LiteApiSearchBarElement extends HTMLElement {
                 checkout: dateText(searchData?.checkout || searchData?.dates?.end),
                 rooms: String(rooms.length || 1),
                 adults: rooms.map((r) => String(number(r?.adults, 1))).join(","),
-                children: rooms.flatMap((r, i) => (r?.children ?? []).map((age) => `${i + 1}_${number(age, 0)}`)).join(",")
+                children: rooms.flatMap((r, i) => (r?.children ?? []).map((age) => `${i + 1}_${number(age, 0)}`)).join(","),
+                language: "tr",
+                currency: "TRY"
               })}`,
               window.top.location.origin + window.top.location.pathname.replace(/\/?$/, "/")
             ).href
