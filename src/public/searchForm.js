@@ -1,4 +1,5 @@
 import wixLocationFrontend from "wix-location-frontend";
+import { searchPlaces } from "backend/liteApi.web";
 
 const CHILD_AGE_DROPDOWN_COUNT = 10;
 const OCCUPANCY_MIN_ADULTS = 1;
@@ -83,7 +84,6 @@ export function initSearchForm(options = {}) {
   const {
     $w,
     ids,
-    searchPlacesFn,
     debug,
     autocompleteMinChars,
     autocompleteDebounceMs
@@ -622,7 +622,7 @@ export function initSearchForm(options = {}) {
 
     state.autocompleteDebounceTimer = setTimeout(async () => {
       try {
-        const suggestions = await searchPlacesFn(query);
+        const suggestions = await searchPlaces(query);
 
         if (requestToken !== state.autocompleteRequestToken) {
           return;
@@ -988,17 +988,12 @@ function buildControllerConfig(options = {}) {
     throw new Error("initSearchForm requires $w.");
   }
 
-  if (typeof options.searchPlacesFn !== "function") {
-    throw new Error("initSearchForm requires searchPlacesFn.");
-  }
-
   return {
     $w: options.$w,
     ids: {
       ...DEFAULT_SEARCH_FORM_IDS,
       ...(options.ids || {})
     },
-    searchPlacesFn: options.searchPlacesFn,
     debug: Boolean(options.debug),
     autocompleteMinChars:
       Number(options.autocompleteMinChars) || DEFAULT_AUTOCOMPLETE_MIN_CHARS,
