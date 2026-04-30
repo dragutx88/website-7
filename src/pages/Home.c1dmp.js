@@ -14,10 +14,7 @@ $w.onReady(function () {
     return;
   }
 
-  initSearchForm({
-    $w,
-    debug: false
-  });
+  initSearchForm({ $w });
 
   session.setItem(
     SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY,
