@@ -30,7 +30,6 @@ export function initSearchForm(options = {}) {
 
   const {
     $w,
-    debug,
     autocompleteMinChars,
     autocompleteDebounceMs
   } = config;
@@ -76,9 +75,9 @@ export function initSearchForm(options = {}) {
   function initializeForm() {
     $w("#guestsOccupancySelectionInput").readOnly = true;
 
-    clearSuggestionsPanel();
-    collapseSuggestionsBox();
-    collapseOccupancyBox();
+    $w("#searchSuggestionsRepeater").data = [];
+    $w("#searchSuggestionsBox").collapse();
+    $w("#occupancySelectionBox").collapse();
     renderOccupancyPopover();
     syncOccupancySummaryInput();
   }
@@ -145,13 +144,13 @@ export function initSearchForm(options = {}) {
     guestsInput.onClick(() => {
       state.isOccupancyInputFocused = true;
       clearOccupancyCloseTimer();
-      expandOccupancyBox();
+      $w("#occupancySelectionBox").expand();
     });
 
     guestsInput.onFocus(() => {
       state.isOccupancyInputFocused = true;
       clearOccupancyCloseTimer();
-      expandOccupancyBox();
+      $w("#occupancySelectionBox").expand();
     });
 
     guestsInput.onBlur(() => {
@@ -294,7 +293,7 @@ export function initSearchForm(options = {}) {
     const occupancyValidationError = validateOccupancyState(state.occupancy);
     if (occupancyValidationError) {
       console.warn("Search validation error:", occupancyValidationError);
-      expandOccupancyBox();
+      $w("#occupancySelectionBox").expand();
       return null;
     }
 
@@ -319,10 +318,10 @@ export function initSearchForm(options = {}) {
       const searchFlowContextUrl =
         buildSearchFlowContextUrl(normalizedSearchForm);
 
-      debugLog("normalizedSearchForm", normalizedSearchForm);
-      debugLog("searchFlowContextUrl", searchFlowContextUrl);
+      console.log("[searchForm] normalizedSearchForm", normalizedSearchForm);
+      console.log("[searchForm] searchFlowContextUrl", searchFlowContextUrl);
 
-      navigateSearchFlowContextUrl(searchFlowContextUrl);
+      wixLocationFrontend.to(searchFlowContextUrl);
 
       return {
         searchFlowContextUrl
@@ -424,9 +423,9 @@ export function initSearchForm(options = {}) {
     renderOccupancyPopover();
     syncOccupancySummaryInput();
 
-    clearSuggestionsPanel();
-    collapseSuggestionsBox();
-    collapseOccupancyBox();
+    $w("#searchSuggestionsRepeater").data = [];
+    $w("#searchSuggestionsBox").collapse();
+    $w("#occupancySelectionBox").collapse();
     syncSearchModeUi();
     syncCorrelatedDatePickerBounds();
   }
@@ -494,14 +493,6 @@ export function initSearchForm(options = {}) {
     return `/hotels?${params.toString()}`;
   }
 
-  function navigateSearchFlowContextUrl(searchFlowContextUrl) {
-    if (!searchFlowContextUrl) {
-      return;
-    }
-
-    wixLocationFrontend.to(searchFlowContextUrl);
-  }
-
   function applySearchMode(mode, options = {}) {
     const { resetSelectedDestination = true } = options;
 
@@ -515,8 +506,8 @@ export function initSearchForm(options = {}) {
 
     clearAutocompleteDebounceTimer();
     state.autocompleteSuggestions = [];
-    clearSuggestionsPanel();
-    collapseSuggestionsBox();
+    $w("#searchSuggestionsRepeater").data = [];
+    $w("#searchSuggestionsBox").collapse();
     syncSearchModeUi();
   }
 
@@ -532,8 +523,8 @@ export function initSearchForm(options = {}) {
   async function handleSearchQueryInput() {
     if (state.searchMode.mode !== "destination") {
       clearAutocompleteDebounceTimer();
-      clearSuggestionsPanel();
-      collapseSuggestionsBox();
+      $w("#searchSuggestionsRepeater").data = [];
+      $w("#searchSuggestionsBox").collapse();
       return;
     }
 
@@ -544,8 +535,8 @@ export function initSearchForm(options = {}) {
 
     if (query.length < autocompleteMinChars) {
       state.autocompleteSuggestions = [];
-      clearSuggestionsPanel();
-      collapseSuggestionsBox();
+      $w("#searchSuggestionsRepeater").data = [];
+      $w("#searchSuggestionsBox").collapse();
       return;
     }
 
@@ -567,8 +558,8 @@ export function initSearchForm(options = {}) {
       } catch (error) {
         console.error("Autocomplete error:", error);
         state.autocompleteSuggestions = [];
-        clearSuggestionsPanel();
-        collapseSuggestionsBox();
+        $w("#searchSuggestionsRepeater").data = [];
+        $w("#searchSuggestionsBox").collapse();
       }
     }, autocompleteDebounceMs);
   }
@@ -582,16 +573,16 @@ export function initSearchForm(options = {}) {
     $w("#searchQueryInput").value =
       itemData.displayName || itemData.title || "";
 
-    clearSuggestionsPanel();
-    collapseSuggestionsBox();
+    $w("#searchSuggestionsRepeater").data = [];
+    $w("#searchSuggestionsBox").collapse();
   }
 
   function renderSuggestionsPanel(suggestions) {
     const repeater = $w("#searchSuggestionsRepeater");
 
     if (!Array.isArray(suggestions) || suggestions.length === 0) {
-      clearSuggestionsPanel();
-      collapseSuggestionsBox();
+      $w("#searchSuggestionsRepeater").data = [];
+      $w("#searchSuggestionsBox").collapse();
       return;
     }
 
@@ -604,19 +595,7 @@ export function initSearchForm(options = {}) {
       subtitle: item.formattedAddress || ""
     }));
 
-    expandSuggestionsBox();
-  }
-
-  function clearSuggestionsPanel() {
-    $w("#searchSuggestionsRepeater").data = [];
-  }
-
-  function expandSuggestionsBox() {
     $w("#searchSuggestionsBox").expand();
-  }
-
-  function collapseSuggestionsBox() {
-    $w("#searchSuggestionsBox").collapse();
   }
 
   function clearAutocompleteDebounceTimer() {
@@ -638,7 +617,7 @@ export function initSearchForm(options = {}) {
 
     state.suggestionCloseTimer = setTimeout(() => {
       if (!state.isSearchInputFocused && !state.isPointerInsideSuggestions) {
-        collapseSuggestionsBox();
+        $w("#searchSuggestionsBox").collapse();
       }
     }, 180);
   }
@@ -723,14 +702,6 @@ export function initSearchForm(options = {}) {
     }
   }
 
-  function expandOccupancyBox() {
-    $w("#occupancySelectionBox").expand();
-  }
-
-  function collapseOccupancyBox() {
-    $w("#occupancySelectionBox").collapse();
-  }
-
   function clearOccupancyCloseTimer() {
     if (state.occupancyCloseTimer) {
       clearTimeout(state.occupancyCloseTimer);
@@ -753,12 +724,12 @@ export function initSearchForm(options = {}) {
 
     if (occupancyValidationError) {
       console.warn("Occupancy validation error:", occupancyValidationError);
-      expandOccupancyBox();
+      $w("#occupancySelectionBox").expand();
       return false;
     }
 
     syncOccupancySummaryInput();
-    collapseOccupancyBox();
+    $w("#occupancySelectionBox").collapse();
     return true;
   }
 
@@ -811,14 +782,6 @@ export function initSearchForm(options = {}) {
       checkInDatePickerInput.maxDate = undefined;
     }
   }
-
-  function debugLog(label, value) {
-    if (!debug) {
-      return;
-    }
-
-    console.log(`[searchForm] ${label}`, value);
-  }
 }
 
 function buildControllerConfig(options = {}) {
@@ -828,7 +791,6 @@ function buildControllerConfig(options = {}) {
 
   return {
     $w: options.$w,
-    debug: Boolean(options.debug),
     autocompleteMinChars:
       Number(options.autocompleteMinChars) || DEFAULT_AUTOCOMPLETE_MIN_CHARS,
     autocompleteDebounceMs:
