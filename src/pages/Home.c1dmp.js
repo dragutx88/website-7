@@ -1,52 +1,38 @@
+import wixWindow from "wix-window-frontend";
 import wixLocationFrontend from "wix-location-frontend";
 import { session } from "wix-storage-frontend";
 import { searchPlaces } from "backend/liteApi.web";
 import { initSearchForm } from "public/searchForm";
 
-const SEARCH_FLOW_CONTEXT_CURRENCY_AND_LANGUAGE =
-  "searchFlowContextCurrencyAndLanguage";
-
-const DEFAULT_SEARCH_FLOW_CONTEXT_CURRENCY_AND_LANGUAGE =
-  "?language=tr&currency=TRY";
+const SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY =
+  "searchFlowContextQueryStringify";
 
 $w.onReady(function () {
+  const renderingEnv = wixWindow.rendering.env;
+
+  if (renderingEnv !== "browser") {
+    console.log("HOME skipped outside browser", { renderingEnv });
+    return;
+  }
+
   initSearchForm({
     $w,
     searchPlacesFn: searchPlaces,
     debug: false
   });
 
-  const existingSessionValue = session.getItem(
-    SEARCH_FLOW_CONTEXT_CURRENCY_AND_LANGUAGE
+  session.setItem(
+    SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY,
+    JSON.stringify({ ...wixLocationFrontend.query, language: "tr", currency: "TRY" })
   );
 
-  if (!existingSessionValue) {
-    session.setItem(
-      SEARCH_FLOW_CONTEXT_CURRENCY_AND_LANGUAGE,
-      DEFAULT_SEARCH_FLOW_CONTEXT_CURRENCY_AND_LANGUAGE
-    );
+  wixLocationFrontend.queryParams.add({
+    ...wixLocationFrontend.query,
+    language: "tr",
+    currency: "TRY"
+  });
 
-    const currentParams = new URLSearchParams();
-
-    Object.entries(wixLocationFrontend.query || {}).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && String(value).trim() !== "") {
-        currentParams.set(key, String(value));
-      }
-    });
-
-    const defaultParams = new URLSearchParams(
-      DEFAULT_SEARCH_FLOW_CONTEXT_CURRENCY_AND_LANGUAGE.slice(1)
-    );
-
-    defaultParams.forEach((value, key) => {
-      currentParams.set(key, value);
-    });
-
-    const relativePath =
-      Array.isArray(wixLocationFrontend.path) && wixLocationFrontend.path.length
-        ? `/${wixLocationFrontend.path.join("/")}`
-        : "/";
-
-    wixLocationFrontend.to(`${relativePath}?${currentParams.toString()}`);
-  }
+  console.log("HOME session/query init", {
+    query: { ...wixLocationFrontend.query, language: "tr", currency: "TRY" }
+  });
 });
