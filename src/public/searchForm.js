@@ -16,59 +16,6 @@ const DEFAULT_OCCUPANCY_STATE = Object.freeze({
   childAges: []
 });
 
-const childAgeDropdownIdMap = Object.fromEntries(
-  Array.from({ length: CHILD_AGE_DROPDOWN_COUNT }, (_, index) => {
-    const key = `childrenAgeSelectionDropdown${index + 1}`;
-    return [key, `#childrenAgeSelectionDropdown${index + 1}`];
-  })
-);
-
-const DEFAULT_SEARCH_FORM_IDS = Object.freeze({
-  destinationSearchModeButton: "#destinationSearchModeButton",
-  vibeSearchModeButton: "#vibeSearchModeButton",
-  searchModeSwitch: "#searchModeSwitch",
-
-  searchQueryInputFieldBox: "#searchQueryInputFieldBox",
-  searchQueryInput: "#searchQueryInput",
-
-  searchSuggestionsBox: "#searchSuggestionsBox",
-  searchSuggestionsScrollBox: "#searchSuggestionsScrollBox",
-  searchSuggestionsRepeater: "#searchSuggestionsRepeater",
-  searchSuggestionItem: "#searchSuggestionItem",
-  searchSuggestionTitleText: "#searchSuggestionTitleText",
-  searchSuggestionSubtitleText: "#searchSuggestionSubtitleText",
-
-  checkInDatePickerInput: "#checkInDatePickerInput",
-  checkOutDatePickerInput: "#checkOutDatePickerInput",
-
-  guestsOccupancySelectionInput: "#guestsOccupancySelectionInput",
-
-  occupancySelectionColumnFlex: "#occupancySelectionColumnFlex",
-  occupancySelectionBox: "#occupancySelectionBox",
-  occupancySelectionCounterRowFlex: "#occupancySelectionCounterRowFlex",
-
-  occupancySelectionAdultsCounterBox: "#occupancySelectionAdultsCounterBox",
-  adultsCounterDecreaseButton: "#adultsCounterDecreaseButton",
-  adultsCounterTitleText: "#adultsCounterTitleText",
-  adultsCountValueText: "#adultsCountValueText",
-  adultsCounterIncreaseButton: "#adultsCounterIncreaseButton",
-
-  occupancySelectionChildrenCounterBox: "#occupancySelectionChildrenCounterBox",
-  childrenCounterTitleText: "#childrenCounterTitleText",
-  childrenCounterSubtitleText: "#childrenCounterSubtitleText",
-  childrenCounterDecreaseButton: "#childrenCounterDecreaseButton",
-  childrenCountValueText: "#childrenCountValueText",
-  childrenCounterIncreaseButton: "#childrenCounterIncreaseButton",
-
-  occupancyChildrenAgeSelectionBox: "#occupancyChildrenAgeSelectionBox",
-
-  occupancySelectionApplyButton: "#occupancySelectionApplyButton",
-
-  searchFormButton: "#searchFormButton",
-
-  ...childAgeDropdownIdMap
-});
-
 const CHILD_AGE_OPTIONS = [
   { label: "Select age", value: "" },
   { label: "Under 1", value: "0" },
@@ -83,7 +30,6 @@ export function initSearchForm(options = {}) {
 
   const {
     $w,
-    ids,
     debug,
     autocompleteMinChars,
     autocompleteDebounceMs
@@ -128,11 +74,7 @@ export function initSearchForm(options = {}) {
   syncCorrelatedDatePickerBounds();
 
   function initializeForm() {
-    try {
-      getElement("guestsOccupancySelectionInput").readOnly = true;
-    } catch (error) {
-      debugLog("initializeForm.readOnly.error", error);
-    }
+    $w("#guestsOccupancySelectionInput").readOnly = true;
 
     clearSuggestionsPanel();
     collapseSuggestionsBox();
@@ -142,28 +84,24 @@ export function initSearchForm(options = {}) {
   }
 
   function bindSearchModeEvents() {
-    getElement("destinationSearchModeButton").onClick(() => {
+    $w("#destinationSearchModeButton").onClick(() => {
       applySearchMode("destination");
     });
 
-    getElement("vibeSearchModeButton").onClick(() => {
+    $w("#vibeSearchModeButton").onClick(() => {
       applySearchMode("vibe");
     });
 
-    const searchModeSwitch = getElement("searchModeSwitch", false);
-
-    if (searchModeSwitch) {
-      searchModeSwitch.onChange(() => {
-        const nextMode = searchModeSwitch.checked ? "vibe" : "destination";
-        applySearchMode(nextMode);
-      });
-    }
+    $w("#searchModeSwitch").onChange(() => {
+      const nextMode = $w("#searchModeSwitch").checked ? "vibe" : "destination";
+      applySearchMode(nextMode);
+    });
   }
 
   function bindDestinationSuggestionEvents() {
-    const searchInput = getElement("searchQueryInput");
-    const suggestionsBox = getElement("searchSuggestionsBox");
-    const suggestionsRepeater = getElement("searchSuggestionsRepeater");
+    const searchInput = $w("#searchQueryInput");
+    const suggestionsBox = $w("#searchSuggestionsBox");
+    const suggestionsRepeater = $w("#searchSuggestionsRepeater");
 
     searchInput.onInput(() => {
       void handleSearchQueryInput();
@@ -201,8 +139,8 @@ export function initSearchForm(options = {}) {
   }
 
   function bindOccupancyEvents() {
-    const guestsInput = getElement("guestsOccupancySelectionInput");
-    const occupancyBox = getElement("occupancySelectionBox");
+    const guestsInput = $w("#guestsOccupancySelectionInput");
+    const occupancyBox = $w("#occupancySelectionBox");
 
     guestsInput.onClick(() => {
       state.isOccupancyInputFocused = true;
@@ -231,31 +169,31 @@ export function initSearchForm(options = {}) {
       queueOccupancyCloseCheck();
     });
 
-    getElement("occupancySelectionApplyButton").onClick(() => {
+    $w("#occupancySelectionApplyButton").onClick(() => {
       attemptCloseOccupancyPopover();
     });
 
-    getElement("adultsCounterDecreaseButton").onClick(() => {
+    $w("#adultsCounterDecreaseButton").onClick(() => {
       if (state.occupancy.adults > OCCUPANCY_MIN_ADULTS) {
         state.occupancy.adults -= 1;
         renderOccupancyPopover();
       }
     });
 
-    getElement("adultsCounterIncreaseButton").onClick(() => {
+    $w("#adultsCounterIncreaseButton").onClick(() => {
       if (state.occupancy.adults < OCCUPANCY_MAX_ADULTS) {
         state.occupancy.adults += 1;
         renderOccupancyPopover();
       }
     });
 
-    getElement("childrenCounterDecreaseButton").onClick(() => {
+    $w("#childrenCounterDecreaseButton").onClick(() => {
       if (state.occupancy.children > OCCUPANCY_MIN_CHILDREN) {
         setChildrenCount(state.occupancy.children - 1);
       }
     });
 
-    getElement("childrenCounterIncreaseButton").onClick(() => {
+    $w("#childrenCounterIncreaseButton").onClick(() => {
       if (state.occupancy.children < OCCUPANCY_MAX_CHILDREN) {
         setChildrenCount(state.occupancy.children + 1);
       }
@@ -265,25 +203,21 @@ export function initSearchForm(options = {}) {
   }
 
   function bindChildAgeDropdownEvents() {
-    getChildAgeDropdownNames().forEach((name, index) => {
-      const dropdown = getElement(name, false);
-
-      if (!dropdown) {
-        return;
-      }
+    for (let index = 0; index < CHILD_AGE_DROPDOWN_COUNT; index += 1) {
+      const dropdown = $w(`#childrenAgeSelectionDropdown${index + 1}`);
 
       dropdown.options = CHILD_AGE_OPTIONS;
 
       dropdown.onChange((event) => {
         state.occupancy.childAges[index] = String(event.target.value || "");
       });
-    });
+    }
   }
 
   function bindDatePickerEvents() {
-    getElement("checkInDatePickerInput").onChange(() => {
+    $w("#checkInDatePickerInput").onChange(() => {
       state.dateSelection.checkIn = normalizeDateValue(
-        getElement("checkInDatePickerInput").value
+        $w("#checkInDatePickerInput").value
       );
 
       const checkInDate = state.dateSelection.checkIn;
@@ -291,15 +225,15 @@ export function initSearchForm(options = {}) {
 
       if (checkInDate && currentCheckOut && currentCheckOut <= checkInDate) {
         state.dateSelection.checkOut = null;
-        getElement("checkOutDatePickerInput").value = null;
+        $w("#checkOutDatePickerInput").value = null;
       }
 
       syncCorrelatedDatePickerBounds();
     });
 
-    getElement("checkOutDatePickerInput").onChange(() => {
+    $w("#checkOutDatePickerInput").onChange(() => {
       state.dateSelection.checkOut = normalizeDateValue(
-        getElement("checkOutDatePickerInput").value
+        $w("#checkOutDatePickerInput").value
       );
 
       syncCorrelatedDatePickerBounds();
@@ -307,7 +241,7 @@ export function initSearchForm(options = {}) {
   }
 
   function bindSubmitEvent() {
-    getElement("searchFormButton").onClick(() => {
+    $w("#searchFormButton").onClick(() => {
       void runSearch();
     });
   }
@@ -315,7 +249,7 @@ export function initSearchForm(options = {}) {
   function runSearch() {
     syncDateStateFromInputs();
 
-    const searchQuery = String(getElement("searchQueryInput").value || "").trim();
+    const searchQuery = String($w("#searchQueryInput").value || "").trim();
     const { checkIn, checkOut } = getResolvedDateSelection();
     const currentQuery = wixLocationFrontend.query || {};
 
@@ -374,7 +308,7 @@ export function initSearchForm(options = {}) {
       return null;
     }
 
-    const searchFormButton = getElement("searchFormButton");
+    const searchFormButton = $w("#searchFormButton");
     const originalButtonLabel = searchFormButton.label;
 
     searchFormButton.label = "Searching...";
@@ -470,7 +404,7 @@ export function initSearchForm(options = {}) {
 
     state.searchMode.selectedDestinationPlaceId = initialState.placeId || null;
 
-    getElement("searchQueryInput").value = String(
+    $w("#searchQueryInput").value = String(
       initialState.searchQuery || ""
     ).trim();
 
@@ -480,8 +414,8 @@ export function initSearchForm(options = {}) {
     state.dateSelection.checkIn = checkInDate;
     state.dateSelection.checkOut = checkOutDate;
 
-    getElement("checkInDatePickerInput").value = checkInDate;
-    getElement("checkOutDatePickerInput").value = checkOutDate;
+    $w("#checkInDatePickerInput").value = checkInDate;
+    $w("#checkOutDatePickerInput").value = checkOutDate;
 
     state.occupancy = normalizeOccupancyState(
       initialState.occupancy || DEFAULT_OCCUPANCY_STATE
@@ -499,7 +433,7 @@ export function initSearchForm(options = {}) {
 
   function normalizeSearchForm() {
     const mode = state.searchMode.mode === "vibe" ? "vibe" : "destination";
-    const searchQuery = String(getElement("searchQueryInput").value || "").trim();
+    const searchQuery = String($w("#searchQueryInput").value || "").trim();
     const { checkIn, checkOut } = getResolvedDateSelection();
     const currentQuery = wixLocationFrontend.query || {};
 
@@ -573,10 +507,7 @@ export function initSearchForm(options = {}) {
 
     state.searchMode.mode = mode === "vibe" ? "vibe" : "destination";
 
-    const searchModeSwitch = getElement("searchModeSwitch", false);
-    if (searchModeSwitch) {
-      searchModeSwitch.checked = state.searchMode.mode === "vibe";
-    }
+    $w("#searchModeSwitch").checked = state.searchMode.mode === "vibe";
 
     if (resetSelectedDestination) {
       state.searchMode.selectedDestinationPlaceId = null;
@@ -590,7 +521,7 @@ export function initSearchForm(options = {}) {
   }
 
   function syncSearchModeUi() {
-    const searchQueryInput = getElement("searchQueryInput");
+    const searchQueryInput = $w("#searchQueryInput");
     const isVibeMode = state.searchMode.mode === "vibe";
 
     searchQueryInput.placeholder = isVibeMode
@@ -606,7 +537,7 @@ export function initSearchForm(options = {}) {
       return;
     }
 
-    const query = String(getElement("searchQueryInput").value || "").trim();
+    const query = String($w("#searchQueryInput").value || "").trim();
 
     state.searchMode.selectedDestinationPlaceId = null;
     clearAutocompleteDebounceTimer();
@@ -648,7 +579,7 @@ export function initSearchForm(options = {}) {
     }
 
     state.searchMode.selectedDestinationPlaceId = itemData.placeId;
-    getElement("searchQueryInput").value =
+    $w("#searchQueryInput").value =
       itemData.displayName || itemData.title || "";
 
     clearSuggestionsPanel();
@@ -656,7 +587,7 @@ export function initSearchForm(options = {}) {
   }
 
   function renderSuggestionsPanel(suggestions) {
-    const repeater = getElement("searchSuggestionsRepeater");
+    const repeater = $w("#searchSuggestionsRepeater");
 
     if (!Array.isArray(suggestions) || suggestions.length === 0) {
       clearSuggestionsPanel();
@@ -677,37 +608,15 @@ export function initSearchForm(options = {}) {
   }
 
   function clearSuggestionsPanel() {
-    try {
-      getElement("searchSuggestionsRepeater").data = [];
-    } catch (error) {
-      debugLog("clearSuggestionsPanel.error", error);
-    }
+    $w("#searchSuggestionsRepeater").data = [];
   }
 
   function expandSuggestionsBox() {
-    const box = getElement("searchSuggestionsBox", false);
-    if (!box) {
-      return;
-    }
-
-    try {
-      box.expand();
-    } catch (error) {
-      debugLog("expandSuggestionsBox.error", error);
-    }
+    $w("#searchSuggestionsBox").expand();
   }
 
   function collapseSuggestionsBox() {
-    const box = getElement("searchSuggestionsBox", false);
-    if (!box) {
-      return;
-    }
-
-    try {
-      box.collapse();
-    } catch (error) {
-      debugLog("collapseSuggestionsBox.error", error);
-    }
+    $w("#searchSuggestionsBox").collapse();
   }
 
   function clearAutocompleteDebounceTimer() {
@@ -760,62 +669,45 @@ export function initSearchForm(options = {}) {
   }
 
   function renderOccupancyCounterTexts() {
-    getElement("adultsCountValueText").text = String(state.occupancy.adults);
-    getElement("childrenCountValueText").text = String(state.occupancy.children);
+    $w("#adultsCountValueText").text = String(state.occupancy.adults);
+    $w("#childrenCountValueText").text = String(state.occupancy.children);
   }
 
   function renderOccupancyCounterButtonStates() {
     if (state.occupancy.adults <= OCCUPANCY_MIN_ADULTS) {
-      getElement("adultsCounterDecreaseButton").disable();
+      $w("#adultsCounterDecreaseButton").disable();
     } else {
-      getElement("adultsCounterDecreaseButton").enable();
+      $w("#adultsCounterDecreaseButton").enable();
     }
 
     if (state.occupancy.adults >= OCCUPANCY_MAX_ADULTS) {
-      getElement("adultsCounterIncreaseButton").disable();
+      $w("#adultsCounterIncreaseButton").disable();
     } else {
-      getElement("adultsCounterIncreaseButton").enable();
+      $w("#adultsCounterIncreaseButton").enable();
     }
 
     if (state.occupancy.children <= OCCUPANCY_MIN_CHILDREN) {
-      getElement("childrenCounterDecreaseButton").disable();
+      $w("#childrenCounterDecreaseButton").disable();
     } else {
-      getElement("childrenCounterDecreaseButton").enable();
+      $w("#childrenCounterDecreaseButton").enable();
     }
 
     if (state.occupancy.children >= OCCUPANCY_MAX_CHILDREN) {
-      getElement("childrenCounterIncreaseButton").disable();
+      $w("#childrenCounterIncreaseButton").disable();
     } else {
-      getElement("childrenCounterIncreaseButton").enable();
+      $w("#childrenCounterIncreaseButton").enable();
     }
   }
 
   function renderChildrenAgeDropdowns() {
-    const ageBox = getElement("occupancyChildrenAgeSelectionBox", false);
-
-    if (ageBox) {
-      if (state.occupancy.children === 0) {
-        try {
-          ageBox.collapse();
-        } catch (error) {
-          debugLog("renderChildrenAgeDropdowns.collapse.error", error);
-        }
-      } else {
-        try {
-          ageBox.expand();
-        } catch (error) {
-          debugLog("renderChildrenAgeDropdowns.expand.error", error);
-        }
-      }
+    if (state.occupancy.children === 0) {
+      $w("#occupancyChildrenAgeSelectionBox").collapse();
+    } else {
+      $w("#occupancyChildrenAgeSelectionBox").expand();
     }
 
-    getChildAgeDropdownNames().forEach((name, index) => {
-      const dropdown = getElement(name, false);
-
-      if (!dropdown) {
-        return;
-      }
-
+    for (let index = 0; index < CHILD_AGE_DROPDOWN_COUNT; index += 1) {
+      const dropdown = $w(`#childrenAgeSelectionDropdown${index + 1}`);
       const shouldBeVisible = index < state.occupancy.children;
 
       dropdown.options = CHILD_AGE_OPTIONS;
@@ -823,42 +715,20 @@ export function initSearchForm(options = {}) {
         ? state.occupancy.childAges[index] || ""
         : "";
 
-      try {
-        if (shouldBeVisible) {
-          dropdown.expand();
-        } else {
-          dropdown.collapse();
-        }
-      } catch (error) {
-        debugLog(`renderChildrenAgeDropdowns.${name}.error`, error);
+      if (shouldBeVisible) {
+        dropdown.expand();
+      } else {
+        dropdown.collapse();
       }
-    });
+    }
   }
 
   function expandOccupancyBox() {
-    const box = getElement("occupancySelectionBox", false);
-    if (!box) {
-      return;
-    }
-
-    try {
-      box.expand();
-    } catch (error) {
-      debugLog("expandOccupancyBox.error", error);
-    }
+    $w("#occupancySelectionBox").expand();
   }
 
   function collapseOccupancyBox() {
-    const box = getElement("occupancySelectionBox", false);
-    if (!box) {
-      return;
-    }
-
-    try {
-      box.collapse();
-    } catch (error) {
-      debugLog("collapseOccupancyBox.error", error);
-    }
+    $w("#occupancySelectionBox").collapse();
   }
 
   function clearOccupancyCloseTimer() {
@@ -893,84 +763,52 @@ export function initSearchForm(options = {}) {
   }
 
   function syncOccupancySummaryInput() {
-    getElement("guestsOccupancySelectionInput").value =
+    $w("#guestsOccupancySelectionInput").value =
       buildGuestsSummaryText(state.occupancy);
   }
 
   function syncDateStateFromInputs() {
     state.dateSelection.checkIn = normalizeDateValue(
-      getElement("checkInDatePickerInput").value
+      $w("#checkInDatePickerInput").value
     );
 
     state.dateSelection.checkOut = normalizeDateValue(
-      getElement("checkOutDatePickerInput").value
+      $w("#checkOutDatePickerInput").value
     );
   }
 
   function getResolvedDateSelection() {
     const checkIn =
       state.dateSelection.checkIn ||
-      normalizeDateValue(getElement("checkInDatePickerInput").value);
+      normalizeDateValue($w("#checkInDatePickerInput").value);
 
     const checkOut =
       state.dateSelection.checkOut ||
-      normalizeDateValue(getElement("checkOutDatePickerInput").value);
+      normalizeDateValue($w("#checkOutDatePickerInput").value);
 
     return { checkIn, checkOut };
   }
 
   function syncCorrelatedDatePickerBounds() {
-    const checkInDatePickerInput = getElement("checkInDatePickerInput", false);
-    const checkOutDatePickerInput = getElement("checkOutDatePickerInput", false);
-
-    if (!checkInDatePickerInput || !checkOutDatePickerInput) {
-      return;
-    }
+    const checkInDatePickerInput = $w("#checkInDatePickerInput");
+    const checkOutDatePickerInput = $w("#checkOutDatePickerInput");
 
     const { checkIn, checkOut } = getResolvedDateSelection();
 
-    try {
-      if (checkIn) {
-        const checkoutMinDate = new Date(checkIn);
-        checkoutMinDate.setDate(checkoutMinDate.getDate() + 1);
-        checkOutDatePickerInput.minDate = checkoutMinDate;
-      } else {
-        checkOutDatePickerInput.minDate = undefined;
-      }
-    } catch (error) {
-      debugLog("syncCorrelatedDatePickerBounds.checkoutMinDate.error", error);
+    if (checkIn) {
+      const checkoutMinDate = new Date(checkIn);
+      checkoutMinDate.setDate(checkoutMinDate.getDate() + 1);
+      checkOutDatePickerInput.minDate = checkoutMinDate;
+    } else {
+      checkOutDatePickerInput.minDate = undefined;
     }
 
-    try {
-      if (checkOut) {
-        const checkinMaxDate = new Date(checkOut);
-        checkinMaxDate.setDate(checkinMaxDate.getDate() - 1);
-        checkInDatePickerInput.maxDate = checkinMaxDate;
-      } else {
-        checkInDatePickerInput.maxDate = undefined;
-      }
-    } catch (error) {
-      debugLog("syncCorrelatedDatePickerBounds.checkinMaxDate.error", error);
-    }
-  }
-
-  function getElement(name, required = true) {
-    const selector = ids[name];
-
-    if (!selector) {
-      if (required) {
-        throw new Error(`Missing selector config for "${name}".`);
-      }
-      return null;
-    }
-
-    try {
-      return $w(selector);
-    } catch (error) {
-      if (required) {
-        throw new Error(`Missing required element "${name}" (${selector}).`);
-      }
-      return null;
+    if (checkOut) {
+      const checkinMaxDate = new Date(checkOut);
+      checkinMaxDate.setDate(checkinMaxDate.getDate() - 1);
+      checkInDatePickerInput.maxDate = checkinMaxDate;
+    } else {
+      checkInDatePickerInput.maxDate = undefined;
     }
   }
 
@@ -990,10 +828,6 @@ function buildControllerConfig(options = {}) {
 
   return {
     $w: options.$w,
-    ids: {
-      ...DEFAULT_SEARCH_FORM_IDS,
-      ...(options.ids || {})
-    },
     debug: Boolean(options.debug),
     autocompleteMinChars:
       Number(options.autocompleteMinChars) || DEFAULT_AUTOCOMPLETE_MIN_CHARS,
@@ -1019,12 +853,6 @@ function clampInteger(value, fallback, minValue, maxValue) {
 
   const integer = Math.floor(parsed);
   return Math.max(minValue, Math.min(maxValue, integer));
-}
-
-function getChildAgeDropdownNames() {
-  return Array.from({ length: CHILD_AGE_DROPDOWN_COUNT }, (_, index) => {
-    return `childrenAgeSelectionDropdown${index + 1}`;
-  });
 }
 
 function buildGuestsSummaryText(occupancy) {
