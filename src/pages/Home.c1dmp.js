@@ -1,7 +1,6 @@
 import wixWindow from "wix-window-frontend";
 import wixLocationFrontend from "wix-location-frontend";
 import { session } from "wix-storage-frontend";
-import { searchPlaces } from "backend/liteApi.web";
 import { initSearchForm } from "public/searchForm";
 
 const SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY =
@@ -17,7 +16,6 @@ $w.onReady(function () {
 
   initSearchForm({
     $w,
-    searchPlacesFn: searchPlaces,
     debug: false
   });
 
