@@ -6,11 +6,11 @@ class HotelsListCustomElement extends HTMLElement {
     script.src = "https://components.liteapi.travel/v1.0/sdk.umd.js";
 
     script.onload = () => {
-      LiteAPI.init({
+      window.LiteAPI.init({
         domain: "ozvia.travel"
       });
 
-      LiteAPI.HotelsList.create({
+      window.LiteAPI.HotelsList.create({
         selector: "#hotels-list",
         placeId: "ChIJYeZuBI9YwokRjMDs_IEyCwo",
         primaryColor: "#7057F0",
