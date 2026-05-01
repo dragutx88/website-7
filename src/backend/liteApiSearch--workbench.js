@@ -1,6 +1,9 @@
+import { elevate } from "wix-auth";
+import { secrets } from "wix-secrets-backend.v2";
 import { buildLiteApiError, liteApiRequest, parseJson } from "./liteApiClient";
 
 const LITE_API_BASE_URL = "https://api.liteapi.travel/v3.0";
+const MARKUP_RATE_SECRET_NAME = "MARKUP_RATE";
 const DEFAULT_CURRENCY = "TRY";
 const DEFAULT_LANGUAGE = "tr";
 const DEFAULT_GUEST_NATIONALITY = "TR";
@@ -8,8 +11,11 @@ const DEFAULT_ROOMS = 1;
 const DEFAULT_FIRST_ROOM_ADULTS = 2;
 const DEFAULT_EXTRA_ROOM_ADULTS = 1;
 
+const getSecretValue = elevate(secrets.getSecretValue);
+
 export async function getHotelsRatesHandler(searchFlowContextQuery) {
   const getHotelsRatesRequest = buildHotelsRatesRequest(searchFlowContextQuery);
+  const normalizedMarkupRate = await getMarkupRate();
 
   const getHotelsRatesResponse = await liteApiRequest(
     `${LITE_API_BASE_URL}/hotels/rates`,
@@ -29,9 +35,30 @@ export async function getHotelsRatesHandler(searchFlowContextQuery) {
     getHotelsRatesResponse: getHotelsRatesJson,
     normalizedHotelsRates: normalizeHotelsRates(
       getHotelsRatesJson,
-      searchFlowContextQuery
+      searchFlowContextQuery,
+      normalizedMarkupRate
     )
   };
+}
+
+async function getMarkupRate() {
+  const markupRateSecretValue = await getSecretValue(MARKUP_RATE_SECRET_NAME);
+
+  const normalizedMarkupRate = normalizeNumberOrNull(
+    markupRateSecretValue?.value
+  );
+
+  if (
+    !Number.isFinite(normalizedMarkupRate) ||
+    normalizedMarkupRate < 0 ||
+    normalizedMarkupRate > 1
+  ) {
+    throw new Error(
+      "MARKUP_RATE secret must be a decimal number between 0 and 1."
+    );
+  }
+
+  return normalizedMarkupRate;
 }
 
 function buildHotelsRatesRequest(searchFlowContextQuery) {
@@ -46,11 +73,6 @@ function buildHotelsRatesRequest(searchFlowContextQuery) {
   const normalizedCurrency =
     normalizeText(searchFlowContextQuery?.currency).toUpperCase() ||
     DEFAULT_CURRENCY;
-  const normalizedLanguage =
-    normalizeText(searchFlowContextQuery?.language).toLowerCase() ||
-    DEFAULT_LANGUAGE;
-  const normalizedGuestNationality =
-    normalizedLanguage.toUpperCase() || DEFAULT_GUEST_NATIONALITY;
   const getHotelsRatesOccupancies =
     buildHotelsRatesRequestOccupancies(searchFlowContextQuery);
 
@@ -65,7 +87,7 @@ function buildHotelsRatesRequest(searchFlowContextQuery) {
   const getHotelsRatesRequest = {
     occupancies: getHotelsRatesOccupancies,
     currency: normalizedCurrency,
-    guestNationality: normalizedGuestNationality,
+    guestNationality: DEFAULT_GUEST_NATIONALITY,
     checkin: normalizedCheckin,
     checkout: normalizedCheckout,
     roomMapping: true,
@@ -170,7 +192,11 @@ function buildHotelsRatesRequestOccupancies(searchFlowContextQuery) {
   );
 }
 
-function normalizeHotelsRates(getHotelsRatesResponse, searchFlowContextQuery) {
+function normalizeHotelsRates(
+  getHotelsRatesResponse,
+  searchFlowContextQuery,
+  normalizedMarkupRate
+) {
   const getHotelsRatesData = Array.isArray(getHotelsRatesResponse?.data)
     ? getHotelsRatesResponse.data
     : [];
@@ -199,6 +225,10 @@ function normalizeHotelsRates(getHotelsRatesResponse, searchFlowContextQuery) {
           )
         )
       : 1;
+
+  let refundableTagRFNCount = 0;
+  let refundableTagNRFNCount = 0;
+  let refundableTagOtherCount = 0;
 
   const normalizedHotelsRates = [];
 
@@ -241,6 +271,9 @@ function normalizeHotelsRates(getHotelsRatesResponse, searchFlowContextQuery) {
     const getHotelsRatesHotelMainImage =
       normalizeText(getHotelsRatesHotel?.main_photo) || null;
 
+    const hotelRoomOfferBoardName =
+      normalizeText(dataItem?.roomTypes?.[0]?.rates?.[0]?.boardName) || null;
+
     const hotelOffersBeforeMinCurrentPrice = normalizeNumberOrNull(
       dataItem?.roomTypes?.[0]?.rates?.[0]?.retailRate
         ?.suggestedSellingPrice?.[0]?.amount
@@ -275,37 +308,87 @@ function normalizeHotelsRates(getHotelsRatesResponse, searchFlowContextQuery) {
     const hotelOffersMinCurrentPriceTaxesAndFeesText =
       hotelOffersMinCurrentPriceHasExcludedTaxesAndFees ? "excl." : "incl.";
 
-    const hotelOffersBeforeMinCurrentPriceText = formatCurrencyText(
-      hotelOffersBeforeMinCurrentPrice,
-      hotelOffersMinCurrentPriceCurrency,
-      normalizedLanguage
-    );
-
-    const hotelOffersMinCurrentPriceText = formatCurrencyText(
+    const currentPrice = applyMarkupRate(
       hotelOffersMinCurrentPrice,
+      normalizedMarkupRate
+    );
+
+    const beforeCurrentPrice = applyMarkupRate(
+      hotelOffersBeforeMinCurrentPrice,
+      normalizedMarkupRate
+    );
+
+    const currentPriceText = formatCurrencyText(
+      currentPrice,
       hotelOffersMinCurrentPriceCurrency,
       normalizedLanguage
     );
 
-    const hotelOffersMinCurrentPriceNoteText = Number.isFinite(
+    const beforeCurrentPriceText = formatCurrencyText(
+      beforeCurrentPrice,
+      hotelOffersMinCurrentPriceCurrency,
+      normalizedLanguage
+    );
+
+    const currentPriceNoteText = Number.isFinite(
       hotelOffersMinCurrentPriceOccupancyNumber
     )
       ? `${normalizedNightCount} night, ${hotelOffersMinCurrentPriceOccupancyNumber} room, ${hotelOffersMinCurrentPriceTaxesAndFeesText} taxes & fees`
       : null;
+
+    const refundableTag =
+      normalizeText(
+        dataItem?.roomTypes?.[0]?.rates?.[0]?.cancellationPolicies
+          ?.refundableTag
+      ).toUpperCase() || null;
+
+    if (refundableTag === "RFN") {
+      refundableTagRFNCount += 1;
+    } else if (refundableTag === "NRFN") {
+      refundableTagNRFNCount += 1;
+    } else {
+      refundableTagOtherCount += 1;
+    }
 
     normalizedHotelsRates.push({
       hotelId: dataItemHotelId,
       hotelName: getHotelsRatesHotelName,
       hotelAddress: getHotelsRatesHotelAddress,
       hotelRating: getHotelsRatesHotelRating,
-      hotelOffersBeforeMinCurrentPriceText,
-      hotelOffersMinCurrentPriceText,
-      hotelOffersMinCurrentPriceNoteText,
-      hotelMainImage: getHotelsRatesHotelMainImage
+      hotelMainImage: getHotelsRatesHotelMainImage,
+      beforeCurrentPriceText,
+      currentPriceText,
+      currentPriceNoteText,
+      hotelRoomOfferBoardName
     });
   }
 
+  console.log(
+    "LITEAPI_SEARCH normalizeHotelsRates summary",
+    JSON.stringify({
+      normalizedHotelsRatesCount: normalizedHotelsRates.length,
+      refundableTagRFNCount,
+      refundableTagNRFNCount,
+      refundableTagOtherCount
+    })
+  );
+
   return normalizedHotelsRates;
+}
+
+function applyMarkupRate(amount, markupRate) {
+  const normalizedAmount = normalizeNumberOrNull(amount);
+  const normalizedMarkupRate = normalizeNumberOrNull(markupRate);
+
+  if (!Number.isFinite(normalizedAmount)) {
+    return null;
+  }
+
+  if (!Number.isFinite(normalizedMarkupRate)) {
+    return null;
+  }
+
+  return normalizedAmount * (1 + normalizedMarkupRate);
 }
 
 function formatCurrencyText(amount, currency, language) {
