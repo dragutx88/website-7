@@ -48,14 +48,8 @@ async function getMarkupRate() {
     markupRateSecretValue?.value
   );
 
-  if (
-    !Number.isFinite(normalizedMarkupRate) ||
-    normalizedMarkupRate < 0 ||
-    normalizedMarkupRate > 1
-  ) {
-    throw new Error(
-      "MARKUP_RATE secret must be a decimal number between 0 and 1."
-    );
+  if (!Number.isFinite(normalizedMarkupRate)) {
+    throw new Error("MARKUP_RATE secret must be a numeric multiplier value.");
   }
 
   return normalizedMarkupRate;
@@ -388,7 +382,7 @@ function applyMarkupRate(amount, markupRate) {
     return null;
   }
 
-  return normalizedAmount * (1 + normalizedMarkupRate);
+  return normalizedAmount * normalizedMarkupRate;
 }
 
 function formatCurrencyText(amount, currency, language) {
