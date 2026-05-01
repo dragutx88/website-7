@@ -168,8 +168,15 @@ function validateHotelsRatesRoomChildrenAgesByRoomNumber(children, rooms) {
   const normalizedChildrenTokens = normalizedChildrenText.split(",");
 
   for (const normalizedChildrenToken of normalizedChildrenTokens) {
-    const [normalizedRoomNumberText, normalizedChildAgeText] =
+    const normalizedChildrenTokenParts =
       normalizeText(normalizedChildrenToken).split("_");
+
+    if (normalizedChildrenTokenParts.length !== 2) {
+      throw new Error("children must contain valid room_age tokens.");
+    }
+
+    const [normalizedRoomNumberText, normalizedChildAgeText] =
+      normalizedChildrenTokenParts;
 
     const normalizedRoomNumber = normalizePositiveIntegerOrNull(
       normalizedRoomNumberText
@@ -283,6 +290,7 @@ function normalizeHotelsRates(
   let skippedMissingRateCount = 0;
   let skippedMissingCurrentPriceAmountCount = 0;
   let skippedMissingCurrentPriceCurrencyCount = 0;
+  let skippedMissingOccupancyNumberCount = 0;
   let refundableTagRFNCount = 0;
   let refundableTagNRFNCount = 0;
   let refundableTagOtherCount = 0;
@@ -336,6 +344,16 @@ function normalizeHotelsRates(
 
     if (!hotelOffersMinCurrentPriceCurrency) {
       skippedMissingCurrentPriceCurrencyCount += 1;
+      continue;
+    }
+
+    const hotelOffersMinCurrentPriceOccupancyNumber =
+      normalizePositiveIntegerOrNull(
+        dataItem?.roomTypes?.[0]?.rates?.[0]?.occupancyNumber
+      );
+
+    if (!Number.isFinite(hotelOffersMinCurrentPriceOccupancyNumber)) {
+      skippedMissingOccupancyNumberCount += 1;
       continue;
     }
 
@@ -396,7 +414,7 @@ function normalizeHotelsRates(
 
     const currentPriceNoteText = buildCurrentPriceNoteText(
       normalizedNightCount,
-      validatedHotelsRatesSearchFlowContextQuery.rooms,
+      hotelOffersMinCurrentPriceOccupancyNumber,
       hotelOffersMinCurrentPriceTaxesAndFeesText
     );
 
@@ -427,35 +445,33 @@ function normalizeHotelsRates(
     });
   }
 
-  console.log(
-    "LITEAPI_SEARCH normalizeHotelsRates summary",
-    JSON.stringify({
-      getHotelsRatesDataCount: getHotelsRatesData.length,
-      getHotelsRatesHotelsCount: getHotelsRatesHotels.length,
-      normalizedHotelsRatesCount: normalizedHotelsRates.length,
-      skippedMissingHotelIdCount,
-      skippedMissingMatchingHotelCount,
-      skippedMissingHotelNameCount,
-      skippedMissingRateCount,
-      skippedMissingCurrentPriceAmountCount,
-      skippedMissingCurrentPriceCurrencyCount,
-      refundableTagRFNCount,
-      refundableTagNRFNCount,
-      refundableTagOtherCount
-    })
-  );
+  console.log("LITEAPI_SEARCH normalizeHotelsRates summary", {
+    getHotelsRatesDataCount: getHotelsRatesData.length,
+    getHotelsRatesHotelsCount: getHotelsRatesHotels.length,
+    normalizedHotelsRatesCount: normalizedHotelsRates.length,
+    skippedMissingHotelIdCount,
+    skippedMissingMatchingHotelCount,
+    skippedMissingHotelNameCount,
+    skippedMissingRateCount,
+    skippedMissingCurrentPriceAmountCount,
+    skippedMissingCurrentPriceCurrencyCount,
+    skippedMissingOccupancyNumberCount,
+    refundableTagRFNCount,
+    refundableTagNRFNCount,
+    refundableTagOtherCount
+  });
 
   return normalizedHotelsRates;
 }
 
 function buildCurrentPriceNoteText(
   normalizedNightCount,
-  normalizedRoomCount,
+  hotelOffersMinCurrentPriceOccupancyNumber,
   hotelOffersMinCurrentPriceTaxesAndFeesText
 ) {
   const currentPriceNoteTextItems = [
     `${normalizedNightCount} night`,
-    `${normalizedRoomCount} room`
+    `${hotelOffersMinCurrentPriceOccupancyNumber} room`
   ];
 
   if (hotelOffersMinCurrentPriceTaxesAndFeesText) {
@@ -567,7 +583,13 @@ function normalizeNumberOrNull(value) {
 }
 
 function normalizeIntegerOrNull(value) {
-  const normalizedNumber = Number(normalizeText(value));
+  const normalizedText = normalizeText(value);
+
+  if (!normalizedText) {
+    return null;
+  }
+
+  const normalizedNumber = Number(normalizedText);
   return Number.isInteger(normalizedNumber) ? normalizedNumber : null;
 }
 
