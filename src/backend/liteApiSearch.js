@@ -209,101 +209,99 @@ function normalizeHotelsRates(getHotelsRatesResponse, searchFlowContextQuery) {
       continue;
     }
 
-    const matchedHotel =
+    const getHotelsRatesHotel =
       getHotelsRatesHotels.find(
         (hotelItem) => normalizeText(hotelItem?.id) === dataItemHotelId
       ) || null;
 
-    if (!matchedHotel) {
+    if (!getHotelsRatesHotel) {
       continue;
     }
 
-    const matchedRoomType = Array.isArray(dataItem?.roomTypes)
-      ? dataItem.roomTypes[0] || null
-      : null;
-
-    if (!matchedRoomType) {
+    if (!dataItem?.roomTypes?.[0]) {
       continue;
     }
 
-    const matchedRate = Array.isArray(dataItem?.roomTypes?.[0]?.rates)
-      ? dataItem.roomTypes[0].rates[0] || null
-      : null;
-
-    if (!matchedRate) {
+    if (!dataItem?.roomTypes?.[0]?.rates?.[0]) {
       continue;
     }
 
-    const matchedHotelName = normalizeText(matchedHotel?.name) || null;
+    const getHotelsRatesHotelName =
+      normalizeText(getHotelsRatesHotel?.name) || null;
 
-    if (!matchedHotelName) {
+    if (!getHotelsRatesHotelName) {
       continue;
     }
 
-    const matchedHotelAddress = normalizeText(matchedHotel?.address) || null;
-    const matchedHotelRating = normalizeNumberOrNull(matchedHotel?.rating);
-    const matchedHotelMainImage = normalizeText(matchedHotel?.main_photo) || null;
+    const getHotelsRatesHotelAddress =
+      normalizeText(getHotelsRatesHotel?.address) || null;
+    const getHotelsRatesHotelRating = normalizeNumberOrNull(
+      getHotelsRatesHotel?.rating
+    );
+    const getHotelsRatesHotelMainImage =
+      normalizeText(getHotelsRatesHotel?.main_photo) || null;
 
-    const matchedRateBeforeCurrentPrice = normalizeNumberOrNull(
-      dataItem?.roomTypes?.[0]?.rates?.[0]?.retailRate?.suggestedSellingPrice?.[0]
-        ?.amount
+    const hotelOffersBeforeMinCurrentPrice = normalizeNumberOrNull(
+      dataItem?.roomTypes?.[0]?.rates?.[0]?.retailRate
+        ?.suggestedSellingPrice?.[0]?.amount
     );
 
-    const matchedRateCurrentPrice = normalizeNumberOrNull(
+    const hotelOffersMinCurrentPrice = normalizeNumberOrNull(
       dataItem?.roomTypes?.[0]?.rates?.[0]?.retailRate?.total?.[0]?.amount
     );
 
-    const matchedRateCurrency =
+    const hotelOffersMinCurrentPriceCurrency =
       normalizeText(
         dataItem?.roomTypes?.[0]?.rates?.[0]?.retailRate?.total?.[0]?.currency
       ) || null;
 
-    const matchedRateOccupancyNumber = normalizePositiveInteger(
+    const hotelOffersMinCurrentPriceOccupancyNumber = normalizePositiveInteger(
       dataItem?.roomTypes?.[0]?.rates?.[0]?.occupancyNumber,
       1
     );
 
-    const matchedRateTaxesAndFees = Array.isArray(
+    const hotelOffersMinCurrentPriceTaxesAndFees = Array.isArray(
       dataItem?.roomTypes?.[0]?.rates?.[0]?.retailRate?.taxesAndFees
     )
       ? dataItem.roomTypes[0].rates[0].retailRate.taxesAndFees
       : [];
 
-    const matchedRateHasExcludedTaxesAndFees = matchedRateTaxesAndFees.some(
-      (matchedRateTaxesAndFeesItem) =>
-        matchedRateTaxesAndFeesItem?.included === false
-    );
+    const hotelOffersMinCurrentPriceHasExcludedTaxesAndFees =
+      hotelOffersMinCurrentPriceTaxesAndFees.some(
+        (hotelOffersMinCurrentPriceTaxesAndFeesItem) =>
+          hotelOffersMinCurrentPriceTaxesAndFeesItem?.included === false
+      );
 
-    const matchedRateTaxesAndFeesText = matchedRateHasExcludedTaxesAndFees
-      ? "excl."
-      : "incl.";
+    const hotelOffersMinCurrentPriceTaxesAndFeesText =
+      hotelOffersMinCurrentPriceHasExcludedTaxesAndFees ? "excl." : "incl.";
 
     const hotelOffersBeforeMinCurrentPriceText = formatCurrencyText(
-      matchedRateBeforeCurrentPrice,
-      matchedRateCurrency,
+      hotelOffersBeforeMinCurrentPrice,
+      hotelOffersMinCurrentPriceCurrency,
       normalizedLanguage
     );
 
     const hotelOffersMinCurrentPriceText = formatCurrencyText(
-      matchedRateCurrentPrice,
-      matchedRateCurrency,
+      hotelOffersMinCurrentPrice,
+      hotelOffersMinCurrentPriceCurrency,
       normalizedLanguage
     );
 
-    const hotelOffersMinCurrentPriceNoteText =
-      Number.isFinite(matchedRateOccupancyNumber)
-        ? `${normalizedNightCount} night, ${matchedRateOccupancyNumber} room, ${matchedRateTaxesAndFeesText} taxes & fees`
-        : null;
+    const hotelOffersMinCurrentPriceNoteText = Number.isFinite(
+      hotelOffersMinCurrentPriceOccupancyNumber
+    )
+      ? `${normalizedNightCount} night, ${hotelOffersMinCurrentPriceOccupancyNumber} room, ${hotelOffersMinCurrentPriceTaxesAndFeesText} taxes & fees`
+      : null;
 
     normalizedHotelsRates.push({
       hotelId: dataItemHotelId,
-      hotelName: matchedHotelName,
-      hotelAddress: matchedHotelAddress,
-      hotelRating: matchedHotelRating,
+      hotelName: getHotelsRatesHotelName,
+      hotelAddress: getHotelsRatesHotelAddress,
+      hotelRating: getHotelsRatesHotelRating,
       hotelOffersBeforeMinCurrentPriceText,
       hotelOffersMinCurrentPriceText,
       hotelOffersMinCurrentPriceNoteText,
-      hotelMainImage: matchedHotelMainImage
+      hotelMainImage: getHotelsRatesHotelMainImage
     });
   }
 
@@ -313,7 +311,8 @@ function normalizeHotelsRates(getHotelsRatesResponse, searchFlowContextQuery) {
 function formatCurrencyText(amount, currency, language) {
   const normalizedAmount = normalizeNumberOrNull(amount);
   const normalizedCurrency = normalizeText(currency).toUpperCase();
-  const normalizedLanguage = normalizeText(language).toLowerCase() || DEFAULT_LANGUAGE;
+  const normalizedLanguage =
+    normalizeText(language).toLowerCase() || DEFAULT_LANGUAGE;
 
   if (!Number.isFinite(normalizedAmount) || !normalizedCurrency) {
     return null;
