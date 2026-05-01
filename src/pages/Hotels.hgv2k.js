@@ -88,7 +88,6 @@ function renderVisibleHotels() {
   const hotelOfferResultsRepeater = $w("#hotelOfferResultsRepeater");
 
   hotelOfferResultsRepeater.data = allHotelOfferResults.slice(0, renderedCount);
-  hotelOfferResultsRepeater.show();
   hotelOfferResultsRepeater.expand();
 
   hideNoResultsState();
@@ -128,67 +127,53 @@ function bindHotelRepeaterItem($item, itemData) {
 
   if (!normalizedHotelName) {
     hotelNameText.collapse();
-    hotelNameText.hide();
   } else {
     hotelNameText.text = normalizedHotelName;
-    hotelNameText.show();
     hotelNameText.expand();
   }
 
   if (!normalizedHotelAddress) {
     hotelAddressText.collapse();
-    hotelAddressText.hide();
   } else {
     hotelAddressText.text = normalizedHotelAddress;
-    hotelAddressText.show();
     hotelAddressText.expand();
   }
 
   if (!Number.isFinite(normalizedHotelRating)) {
     hotelRatingText.collapse();
-    hotelRatingText.hide();
   } else {
     hotelRatingText.text = String(normalizedHotelRating);
-    hotelRatingText.show();
     hotelRatingText.expand();
   }
 
   if (!normalizedHotelOffersBeforeMinCurrentPriceText) {
     hotelOffersBeforeMinCurrentPriceText.collapse();
-    hotelOffersBeforeMinCurrentPriceText.hide();
   } else {
     hotelOffersBeforeMinCurrentPriceText.text =
       normalizedHotelOffersBeforeMinCurrentPriceText;
-    hotelOffersBeforeMinCurrentPriceText.show();
     hotelOffersBeforeMinCurrentPriceText.expand();
   }
 
   if (!normalizedHotelOffersMinCurrentPriceText) {
     hotelOffersMinCurrentPriceText.collapse();
-    hotelOffersMinCurrentPriceText.hide();
   } else {
     hotelOffersMinCurrentPriceText.text =
       normalizedHotelOffersMinCurrentPriceText;
-    hotelOffersMinCurrentPriceText.show();
     hotelOffersMinCurrentPriceText.expand();
   }
 
   if (!normalizedHotelOffersMinCurrentPriceNoteText) {
     hotelOffersMinCurrentPriceNoteText.collapse();
-    hotelOffersMinCurrentPriceNoteText.hide();
   } else {
     hotelOffersMinCurrentPriceNoteText.text =
       normalizedHotelOffersMinCurrentPriceNoteText;
-    hotelOffersMinCurrentPriceNoteText.show();
     hotelOffersMinCurrentPriceNoteText.expand();
   }
 
   if (!normalizedHotelMainImage) {
     hotelMainImage.collapse();
-    hotelMainImage.hide();
   } else {
     hotelMainImage.src = normalizedHotelMainImage;
-    hotelMainImage.show();
     hotelMainImage.expand();
 
     hotelMainImage.onClick(() => {
@@ -197,13 +182,11 @@ function bindHotelRepeaterItem($item, itemData) {
   }
 
   hotelAvailabilityButton.label = "See availability";
-  hotelAvailabilityButton.show();
   hotelAvailabilityButton.expand();
   hotelAvailabilityButton.onClick(() => {
     openHotelDetailsPage(itemData);
   });
 
-  hotelOfferResultCard.show();
   hotelOfferResultCard.expand();
   hotelOfferResultCard.onClick(() => {
     openHotelDetailsPage(itemData);
@@ -272,12 +255,9 @@ function renderNoResultsState() {
 
   hotelOfferResultsRepeater.data = [];
   hotelOfferResultsRepeater.collapse();
-  hotelOfferResultsRepeater.hide();
 
   loadMoreHotelOffersButton.collapse();
-  loadMoreHotelOffersButton.hide();
 
-  noResultsBox.show();
   noResultsBox.expand();
 }
 
@@ -285,7 +265,6 @@ function hideNoResultsState() {
   const noResultsBox = $w("#noResultsBox");
 
   noResultsBox.collapse();
-  noResultsBox.hide();
 }
 
 function syncLoadMoreButton() {
@@ -293,7 +272,6 @@ function syncLoadMoreButton() {
 
   if (renderedCount >= allHotelOfferResults.length) {
     loadMoreHotelOffersButton.collapse();
-    loadMoreHotelOffersButton.hide();
     return;
   }
 
@@ -301,7 +279,6 @@ function syncLoadMoreButton() {
     allHotelOfferResults.length - renderedCount
   } left)`;
 
-  loadMoreHotelOffersButton.show();
   loadMoreHotelOffersButton.expand();
 }
 
