@@ -29,14 +29,10 @@ const CHILD_AGE_OPTIONS = [
   })
 ];
 
-export function initSearchForm(options = {}) {
-  const config = buildControllerConfig(options);
-
-  const {
-    $w,
-    autocompleteMinChars,
-    autocompleteDebounceMs
-  } = config;
+export function initSearchForm({ $w } = {}) {
+  if (!$w) {
+    throw new Error("initSearchForm requires $w.");
+  }
 
   const state = {
     searchMode: {
@@ -298,7 +294,12 @@ export function initSearchForm(options = {}) {
     searchFormButton.disable();
 
     try {
-      const searchFlowContextUrl = `/hotels?${new URLSearchParams({
+      console.log(
+        "[searchForm] runtimeSearchFlowContextQuery",
+        runtimeSearchFlowContextQuery
+      );
+
+      wixLocationFrontend.to(`/hotels?${new URLSearchParams({
         ...wixLocationFrontend.query,
         ...JSON.parse(
           session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
@@ -306,18 +307,10 @@ export function initSearchForm(options = {}) {
         ...runtimeSearchFlowContextQuery,
         language: "tr",
         currency: "TRY"
-      })}`;
-
-      console.log(
-        "[searchForm] runtimeSearchFlowContextQuery",
-        runtimeSearchFlowContextQuery
-      );
-      console.log("[searchForm] searchFlowContextUrl", searchFlowContextUrl);
-
-      wixLocationFrontend.to(searchFlowContextUrl);
+      })}`);
 
       return {
-        searchFlowContextUrl
+        runtimeSearchFlowContextQuery
       };
     } finally {
       searchFormButton.label = originalButtonLabel;
@@ -364,14 +357,6 @@ export function initSearchForm(options = {}) {
         .filter((parts) => parts.length === 2 && parts[0] === "1")
         .map((parts) => String(parts[1] || "").trim())
         .filter((age) => age !== "");
-    } else if (childrenRaw) {
-      const normalizedChildrenCount = clampInteger(
-        childrenRaw,
-        0,
-        OCCUPANCY_MIN_CHILDREN,
-        OCCUPANCY_MAX_CHILDREN
-      );
-      childAges = Array.from({ length: normalizedChildrenCount }, () => "");
     }
 
     const occupancy = normalizeOccupancyState({
@@ -503,7 +488,7 @@ export function initSearchForm(options = {}) {
     state.searchMode.selectedDestinationPlaceId = null;
     clearAutocompleteDebounceTimer();
 
-    if (query.length < autocompleteMinChars) {
+    if (query.length < DEFAULT_AUTOCOMPLETE_MIN_CHARS) {
       state.autocompleteSuggestions = [];
       $w("#searchSuggestionsRepeater").data = [];
       $w("#searchSuggestionsBox").collapse();
@@ -531,7 +516,7 @@ export function initSearchForm(options = {}) {
         $w("#searchSuggestionsRepeater").data = [];
         $w("#searchSuggestionsBox").collapse();
       }
-    }, autocompleteDebounceMs);
+    }, DEFAULT_AUTOCOMPLETE_DEBOUNCE_MS);
   }
 
   function handleSuggestionSelection(itemData) {
@@ -875,10 +860,7 @@ function validateSearchFlowContextQuery(searchFlowContextQuery) {
       .split(",")
       .map((childToken) => String(childToken || "").trim());
 
-    if (
-      childTokens.length < OCCUPANCY_MIN_CHILDREN ||
-      childTokens.length > OCCUPANCY_MAX_CHILDREN
-    ) {
+    if (childTokens.length > OCCUPANCY_MAX_CHILDREN) {
       return {
         ok: false,
         searchFlowContextValidationArea: "occupancy",
@@ -965,20 +947,6 @@ function validateSearchFlowContextQuery(searchFlowContextQuery) {
       language,
       currency
     }
-  };
-}
-
-function buildControllerConfig(options = {}) {
-  if (!options.$w) {
-    throw new Error("initSearchForm requires $w.");
-  }
-
-  return {
-    $w: options.$w,
-    autocompleteMinChars:
-      Number(options.autocompleteMinChars) || DEFAULT_AUTOCOMPLETE_MIN_CHARS,
-    autocompleteDebounceMs:
-      Number(options.autocompleteDebounceMs) || DEFAULT_AUTOCOMPLETE_DEBOUNCE_MS
   };
 }
 
