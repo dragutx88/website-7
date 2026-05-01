@@ -1,3 +1,4 @@
+import { elevate } from "wix-auth";
 import { secrets } from "wix-secrets-backend.v2";
 import { buildLiteApiError, liteApiRequest, parseJson } from "./liteApiClient";
 
@@ -9,6 +10,8 @@ const DEFAULT_GUEST_NATIONALITY = "TR";
 const DEFAULT_ROOMS = 1;
 const DEFAULT_FIRST_ROOM_ADULTS = 2;
 const DEFAULT_EXTRA_ROOM_ADULTS = 1;
+
+const getSecretValue = elevate(secrets.getSecretValue);
 
 export async function getHotelsRatesHandler(searchFlowContextQuery) {
   const getHotelsRatesRequest = buildHotelsRatesRequest(searchFlowContextQuery);
@@ -39,9 +42,7 @@ export async function getHotelsRatesHandler(searchFlowContextQuery) {
 }
 
 async function getMarkupRate() {
-  const markupRateSecretValue = await secrets.getSecretValue(
-    MARKUP_RATE_SECRET_NAME
-  );
+  const markupRateSecretValue = await getSecretValue(MARKUP_RATE_SECRET_NAME);
 
   const normalizedMarkupRate = normalizeNumberOrNull(
     markupRateSecretValue?.value
