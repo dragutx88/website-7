@@ -208,15 +208,10 @@ function bindHotelRepeaterItem($item, itemData) {
   const hotelNameText = $item("#hotelNameText");
   const hotelAddressText = $item("#hotelAddressText");
   const hotelRatingText = $item("#hotelRatingText");
-  const hotelOffersBeforeMinCurrentPriceText = $item(
-    "#hotelOffersBeforeMinCurrentPriceText"
-  );
-  const hotelOffersMinCurrentPriceText = $item(
-    "#hotelOffersMinCurrentPriceText"
-  );
-  const hotelOffersMinCurrentPriceNoteText = $item(
-    "#hotelOffersMinCurrentPriceNoteText"
-  );
+  const beforeCurrentPriceText = $item("#beforeCurrentPriceText");
+  const currentPriceText = $item("#currentPriceText");
+  const currentPriceNoteText = $item("#currentPriceNoteText");
+  const hotelRoomOfferBoardNameText = $item("#hotelRoomOfferBoardNameText");
   const hotelMainImage = $item("#hotelMainImage");
   const hotelAvailabilityButton = $item("#hotelAvailabilityButton");
   const hotelOfferResultCard = $item("#hotelOfferResultCard");
@@ -224,14 +219,15 @@ function bindHotelRepeaterItem($item, itemData) {
   const normalizedHotelName = normalizeText(itemData?.hotelName);
   const normalizedHotelAddress = normalizeText(itemData?.hotelAddress);
   const normalizedHotelRating = Number(itemData?.hotelRating);
-  const normalizedHotelOffersBeforeMinCurrentPriceText = normalizeText(
-    itemData?.hotelOffersBeforeMinCurrentPriceText
+  const normalizedBeforeCurrentPriceText = normalizeText(
+    itemData?.beforeCurrentPriceText
   );
-  const normalizedHotelOffersMinCurrentPriceText = normalizeText(
-    itemData?.hotelOffersMinCurrentPriceText
+  const normalizedCurrentPriceText = normalizeText(itemData?.currentPriceText);
+  const normalizedCurrentPriceNoteText = normalizeText(
+    itemData?.currentPriceNoteText
   );
-  const normalizedHotelOffersMinCurrentPriceNoteText = normalizeText(
-    itemData?.hotelOffersMinCurrentPriceNoteText
+  const normalizedHotelRoomOfferBoardName = normalizeText(
+    itemData?.hotelRoomOfferBoardName
   );
   const normalizedHotelMainImage = normalizeText(itemData?.hotelMainImage);
 
@@ -256,28 +252,32 @@ function bindHotelRepeaterItem($item, itemData) {
     hotelRatingText.expand();
   }
 
-  if (!normalizedHotelOffersBeforeMinCurrentPriceText) {
-    hotelOffersBeforeMinCurrentPriceText.collapse();
+  if (!normalizedBeforeCurrentPriceText) {
+    beforeCurrentPriceText.collapse();
   } else {
-    hotelOffersBeforeMinCurrentPriceText.text =
-      normalizedHotelOffersBeforeMinCurrentPriceText;
-    hotelOffersBeforeMinCurrentPriceText.expand();
+    beforeCurrentPriceText.text = normalizedBeforeCurrentPriceText;
+    beforeCurrentPriceText.expand();
   }
 
-  if (!normalizedHotelOffersMinCurrentPriceText) {
-    hotelOffersMinCurrentPriceText.collapse();
+  if (!normalizedCurrentPriceText) {
+    currentPriceText.collapse();
   } else {
-    hotelOffersMinCurrentPriceText.text =
-      normalizedHotelOffersMinCurrentPriceText;
-    hotelOffersMinCurrentPriceText.expand();
+    currentPriceText.text = normalizedCurrentPriceText;
+    currentPriceText.expand();
   }
 
-  if (!normalizedHotelOffersMinCurrentPriceNoteText) {
-    hotelOffersMinCurrentPriceNoteText.collapse();
+  if (!normalizedCurrentPriceNoteText) {
+    currentPriceNoteText.collapse();
   } else {
-    hotelOffersMinCurrentPriceNoteText.text =
-      normalizedHotelOffersMinCurrentPriceNoteText;
-    hotelOffersMinCurrentPriceNoteText.expand();
+    currentPriceNoteText.text = normalizedCurrentPriceNoteText;
+    currentPriceNoteText.expand();
+  }
+
+  if (!normalizedHotelRoomOfferBoardName) {
+    hotelRoomOfferBoardNameText.collapse();
+  } else {
+    hotelRoomOfferBoardNameText.text = normalizedHotelRoomOfferBoardName;
+    hotelRoomOfferBoardNameText.expand();
   }
 
   if (!normalizedHotelMainImage) {
