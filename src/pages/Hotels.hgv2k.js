@@ -2,29 +2,43 @@ import wixLocationFrontend from "wix-location-frontend";
 import { session } from "wix-storage-frontend";
 import { getHotelsRates } from "backend/liteApi.web";
 
-const RETURN_SEARCH_FLOW_CONTEXT_URL_STORAGE_KEY = "returnSearchFlowContextUrl";
+const SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY =
+  "searchFlowContextQueryStringify";
+
 const MAX_RESULTS_TOTAL = 30;
 const INITIAL_RESULTS_COUNT = 10;
 const LOAD_MORE_STEP = 10;
 
 let allHotelOfferResults = [];
 let renderedCount = 0;
-let currentSearchFlowContextUrl = "";
 
 $w.onReady(async function () {
   await initializeHotelsPage();
 });
 
 async function initializeHotelsPage() {
-  const searchFlowContextQuery = wixLocationFrontend.query || {};
-
-  currentSearchFlowContextUrl =
-    buildCurrentSearchFlowContextUrl(searchFlowContextQuery);
-
   session.setItem(
-    RETURN_SEARCH_FLOW_CONTEXT_URL_STORAGE_KEY,
-    currentSearchFlowContextUrl
+    SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY,
+    JSON.stringify({
+      ...wixLocationFrontend.query,
+      ...JSON.parse(
+        session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
+      ),
+      language: "tr",
+      currency: "TRY"
+    })
   );
+
+  wixLocationFrontend.queryParams.add(
+    JSON.parse(session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY))
+  );
+
+  const searchFlowContextQuery = {
+    ...JSON.parse(
+      session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
+    ),
+    ...wixLocationFrontend.query
+  };
 
   configureRepeater();
   configureLoadMoreButton();
@@ -200,52 +214,19 @@ function openHotelDetailsPage(itemData) {
     return;
   }
 
-  wixLocationFrontend.to(
-    buildHotelPageUrlFromHotelOffer(hotelId, currentSearchFlowContextUrl)
-  );
-}
+  const runtimeSearchFlowContextQuery = {
+    hotelId
+  };
 
-function buildHotelPageUrlFromHotelOffer(hotelId, searchFlowContextUrl) {
-  const hotelPageQuery = new URLSearchParams();
-  const [, currentQueryString = ""] = String(searchFlowContextUrl || "").split("?");
-
-  new URLSearchParams(currentQueryString).forEach((value, key) => {
-    if (normalizeText(value)) {
-      hotelPageQuery.set(key, value);
-    }
-  });
-
-  hotelPageQuery.set("hotelId", normalizeText(hotelId));
-
-  return `/hotel?${hotelPageQuery.toString()}`;
-}
-
-function buildCurrentSearchFlowContextUrl(searchFlowContextQuery) {
-  const currentPath =
-    Array.isArray(wixLocationFrontend.path) && wixLocationFrontend.path.length
-      ? `/${wixLocationFrontend.path.join("/")}`
-      : "/hotels";
-
-  const currentSearchFlowParams = new URLSearchParams();
-
-  Object.entries(searchFlowContextQuery || {}).forEach(
-    ([searchFlowContextQueryKey, searchFlowContextQueryValue]) => {
-      const normalizedSearchFlowContextQueryValue = normalizeText(
-        searchFlowContextQueryValue
-      );
-
-      if (normalizedSearchFlowContextQueryValue) {
-        currentSearchFlowParams.set(
-          searchFlowContextQueryKey,
-          normalizedSearchFlowContextQueryValue
-        );
-      }
-    }
-  );
-
-  const currentQueryString = currentSearchFlowParams.toString();
-
-  return currentQueryString ? `${currentPath}?${currentQueryString}` : currentPath;
+  wixLocationFrontend.to(`/hotel?${new URLSearchParams({
+    ...wixLocationFrontend.query,
+    ...JSON.parse(
+      session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
+    ),
+    ...runtimeSearchFlowContextQuery,
+    language: "tr",
+    currency: "TRY"
+  })}`);
 }
 
 function renderNoResultsState() {
