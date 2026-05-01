@@ -272,11 +272,21 @@ function normalizeHotelsRates(
     throw new Error("Hotel rates response data must be an array.");
   }
 
+  const getHotelsRatesData = getHotelsRatesResponse.data;
+
+  if (!getHotelsRatesData.length) {
+    console.log("LITEAPI_SEARCH normalizeHotelsRates empty result", {
+      getHotelsRatesDataCount: getHotelsRatesData.length,
+      hasGetHotelsRatesHotelsArray: Array.isArray(getHotelsRatesResponse?.hotels)
+    });
+
+    return [];
+  }
+
   if (!Array.isArray(getHotelsRatesResponse?.hotels)) {
     throw new Error("Hotel rates response hotels must be an array.");
   }
 
-  const getHotelsRatesData = getHotelsRatesResponse.data;
   const getHotelsRatesHotels = getHotelsRatesResponse.hotels;
 
   const normalizedNightCount = calculateNightCount(
