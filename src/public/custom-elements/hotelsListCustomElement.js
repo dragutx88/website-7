@@ -1,21 +1,6 @@
 class HotelsListCustomElement extends HTMLElement {
   connectedCallback() {
     this.innerHTML = `
-      <div
-        id="hotels-list-debug"
-        style="
-          font-family: monospace;
-          font-size: 12px;
-          line-height: 1.4;
-          padding: 8px;
-          margin-bottom: 8px;
-          background: #f5f5f5;
-          color: #111;
-          border: 1px solid #ddd;
-          border-radius: 6px;
-          white-space: pre-wrap;
-        "
-      ></div>
       <div id="hotels-list"></div>
     `;
 
@@ -55,11 +40,7 @@ class HotelsListCustomElement extends HTMLElement {
   }
 
   renderDebugSize(stage) {
-    const debugElement = this.querySelector("#hotels-list-debug");
-
-    if (!debugElement) {
-      return;
-    }
+    const debugElement = this.getOrCreateDebugElement();
 
     const size = {
       stage,
@@ -75,13 +56,42 @@ class HotelsListCustomElement extends HTMLElement {
   }
 
   renderDebugMessage(message) {
-    const debugElement = this.querySelector("#hotels-list-debug");
+    const debugElement = this.getOrCreateDebugElement();
 
-    if (debugElement) {
-      debugElement.textContent = message;
-    }
+    debugElement.textContent = message;
 
     console.error("[HOTELS LIST CUSTOM ELEMENT]", message);
+  }
+
+  getOrCreateDebugElement() {
+    let debugElement = document.getElementById("hotels-list-debug-fixed");
+
+    if (debugElement) {
+      return debugElement;
+    }
+
+    debugElement = document.createElement("pre");
+    debugElement.id = "hotels-list-debug-fixed";
+    debugElement.style.position = "fixed";
+    debugElement.style.top = "12px";
+    debugElement.style.left = "12px";
+    debugElement.style.zIndex = "2147483647";
+    debugElement.style.maxWidth = "420px";
+    debugElement.style.padding = "10px";
+    debugElement.style.margin = "0";
+    debugElement.style.background = "#f5f5f5";
+    debugElement.style.color = "#111";
+    debugElement.style.border = "2px solid #111";
+    debugElement.style.borderRadius = "8px";
+    debugElement.style.fontFamily = "monospace";
+    debugElement.style.fontSize = "12px";
+    debugElement.style.lineHeight = "1.4";
+    debugElement.style.whiteSpace = "pre-wrap";
+    debugElement.style.boxShadow = "0 6px 20px rgba(0,0,0,.25)";
+
+    document.body.appendChild(debugElement);
+
+    return debugElement;
   }
 }
 
