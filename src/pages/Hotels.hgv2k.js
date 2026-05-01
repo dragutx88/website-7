@@ -5,13 +5,13 @@ import { getHotelsRates } from "backend/liteApi.web";
 const SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY =
   "searchFlowContextQueryStringify";
 
-const MAX_RESULTS_TOTAL = 200;
 const INITIAL_RESULTS_COUNT = 40;
 const HOTEL_OFFER_RESULTS_RENDER_STEP = 40;
 
 let allHotelOfferResults = [];
 let renderedHotelOfferResultsCount = 0;
 let isRenderingNextHotelOfferResults = false;
+let isOpeningHotelDetailsPage = false;
 
 $w.onReady(async function () {
   await initializeHotelsPage();
@@ -63,7 +63,6 @@ async function initializeHotelsPage() {
       "HOTELS getHotelsRates normalizedHotelsRates summary",
       JSON.stringify({
         normalizedHotelsRatesCount: normalizedHotelsRates.length,
-        maxResultsTotal: MAX_RESULTS_TOTAL,
         initialResultsCount: INITIAL_RESULTS_COUNT,
         hotelOfferResultsRenderStep: HOTEL_OFFER_RESULTS_RENDER_STEP
       })
@@ -74,15 +73,15 @@ async function initializeHotelsPage() {
       return;
     }
 
-    allHotelOfferResults = normalizedHotelsRates
-      .slice(0, MAX_RESULTS_TOTAL)
-      .map((normalizedHotelItem, normalizedHotelItemIndex) => ({
+    allHotelOfferResults = normalizedHotelsRates.map(
+      (normalizedHotelItem, normalizedHotelItemIndex) => ({
         ...normalizedHotelItem,
         _id: buildRepeaterId(
           normalizedHotelItem?.hotelId,
           normalizedHotelItemIndex
         )
-      }));
+      })
+    );
 
     renderedHotelOfferResultsCount = Math.min(
       INITIAL_RESULTS_COUNT,
@@ -317,6 +316,19 @@ function openHotelDetailsPage(itemData) {
     );
     return;
   }
+
+  if (isOpeningHotelDetailsPage) {
+    console.log(
+      "HOTELS openHotelDetailsPage skipped",
+      JSON.stringify({
+        reason: "alreadyOpeningHotelDetailsPage",
+        hotelId
+      })
+    );
+    return;
+  }
+
+  isOpeningHotelDetailsPage = true;
 
   const runtimeSearchFlowContextQuery = {
     hotelId
