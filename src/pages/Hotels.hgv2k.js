@@ -208,9 +208,9 @@ function bindHotelRepeaterItem($item, itemData) {
   const hotelNameText = $item("#hotelNameText");
   const hotelAddressText = $item("#hotelAddressText");
   const hotelRatingText = $item("#hotelRatingText");
-  const beforeCurrentPriceText = $item("#hotelOffersBeforeMinCurrentPriceText");
-  const currentPriceText = $item("#hotelOffersMinCurrentPriceText");
-  const currentPriceNoteText = $item("#hotelOffersMinCurrentPriceNoteText");
+  const beforeCurrentPriceText = $item("#beforeCurrentPriceText");
+  const currentPriceText = $item("#currentPriceText");
+  const currentPriceNoteText = $item("#currentPriceNoteText");
   const hotelRoomOfferBoardNameText = $item("#hotelRoomOfferBoardNameText");
   const hotelMainImage = $item("#hotelMainImage");
   const hotelAvailabilityButton = $item("#hotelAvailabilityButton");
