@@ -11,7 +11,6 @@ const HOTEL_OFFER_RESULTS_RENDER_STEP = 40;
 let allHotelOfferResults = [];
 let renderedHotelOfferResultsCount = 0;
 let isRenderingNextHotelOfferResults = false;
-let isOpeningHotelDetailsPage = false;
 
 $w.onReady(async function () {
   await initializeHotelsPage();
@@ -286,17 +285,10 @@ function bindHotelRepeaterItem($item, itemData) {
   } else {
     hotelMainImage.src = normalizedHotelMainImage;
     hotelMainImage.expand();
-
-    hotelMainImage.onClick(() => {
-      openHotelDetailsPage(itemData);
-    });
   }
 
   hotelAvailabilityButton.label = "See availability";
   hotelAvailabilityButton.expand();
-  hotelAvailabilityButton.onClick(() => {
-    openHotelDetailsPage(itemData);
-  });
 
   hotelOfferResultCard.expand();
   hotelOfferResultCard.onClick(() => {
@@ -316,19 +308,6 @@ function openHotelDetailsPage(itemData) {
     );
     return;
   }
-
-  if (isOpeningHotelDetailsPage) {
-    console.log(
-      "HOTELS openHotelDetailsPage skipped",
-      JSON.stringify({
-        reason: "alreadyOpeningHotelDetailsPage",
-        hotelId
-      })
-    );
-    return;
-  }
-
-  isOpeningHotelDetailsPage = true;
 
   const runtimeSearchFlowContextQuery = {
     hotelId
