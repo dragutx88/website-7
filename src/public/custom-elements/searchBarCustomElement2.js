@@ -4,36 +4,15 @@ const LITEAPI_SDK_URL = "https://components.liteapi.travel/v1.0/sdk.umd.js";
 const LITEAPI_DOMAIN = "ozvia.travel";
 const SEARCH_BAR_CUSTOM_ELEMENT_TAG_NAME = "search-bar-custom-element-2";
 
-const DEFAULT_SEARCH_PLACE_ID = "ChIJYeZuBI9YwokRjMDs_IEyCwo";
-const DEFAULT_SEARCH_PLACE_NAME = "New York";
-const DEFAULT_CHECKIN_DATE_TEXT = "2026-05-08";
-const DEFAULT_CHECKOUT_DATE_TEXT = "2026-05-09";
 const DEFAULT_PRIMARY_COLOR = "#7057F0";
 
 const OCCUPANCY_MIN_ADULTS = 1;
 const OCCUPANCY_MAX_ADULTS = 20;
 const OCCUPANCY_MAX_CHILDREN = 10;
 
-let searchBarCustomElementInstanceCounter = 0;
-
 class SearchBarCustomElement2 extends HTMLElement {
-  constructor() {
-    super();
-
-    searchBarCustomElementInstanceCounter += 1;
-
-    this._connected = false;
-    this._targetElementId =
-      `search-bar-custom-element-2-target-${Date.now()}-${searchBarCustomElementInstanceCounter}`;
-  }
-
   connectedCallback() {
-    if (this._connected) {
-      return;
-    }
-
-    this._connected = true;
-    this.innerHTML = `<div id="${this._targetElementId}" style="width: 100%;"></div>`;
+    this.innerHTML = `<div id="search-bar" style="width: 100%"></div>`;
 
     const searchFlowContextQuery = {
       ...JSON.parse(
@@ -63,79 +42,58 @@ class SearchBarCustomElement2 extends HTMLElement {
         ? searchFlowContextValidationResult.searchFlowContextQuery
         : null;
 
-    console.log("[SEARCH BAR CUSTOM ELEMENT 2] handleSearch input preset subset", {
+    console.log("[SEARCH BAR CUSTOM ELEMENT 2] create hydrate preset", {
       hasPreset: Boolean(searchBarPresetSearchFlowContextQuery),
       presetSubset: searchBarPresetSearchFlowContextQuery
         ? {
             inputQuery: searchBarPresetSearchFlowContextQuery.name,
             inputPlaceId: searchBarPresetSearchFlowContextQuery.placeId,
             inputCheckin: searchBarPresetSearchFlowContextQuery.checkin,
-            inputCheckout: searchBarPresetSearchFlowContextQuery.checkout
+            inputCheckout: searchBarPresetSearchFlowContextQuery.checkout,
+            rooms: searchBarPresetSearchFlowContextQuery.rooms,
+            adults: searchBarPresetSearchFlowContextQuery.adults,
+            children: searchBarPresetSearchFlowContextQuery.children
           }
-        : null,
-      validatedSearchFlowContextQuery: searchBarPresetSearchFlowContextQuery
+        : null
     });
 
     const script = document.createElement("script");
     script.src = LITEAPI_SDK_URL;
 
     script.onload = () => {
-      const inputQuery =
-        searchBarPresetSearchFlowContextQuery?.name || DEFAULT_SEARCH_PLACE_NAME;
-      const inputPlaceId =
-        searchBarPresetSearchFlowContextQuery?.placeId || DEFAULT_SEARCH_PLACE_ID;
-      const inputCheckin = dateFromLiteApiDateText(
-        searchBarPresetSearchFlowContextQuery?.checkin || DEFAULT_CHECKIN_DATE_TEXT,
-        DEFAULT_CHECKIN_DATE_TEXT
-      );
-      const inputCheckout = dateFromLiteApiDateText(
-        searchBarPresetSearchFlowContextQuery?.checkout || DEFAULT_CHECKOUT_DATE_TEXT,
-        DEFAULT_CHECKOUT_DATE_TEXT
-      );
-
-      console.log("[SEARCH BAR CUSTOM ELEMENT 2] sdk loaded");
-      console.log("[SEARCH BAR CUSTOM ELEMENT 2] create props", {
-        selector: `#${this._targetElementId}`,
-        primaryColor: DEFAULT_PRIMARY_COLOR,
-        inputQuery,
-        inputPlaceId,
-        inputCheckin: formatDateForLiteApi(inputCheckin),
-        inputCheckout: formatDateForLiteApi(inputCheckout),
-        labelsOverride: {
-          placePlaceholderText: inputQuery,
-          searchAction: "Search"
-        },
-        openGuestPopup: false,
-        domain: LITEAPI_DOMAIN
-      });
-
       window.LiteAPI.init({
-        domain: LITEAPI_DOMAIN
+        domain: LITEAPI_DOMAIN,
+        deepLinkParams: "language=tr&currency=TRY",
+        labelsOverride: {
+          searchAction: "Search",
+          placePlaceholderText: "Search for a destination"
+        }
       });
 
-      window.LiteAPI.SearchBar.create({
-        selector: `#${this._targetElementId}`,
+      const searchBarCreatePayload = {
+        selector: "#search-bar",
         primaryColor: DEFAULT_PRIMARY_COLOR,
-        inputQuery,
-        inputPlaceId,
-        inputCheckin,
-        inputCheckout,
-        openGuestPopup: false,
-        labelsOverride: {
-          placePlaceholderText: inputQuery,
-          searchAction: "Search"
-        },
-        onSearch: (searchData) => {
-          console.log("[SEARCH BAR CUSTOM ELEMENT 2] onSearch raw searchData", {
-            searchData,
-            searchBarPresetSearchFlowContextQuery
-          });
-        },
+        ...(searchBarPresetSearchFlowContextQuery
+          ? {
+              inputQuery: searchBarPresetSearchFlowContextQuery.name,
+              inputPlaceId: searchBarPresetSearchFlowContextQuery.placeId,
+              inputCheckin: dateFromLiteApiDateText(
+                searchBarPresetSearchFlowContextQuery.checkin
+              ),
+              inputCheckout: dateFromLiteApiDateText(
+                searchBarPresetSearchFlowContextQuery.checkout
+              ),
+              labelsOverride: {
+                searchAction: "Search",
+                placePlaceholderText: searchBarPresetSearchFlowContextQuery.name
+              }
+            }
+          : {}),
         onSearchClick: (searchData) => {
-          console.log("[SEARCH BAR CUSTOM ELEMENT 2] onSearchClick raw searchData", {
-            searchData,
-            searchBarPresetSearchFlowContextQuery
-          });
+          console.log(
+            "[SEARCH BAR CUSTOM ELEMENT 2] onSearchClick raw searchData",
+            searchData
+          );
 
           const runtimeSearchFlowContextQuery =
             buildRuntimeSearchFlowContextQueryFromSdkSearchData(searchData);
@@ -198,18 +156,14 @@ class SearchBarCustomElement2 extends HTMLElement {
 
           window.top.location.assign(searchFlowContextUrl);
         }
+      };
+
+      console.log("[SEARCH BAR CUSTOM ELEMENT 2] create payload", {
+        ...searchBarCreatePayload,
+        onSearchClick: "function"
       });
 
-      console.log("[SEARCH BAR CUSTOM ELEMENT 2] mounted", {
-        tagName: SEARCH_BAR_CUSTOM_ELEMENT_TAG_NAME,
-        selector: `#${this._targetElementId}`,
-        domain: LITEAPI_DOMAIN,
-        presetApplied: Boolean(searchBarPresetSearchFlowContextQuery),
-        inputQuery,
-        inputPlaceId,
-        inputCheckin: formatDateForLiteApi(inputCheckin),
-        inputCheckout: formatDateForLiteApi(inputCheckout)
-      });
+      window.LiteAPI.SearchBar.create(searchBarCreatePayload);
     };
 
     script.onerror = () => {
@@ -548,8 +502,8 @@ function formatDateForLiteApi(value) {
   ].join("-");
 }
 
-function dateFromLiteApiDateText(value, fallbackValue) {
-  return normalizeDateValue(value) || normalizeDateValue(fallbackValue);
+function dateFromLiteApiDateText(value) {
+  return normalizeDateValue(value);
 }
 
 function dateText(value) {
