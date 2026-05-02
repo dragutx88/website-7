@@ -14,60 +14,7 @@ const OCCUPANCY_MIN_ADULTS = 1;
 const OCCUPANCY_MAX_ADULTS = 20;
 const OCCUPANCY_MAX_CHILDREN = 10;
 
-let sdkLoadPromise = null;
 let searchBarCustomElementInstanceCounter = 0;
-
-function loadLiteApiSdkOnce() {
-  if (window.LiteAPI?.SearchBar?.create) {
-    return Promise.resolve(window.LiteAPI);
-  }
-
-  if (sdkLoadPromise) {
-    return sdkLoadPromise;
-  }
-
-  sdkLoadPromise = new Promise((resolve, reject) => {
-    const existingScript = document.querySelector(`script[src="${LITEAPI_SDK_URL}"]`);
-
-    if (existingScript) {
-      existingScript.addEventListener("load", () => {
-        window.LiteAPI?.SearchBar?.create
-          ? resolve(window.LiteAPI)
-          : reject(new Error("LiteAPI.SearchBar.create is missing."));
-      });
-
-      existingScript.addEventListener("error", () => {
-        reject(new Error("LiteAPI SearchBar SDK failed to load."));
-      });
-
-      if (window.LiteAPI?.SearchBar?.create) {
-        resolve(window.LiteAPI);
-      }
-
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = LITEAPI_SDK_URL;
-    script.async = true;
-
-    script.onload = () => {
-      console.log("[SEARCH BAR CUSTOM ELEMENT 2] sdk loaded");
-
-      window.LiteAPI?.SearchBar?.create
-        ? resolve(window.LiteAPI)
-        : reject(new Error("LiteAPI.SearchBar.create is missing."));
-    };
-
-    script.onerror = () => {
-      reject(new Error("LiteAPI SearchBar SDK failed to load."));
-    };
-
-    document.head.appendChild(script);
-  });
-
-  return sdkLoadPromise;
-}
 
 class SearchBarCustomElement2 extends HTMLElement {
   constructor() {
@@ -129,156 +76,148 @@ class SearchBarCustomElement2 extends HTMLElement {
       validatedSearchFlowContextQuery: searchBarPresetSearchFlowContextQuery
     });
 
-    loadLiteApiSdkOnce()
-      .then((LiteAPI) => {
-        initializeLiteApiSdk(LiteAPI);
+    const script = document.createElement("script");
+    script.src = LITEAPI_SDK_URL;
 
-        const inputQuery =
-          searchBarPresetSearchFlowContextQuery?.name || DEFAULT_SEARCH_PLACE_NAME;
-        const inputPlaceId =
-          searchBarPresetSearchFlowContextQuery?.placeId || DEFAULT_SEARCH_PLACE_ID;
-        const inputCheckin = dateFromLiteApiDateText(
-          searchBarPresetSearchFlowContextQuery?.checkin || DEFAULT_CHECKIN_DATE_TEXT,
-          DEFAULT_CHECKIN_DATE_TEXT
-        );
-        const inputCheckout = dateFromLiteApiDateText(
-          searchBarPresetSearchFlowContextQuery?.checkout || DEFAULT_CHECKOUT_DATE_TEXT,
-          DEFAULT_CHECKOUT_DATE_TEXT
-        );
+    script.onload = () => {
+      const inputQuery =
+        searchBarPresetSearchFlowContextQuery?.name || DEFAULT_SEARCH_PLACE_NAME;
+      const inputPlaceId =
+        searchBarPresetSearchFlowContextQuery?.placeId || DEFAULT_SEARCH_PLACE_ID;
+      const inputCheckin = dateFromLiteApiDateText(
+        searchBarPresetSearchFlowContextQuery?.checkin || DEFAULT_CHECKIN_DATE_TEXT,
+        DEFAULT_CHECKIN_DATE_TEXT
+      );
+      const inputCheckout = dateFromLiteApiDateText(
+        searchBarPresetSearchFlowContextQuery?.checkout || DEFAULT_CHECKOUT_DATE_TEXT,
+        DEFAULT_CHECKOUT_DATE_TEXT
+      );
 
-        console.log("[SEARCH BAR CUSTOM ELEMENT 2] create props", {
-          selector: `#${this._targetElementId}`,
-          primaryColor: DEFAULT_PRIMARY_COLOR,
-          inputQuery,
-          inputPlaceId,
-          inputCheckin: formatDateForLiteApi(inputCheckin),
-          inputCheckout: formatDateForLiteApi(inputCheckout),
-          labelsOverride: {
-            placePlaceholderText: inputQuery,
-            searchAction: "Search"
-          },
-          openGuestPopup: false,
-          isHandlingSearch: false,
-          isSearching: false,
-          domain: LITEAPI_DOMAIN
-        });
+      console.log("[SEARCH BAR CUSTOM ELEMENT 2] sdk loaded");
+      console.log("[SEARCH BAR CUSTOM ELEMENT 2] create props", {
+        selector: `#${this._targetElementId}`,
+        primaryColor: DEFAULT_PRIMARY_COLOR,
+        inputQuery,
+        inputPlaceId,
+        inputCheckin: formatDateForLiteApi(inputCheckin),
+        inputCheckout: formatDateForLiteApi(inputCheckout),
+        labelsOverride: {
+          placePlaceholderText: inputQuery,
+          searchAction: "Search"
+        },
+        openGuestPopup: false,
+        domain: LITEAPI_DOMAIN
+      });
 
-        LiteAPI.SearchBar.create({
-          selector: `#${this._targetElementId}`,
-          primaryColor: DEFAULT_PRIMARY_COLOR,
-          inputQuery,
-          inputPlaceId,
-          inputCheckin,
-          inputCheckout,
-          openGuestPopup: false,
-          isHandlingSearch: false,
-          isSearching: false,
-          labelsOverride: {
-            placePlaceholderText: inputQuery,
-            searchAction: "Search"
-          },
-          onSearch: (searchData) => {
-            console.log("[SEARCH BAR CUSTOM ELEMENT 2] onSearch raw searchData", {
-              searchData,
-              searchBarPresetSearchFlowContextQuery
-            });
-          },
-          onSearchClick: (searchData) => {
-            console.log("[SEARCH BAR CUSTOM ELEMENT 2] onSearchClick raw searchData", {
-              searchData,
-              searchBarPresetSearchFlowContextQuery
-            });
+      window.LiteAPI.init({
+        domain: LITEAPI_DOMAIN
+      });
 
-            const runtimeSearchFlowContextQuery =
-              buildRuntimeSearchFlowContextQueryFromSdkSearchData(searchData);
+      window.LiteAPI.SearchBar.create({
+        selector: `#${this._targetElementId}`,
+        primaryColor: DEFAULT_PRIMARY_COLOR,
+        inputQuery,
+        inputPlaceId,
+        inputCheckin,
+        inputCheckout,
+        openGuestPopup: false,
+        labelsOverride: {
+          placePlaceholderText: inputQuery,
+          searchAction: "Search"
+        },
+        onSearch: (searchData) => {
+          console.log("[SEARCH BAR CUSTOM ELEMENT 2] onSearch raw searchData", {
+            searchData,
+            searchBarPresetSearchFlowContextQuery
+          });
+        },
+        onSearchClick: (searchData) => {
+          console.log("[SEARCH BAR CUSTOM ELEMENT 2] onSearchClick raw searchData", {
+            searchData,
+            searchBarPresetSearchFlowContextQuery
+          });
 
-            console.log(
-              "[SEARCH BAR CUSTOM ELEMENT 2] runtimeSearchFlowContextQuery from raw SDK data",
-              runtimeSearchFlowContextQuery
-            );
+          const runtimeSearchFlowContextQuery =
+            buildRuntimeSearchFlowContextQueryFromSdkSearchData(searchData);
 
-            const runtimeSearchFlowContextValidationResult =
-              validateSearchFlowContextQuery(runtimeSearchFlowContextQuery);
+          console.log(
+            "[SEARCH BAR CUSTOM ELEMENT 2] runtimeSearchFlowContextQuery from raw SDK data",
+            runtimeSearchFlowContextQuery
+          );
 
-            console.log(
-              "[SEARCH BAR CUSTOM ELEMENT 2] runtimeSearchFlowContextValidationResult from raw SDK data",
+          const runtimeSearchFlowContextValidationResult =
+            validateSearchFlowContextQuery(runtimeSearchFlowContextQuery);
+
+          console.log(
+            "[SEARCH BAR CUSTOM ELEMENT 2] runtimeSearchFlowContextValidationResult from raw SDK data",
+            runtimeSearchFlowContextValidationResult
+          );
+
+          if (!runtimeSearchFlowContextValidationResult.ok) {
+            console.warn(
+              "[SEARCH BAR CUSTOM ELEMENT 2] raw SDK data failed validation; redirect skipped",
               runtimeSearchFlowContextValidationResult
             );
 
-            if (!runtimeSearchFlowContextValidationResult.ok) {
-              console.warn(
-                "[SEARCH BAR CUSTOM ELEMENT 2] raw SDK data failed validation; redirect skipped",
-                runtimeSearchFlowContextValidationResult
-              );
-
-              return;
-            }
-
-            window.top.sessionStorage.setItem(
-              SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY,
-              JSON.stringify({
-                ...JSON.parse(
-                  window.top.sessionStorage.getItem(
-                    SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY
-                  ) || "{}"
-                ),
-                ...runtimeSearchFlowContextValidationResult.searchFlowContextQuery,
-                language: "tr",
-                currency: "TRY"
-              })
-            );
-
-            const searchFlowContextUrl = new URL(
-              `hotels?${new URLSearchParams({
-                ...Object.fromEntries(new URLSearchParams(window.top.location.search)),
-                ...JSON.parse(
-                  window.top.sessionStorage.getItem(
-                    SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY
-                  ) || "{}"
-                ),
-                ...runtimeSearchFlowContextValidationResult.searchFlowContextQuery,
-                language: "tr",
-                currency: "TRY"
-              })}`,
-              window.top.location.origin +
-                window.top.location.pathname.replace(/\/?$/, "/")
-            ).href;
-
-            console.log("[SEARCH BAR CUSTOM ELEMENT 2] redirect", {
-              searchFlowContextUrl
-            });
-
-            window.top.location.assign(searchFlowContextUrl);
+            return;
           }
-        });
 
-        console.log("[SEARCH BAR CUSTOM ELEMENT 2] mounted", {
-          tagName: SEARCH_BAR_CUSTOM_ELEMENT_TAG_NAME,
-          selector: `#${this._targetElementId}`,
-          domain: LITEAPI_DOMAIN,
-          presetApplied: Boolean(searchBarPresetSearchFlowContextQuery),
-          inputQuery,
-          inputPlaceId,
-          inputCheckin: formatDateForLiteApi(inputCheckin),
-          inputCheckout: formatDateForLiteApi(inputCheckout)
-        });
-      })
-      .catch((error) => {
-        console.error("[SEARCH BAR CUSTOM ELEMENT 2] failed", error);
+          window.top.sessionStorage.setItem(
+            SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY,
+            JSON.stringify({
+              ...JSON.parse(
+                window.top.sessionStorage.getItem(
+                  SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY
+                ) || "{}"
+              ),
+              ...runtimeSearchFlowContextValidationResult.searchFlowContextQuery,
+              language: "tr",
+              currency: "TRY"
+            })
+          );
+
+          const searchFlowContextUrl = new URL(
+            `hotels?${new URLSearchParams({
+              ...Object.fromEntries(new URLSearchParams(window.top.location.search)),
+              ...JSON.parse(
+                window.top.sessionStorage.getItem(
+                  SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY
+                ) || "{}"
+              ),
+              ...runtimeSearchFlowContextValidationResult.searchFlowContextQuery,
+              language: "tr",
+              currency: "TRY"
+            })}`,
+            window.top.location.origin +
+              window.top.location.pathname.replace(/\/?$/, "/")
+          ).href;
+
+          console.log("[SEARCH BAR CUSTOM ELEMENT 2] redirect", {
+            searchFlowContextUrl
+          });
+
+          window.top.location.assign(searchFlowContextUrl);
+        }
       });
+
+      console.log("[SEARCH BAR CUSTOM ELEMENT 2] mounted", {
+        tagName: SEARCH_BAR_CUSTOM_ELEMENT_TAG_NAME,
+        selector: `#${this._targetElementId}`,
+        domain: LITEAPI_DOMAIN,
+        presetApplied: Boolean(searchBarPresetSearchFlowContextQuery),
+        inputQuery,
+        inputPlaceId,
+        inputCheckin: formatDateForLiteApi(inputCheckin),
+        inputCheckout: formatDateForLiteApi(inputCheckout)
+      });
+    };
+
+    script.onerror = () => {
+      console.error("[SEARCH BAR CUSTOM ELEMENT 2] sdk script load failed");
+    };
+
+    document.head.appendChild(script);
   }
-}
-
-function initializeLiteApiSdk(LiteAPI) {
-  if (window.__ozviaLiteApiSdkInitialized === true) {
-    return;
-  }
-
-  LiteAPI.init({
-    domain: LITEAPI_DOMAIN
-  });
-
-  window.__ozviaLiteApiSdkInitialized = true;
 }
 
 function buildRuntimeSearchFlowContextQueryFromSdkSearchData(searchData) {
