@@ -1,3 +1,5 @@
+import { elevate } from "wix-auth";
+import { secrets } from "wix-secrets-backend.v2";
 import {
   buildLiteApiError,
   liteApiRequest,
@@ -5,6 +7,9 @@ import {
 } from "./liteApiClient";
 
 const LITE_BOOK_API_BASE_URL = "https://book.liteapi.travel/v3.0";
+const MARKUP_RATE_SECRET_NAME = "MARKUP_RATE";
+
+const getSecretValue = elevate(secrets.getSecretValue);
 
 export async function createPrebookSessionHandler(payload) {
   const offerId = normalizeText(payload?.offerId);
@@ -34,7 +39,18 @@ export async function createPrebookSessionHandler(payload) {
     throw error;
   }
 
-  const normalizedPrebook = normalizePrebook(prebookResponse);
+  const markupRateSecretValue = await getSecretValue(MARKUP_RATE_SECRET_NAME);
+  const markupRateText = normalizeText(markupRateSecretValue?.value);
+  const normalizedMarkupRate = Number(markupRateText);
+
+  if (!markupRateText || !Number.isFinite(normalizedMarkupRate)) {
+    throw new Error("MARKUP_RATE secret must be a numeric multiplier value.");
+  }
+
+  const normalizedPrebook = normalizePrebook(
+    prebookResponse,
+    normalizedMarkupRate
+  );
   const prebookSnapshot = JSON.stringify(prebookResponse);
 
   return {
@@ -62,19 +78,19 @@ export async function validatePrebook(prebookId) {
   return validatePrebookResponse.ok;
 }
 
-function normalizePrebook(prebookResponse) {
+function normalizePrebook(prebookResponse, normalizedMarkupRate) {
   if (!prebookResponse || typeof prebookResponse !== "object") {
     return null;
   }
 
   const paymentEnvironment = getLiteApiPaymentEnvironmentSafe(prebookResponse);
 
-  const currentPrice = Number(
+  const retailRateTotal = Number(
     prebookResponse?.data?.roomTypes?.[0]?.rates?.[0]?.retailRate?.total?.[0]
       ?.amount
   );
 
-  const beforeCurrentPrice = Number(
+  const suggestedSellingPrice = Number(
     prebookResponse?.data?.roomTypes?.[0]?.rates?.[0]?.retailRate
       ?.suggestedSellingPrice?.[0]?.amount
   );
@@ -84,8 +100,20 @@ function normalizePrebook(prebookResponse) {
       ?.currency
   );
 
-  if (!currency || !Number.isFinite(currentPrice)) {
+  const currentPrice = Number.isFinite(retailRateTotal)
+    ? retailRateTotal * normalizedMarkupRate
+    : null;
+
+  const beforeCurrentPrice = Number.isFinite(suggestedSellingPrice)
+    ? suggestedSellingPrice * normalizedMarkupRate
+    : null;
+
+  if (!currency || !Number.isFinite(retailRateTotal)) {
     throw new Error("prebook retailRate.total[0] is required.");
+  }
+
+  if (!Number.isFinite(currentPrice)) {
+    throw new Error("prebook currentPrice could not be normalized.");
   }
 
   return {
@@ -165,6 +193,5 @@ function normalizeCount(value) {
 }
 
 function normalizeText(value) {
-  return String(value || "").trim();
+  return String(value ?? "").trim();
 }
-
