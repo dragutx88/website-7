@@ -167,4 +167,3 @@ function normalizeCount(value) {
 function normalizeText(value) {
   return String(value || "").trim();
 }
-
