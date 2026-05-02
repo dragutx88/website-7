@@ -8,10 +8,11 @@ const DEFAULT_SEARCH_PLACE_ID = "ChIJYeZuBI9YwokRjMDs_IEyCwo";
 const DEFAULT_SEARCH_PLACE_NAME = "New York";
 const DEFAULT_CHECKIN_DATE_TEXT = "2026-05-08";
 const DEFAULT_CHECKOUT_DATE_TEXT = "2026-05-09";
-const DEFAULT_ADULTS = 3;
-const DEFAULT_ROOMS = 2;
-const DEFAULT_CHILDREN = "";
 const DEFAULT_PRIMARY_COLOR = "#7057F0";
+
+const OCCUPANCY_MIN_ADULTS = 1;
+const OCCUPANCY_MAX_ADULTS = 20;
+const OCCUPANCY_MAX_CHILDREN = 10;
 
 let sdkLoadPromise = null;
 let searchBarCustomElementInstanceCounter = 0;
@@ -75,7 +76,8 @@ class SearchBarCustomElement2 extends HTMLElement {
     searchBarCustomElementInstanceCounter += 1;
 
     this._connected = false;
-    this._targetElementId = `search-bar-custom-element-2-target-${Date.now()}-${searchBarCustomElementInstanceCounter}`;
+    this._targetElementId =
+      `search-bar-custom-element-2-target-${Date.now()}-${searchBarCustomElementInstanceCounter}`;
   }
 
   connectedCallback() {
@@ -86,48 +88,145 @@ class SearchBarCustomElement2 extends HTMLElement {
     this._connected = true;
     this.innerHTML = `<div id="${this._targetElementId}" style="width: 100%;"></div>`;
 
+    const searchFlowContextQuery = {
+      ...JSON.parse(
+        window.top.sessionStorage.getItem(
+          SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY
+        ) || "{}"
+      ),
+      ...Object.fromEntries(new URLSearchParams(window.top.location.search))
+    };
+
+    console.log(
+      "[SEARCH BAR CUSTOM ELEMENT 2] searchFlowContextQuery",
+      searchFlowContextQuery
+    );
+
+    const searchFlowContextValidationResult =
+      validateSearchFlowContextQuery(searchFlowContextQuery);
+
+    console.log(
+      "[SEARCH BAR CUSTOM ELEMENT 2] searchFlowContextValidationResult",
+      searchFlowContextValidationResult
+    );
+
+    const searchBarPresetSearchFlowContextQuery =
+      searchFlowContextValidationResult.ok &&
+      searchFlowContextValidationResult.searchFlowContextQuery.mode === "destination"
+        ? searchFlowContextValidationResult.searchFlowContextQuery
+        : null;
+
+    console.log("[SEARCH BAR CUSTOM ELEMENT 2] handleSearch input preset subset", {
+      hasPreset: Boolean(searchBarPresetSearchFlowContextQuery),
+      presetSubset: searchBarPresetSearchFlowContextQuery
+        ? {
+            inputQuery: searchBarPresetSearchFlowContextQuery.name,
+            inputPlaceId: searchBarPresetSearchFlowContextQuery.placeId,
+            inputCheckin: searchBarPresetSearchFlowContextQuery.checkin,
+            inputCheckout: searchBarPresetSearchFlowContextQuery.checkout
+          }
+        : null,
+      validatedSearchFlowContextQuery: searchBarPresetSearchFlowContextQuery
+    });
+
     loadLiteApiSdkOnce()
       .then((LiteAPI) => {
         initializeLiteApiSdk(LiteAPI);
 
+        const inputQuery =
+          searchBarPresetSearchFlowContextQuery?.name || DEFAULT_SEARCH_PLACE_NAME;
+        const inputPlaceId =
+          searchBarPresetSearchFlowContextQuery?.placeId || DEFAULT_SEARCH_PLACE_ID;
+        const inputCheckin = dateFromLiteApiDateText(
+          searchBarPresetSearchFlowContextQuery?.checkin || DEFAULT_CHECKIN_DATE_TEXT,
+          DEFAULT_CHECKIN_DATE_TEXT
+        );
+        const inputCheckout = dateFromLiteApiDateText(
+          searchBarPresetSearchFlowContextQuery?.checkout || DEFAULT_CHECKOUT_DATE_TEXT,
+          DEFAULT_CHECKOUT_DATE_TEXT
+        );
+
         console.log("[SEARCH BAR CUSTOM ELEMENT 2] create props", {
           selector: `#${this._targetElementId}`,
           primaryColor: DEFAULT_PRIMARY_COLOR,
-          inputQuery: DEFAULT_SEARCH_PLACE_NAME,
-          inputPlaceId: DEFAULT_SEARCH_PLACE_ID,
-          inputCheckin: DEFAULT_CHECKIN_DATE_TEXT,
-          inputCheckout: DEFAULT_CHECKOUT_DATE_TEXT,
-          defaultAdults: DEFAULT_ADULTS,
-          defaultRooms: DEFAULT_ROOMS,
-          defaultChildren: DEFAULT_CHILDREN,
+          inputQuery,
+          inputPlaceId,
+          inputCheckin: formatDateForLiteApi(inputCheckin),
+          inputCheckout: formatDateForLiteApi(inputCheckout),
+          labelsOverride: {
+            placePlaceholderText: inputQuery,
+            searchAction: "Search"
+          },
           openGuestPopup: false,
           isHandlingSearch: false,
+          isSearching: false,
           domain: LITEAPI_DOMAIN
         });
 
         LiteAPI.SearchBar.create({
           selector: `#${this._targetElementId}`,
           primaryColor: DEFAULT_PRIMARY_COLOR,
-          inputQuery: DEFAULT_SEARCH_PLACE_NAME,
-          inputPlaceId: DEFAULT_SEARCH_PLACE_ID,
-          inputCheckin: new Date(`${DEFAULT_CHECKIN_DATE_TEXT}T00:00:00`),
-          inputCheckout: new Date(`${DEFAULT_CHECKOUT_DATE_TEXT}T00:00:00`),
+          inputQuery,
+          inputPlaceId,
+          inputCheckin,
+          inputCheckout,
           openGuestPopup: false,
           isHandlingSearch: false,
           isSearching: false,
           labelsOverride: {
-            placePlaceholder: DEFAULT_SEARCH_PLACE_NAME,
+            placePlaceholderText: inputQuery,
             searchAction: "Search"
           },
           onSearch: (searchData) => {
-            console.log("[SEARCH BAR CUSTOM ELEMENT 2] onSearch", searchData);
+            console.log("[SEARCH BAR CUSTOM ELEMENT 2] onSearch raw searchData", {
+              searchData,
+              searchBarPresetSearchFlowContextQuery
+            });
           },
           onSearchClick: (searchData) => {
-            console.log("[SEARCH BAR CUSTOM ELEMENT 2] onSearchClick", searchData);
+            console.log("[SEARCH BAR CUSTOM ELEMENT 2] onSearchClick raw searchData", {
+              searchData,
+              searchBarPresetSearchFlowContextQuery
+            });
 
-            const rooms = normalizeOccupancies(searchData);
+            const runtimeSearchFlowContextQuery =
+              buildRuntimeSearchFlowContextQueryFromSdkSearchData(searchData);
 
-            console.log("[SEARCH BAR CUSTOM ELEMENT 2] rooms", rooms);
+            console.log(
+              "[SEARCH BAR CUSTOM ELEMENT 2] runtimeSearchFlowContextQuery from raw SDK data",
+              runtimeSearchFlowContextQuery
+            );
+
+            const runtimeSearchFlowContextValidationResult =
+              validateSearchFlowContextQuery(runtimeSearchFlowContextQuery);
+
+            console.log(
+              "[SEARCH BAR CUSTOM ELEMENT 2] runtimeSearchFlowContextValidationResult from raw SDK data",
+              runtimeSearchFlowContextValidationResult
+            );
+
+            if (!runtimeSearchFlowContextValidationResult.ok) {
+              console.warn(
+                "[SEARCH BAR CUSTOM ELEMENT 2] raw SDK data failed validation; redirect skipped",
+                runtimeSearchFlowContextValidationResult
+              );
+
+              return;
+            }
+
+            window.top.sessionStorage.setItem(
+              SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY,
+              JSON.stringify({
+                ...JSON.parse(
+                  window.top.sessionStorage.getItem(
+                    SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY
+                  ) || "{}"
+                ),
+                ...runtimeSearchFlowContextValidationResult.searchFlowContextQuery,
+                language: "tr",
+                currency: "TRY"
+              })
+            );
 
             const searchFlowContextUrl = new URL(
               `hotels?${new URLSearchParams({
@@ -137,34 +236,7 @@ class SearchBarCustomElement2 extends HTMLElement {
                     SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY
                   ) || "{}"
                 ),
-                mode: "destination",
-                placeId: String(
-                  searchData?.place?.place_id || DEFAULT_SEARCH_PLACE_ID
-                ).trim(),
-                name: String(
-                  searchData?.place?.description ||
-                    searchData?.query ||
-                    DEFAULT_SEARCH_PLACE_NAME
-                ).trim(),
-                checkin: dateText(
-                  searchData?.checkin ||
-                    searchData?.dates?.start ||
-                    DEFAULT_CHECKIN_DATE_TEXT
-                ),
-                checkout: dateText(
-                  searchData?.checkout ||
-                    searchData?.dates?.end ||
-                    DEFAULT_CHECKOUT_DATE_TEXT
-                ),
-                rooms: String(rooms.length || DEFAULT_ROOMS),
-                adults: rooms
-                  .map((room) => String(number(room?.adults, DEFAULT_ADULTS)))
-                  .join(","),
-                children: rooms
-                  .flatMap((room, index) =>
-                    (room?.children || []).map((age) => `${index + 1}_${number(age, 0)}`)
-                  )
-                  .join(","),
+                ...runtimeSearchFlowContextValidationResult.searchFlowContextQuery,
                 language: "tr",
                 currency: "TRY"
               })}`,
@@ -184,13 +256,11 @@ class SearchBarCustomElement2 extends HTMLElement {
           tagName: SEARCH_BAR_CUSTOM_ELEMENT_TAG_NAME,
           selector: `#${this._targetElementId}`,
           domain: LITEAPI_DOMAIN,
-          inputQuery: DEFAULT_SEARCH_PLACE_NAME,
-          inputPlaceId: DEFAULT_SEARCH_PLACE_ID,
-          inputCheckin: DEFAULT_CHECKIN_DATE_TEXT,
-          inputCheckout: DEFAULT_CHECKOUT_DATE_TEXT,
-          defaultAdults: DEFAULT_ADULTS,
-          defaultRooms: DEFAULT_ROOMS,
-          defaultChildren: DEFAULT_CHILDREN
+          presetApplied: Boolean(searchBarPresetSearchFlowContextQuery),
+          inputQuery,
+          inputPlaceId,
+          inputCheckin: formatDateForLiteApi(inputCheckin),
+          inputCheckout: formatDateForLiteApi(inputCheckout)
         });
       })
       .catch((error) => {
@@ -211,53 +281,341 @@ function initializeLiteApiSdk(LiteAPI) {
   window.__ozviaLiteApiSdkInitialized = true;
 }
 
-function normalizeOccupancies(searchData) {
-  const rooms = number(searchData?.rooms, DEFAULT_ROOMS);
-  const adults = number(searchData?.adults, DEFAULT_ADULTS);
-  const childrenAges = normalizeChildrenAges(searchData?.children);
-
-  return Array.from({ length: Math.max(1, rooms) }, (_, index) => ({
-    adults: index === 0 ? adults : 1,
-    children: index === 0 ? childrenAges : []
-  }));
+function buildRuntimeSearchFlowContextQueryFromSdkSearchData(searchData) {
+  return {
+    mode: "destination",
+    placeId: String(searchData?.place?.place_id || "").trim(),
+    name: String(
+      searchData?.place?.description ||
+        searchData?.query ||
+        ""
+    ).trim(),
+    aiSearch: "",
+    checkin: dateText(searchData?.checkin || searchData?.dates?.start),
+    checkout: dateText(searchData?.checkout || searchData?.dates?.end),
+    rooms: String(searchData?.rooms || "").trim(),
+    adults: String(searchData?.adults || "").trim(),
+    children: buildChildrenQueryFromSdkSearchData(searchData),
+    sorting: "",
+    language: "tr",
+    currency: "TRY"
+  };
 }
 
-function normalizeChildrenAges(value) {
-  if (Array.isArray(value)) {
-    return value
+function buildChildrenQueryFromSdkSearchData(searchData) {
+  const children = searchData?.children;
+
+  if (Array.isArray(children)) {
+    return children
       .map((age) => number(age, null))
-      .filter((age) => Number.isFinite(age));
+      .filter((age) => Number.isFinite(age))
+      .map((age) => `1_${age}`)
+      .join(",");
   }
 
-  if (typeof value === "string") {
-    const normalizedValue = value.trim();
+  if (typeof children === "string") {
+    const normalizedChildren = children.trim();
 
-    if (!normalizedValue) {
-      return [];
+    if (!normalizedChildren) {
+      return "";
     }
 
-    return normalizedValue
+    return normalizedChildren
       .split(",")
-      .map((childToken) => childToken.trim())
+      .map((childToken) => String(childToken || "").trim())
       .filter(Boolean)
       .map((childToken) => {
         if (childToken.includes("_")) {
-          return number(childToken.split("_")[1], null);
+          const [roomNumber, age] = childToken.split("_");
+          return `${number(roomNumber, 1)}_${number(age, 0)}`;
         }
 
-        return number(childToken, null);
+        return `1_${number(childToken, 0)}`;
       })
-      .filter((age) => Number.isFinite(age));
+      .join(",");
   }
 
-  const childrenCount = number(value, 0);
+  const childrenCount = number(children, 0);
 
-  return Array.from({ length: Math.max(0, childrenCount) }, () => 0);
+  if (!childrenCount) {
+    return "";
+  }
+
+  return Array.from({ length: Math.max(0, childrenCount) }, () => "1_0").join(",");
+}
+
+function validateSearchFlowContextQuery(searchFlowContextQuery) {
+  const mode = String(searchFlowContextQuery?.mode || "").trim();
+  const placeId = String(searchFlowContextQuery?.placeId || "").trim();
+  const name = String(searchFlowContextQuery?.name || "").trim();
+  const aiSearch = String(searchFlowContextQuery?.aiSearch || "").trim();
+  const checkin = String(searchFlowContextQuery?.checkin || "").trim();
+  const checkout = String(searchFlowContextQuery?.checkout || "").trim();
+  const rooms = String(searchFlowContextQuery?.rooms || "").trim();
+  const adults = String(searchFlowContextQuery?.adults || "").trim();
+  const children = String(searchFlowContextQuery?.children || "").trim();
+  const sorting = String(searchFlowContextQuery?.sorting || "").trim();
+  const language = String(searchFlowContextQuery?.language || "").trim();
+  const currency = String(searchFlowContextQuery?.currency || "").trim();
+
+  if (mode !== "destination" && mode !== "vibe") {
+    return {
+      ok: false,
+      searchFlowContextValidationArea: "mode",
+      searchFlowContextValidationMessage: "Unsupported search mode."
+    };
+  }
+
+  if (mode === "destination" && !name) {
+    return {
+      ok: false,
+      searchFlowContextValidationArea: "destination",
+      searchFlowContextValidationMessage: "Please enter a destination."
+    };
+  }
+
+  if (mode === "destination" && !placeId) {
+    return {
+      ok: false,
+      searchFlowContextValidationArea: "destination",
+      searchFlowContextValidationMessage:
+        "Please choose a destination from the suggestions list."
+    };
+  }
+
+  if (mode === "vibe" && !aiSearch) {
+    return {
+      ok: false,
+      searchFlowContextValidationArea: "vibe",
+      searchFlowContextValidationMessage: "Please describe your ideal stay."
+    };
+  }
+
+  const checkinDate = normalizeDateValue(checkin);
+  if (!checkinDate) {
+    return {
+      ok: false,
+      searchFlowContextValidationArea: "date",
+      searchFlowContextValidationMessage: "Please select a check-in date."
+    };
+  }
+
+  const checkoutDate = normalizeDateValue(checkout);
+  if (!checkoutDate) {
+    return {
+      ok: false,
+      searchFlowContextValidationArea: "date",
+      searchFlowContextValidationMessage: "Please select a check-out date."
+    };
+  }
+
+  if (checkoutDate <= checkinDate) {
+    return {
+      ok: false,
+      searchFlowContextValidationArea: "date",
+      searchFlowContextValidationMessage:
+        "Check-out date must be after check-in date."
+    };
+  }
+
+  const roomsNumber = Number(rooms);
+  if (
+    !Number.isFinite(roomsNumber) ||
+    Math.trunc(roomsNumber) !== roomsNumber ||
+    roomsNumber < 1
+  ) {
+    return {
+      ok: false,
+      searchFlowContextValidationArea: "occupancy",
+      searchFlowContextValidationMessage: "Rooms value is invalid."
+    };
+  }
+
+  const adultTokens = adults
+    .split(",")
+    .map((adultToken) => String(adultToken || "").trim())
+    .filter(Boolean);
+
+  if (adultTokens.length !== roomsNumber) {
+    return {
+      ok: false,
+      searchFlowContextValidationArea: "occupancy",
+      searchFlowContextValidationMessage: "Adults value is invalid."
+    };
+  }
+
+  const normalizedAdultTokens = [];
+
+  for (const adultToken of adultTokens) {
+    const adultCount = Number(adultToken);
+
+    if (
+      !Number.isFinite(adultCount) ||
+      Math.trunc(adultCount) !== adultCount ||
+      adultCount < OCCUPANCY_MIN_ADULTS ||
+      adultCount > OCCUPANCY_MAX_ADULTS
+    ) {
+      return {
+        ok: false,
+        searchFlowContextValidationArea: "occupancy",
+        searchFlowContextValidationMessage: "Adults value is invalid."
+      };
+    }
+
+    normalizedAdultTokens.push(String(adultCount));
+  }
+
+  const normalizedChildrenTokens = [];
+
+  if (children) {
+    const childTokens = children
+      .split(",")
+      .map((childToken) => String(childToken || "").trim())
+      .filter(Boolean);
+
+    if (childTokens.length > OCCUPANCY_MAX_CHILDREN) {
+      return {
+        ok: false,
+        searchFlowContextValidationArea: "occupancy",
+        searchFlowContextValidationMessage:
+          `Children cannot exceed ${OCCUPANCY_MAX_CHILDREN}.`
+      };
+    }
+
+    for (const childToken of childTokens) {
+      const childTokenParts = childToken.split("_");
+
+      if (childTokenParts.length !== 2) {
+        return {
+          ok: false,
+          searchFlowContextValidationArea: "occupancy",
+          searchFlowContextValidationMessage:
+            "Please select an age for each child."
+        };
+      }
+
+      const childRoomNumber = Number(childTokenParts[0]);
+      const childAge = Number(childTokenParts[1]);
+
+      if (
+        !Number.isFinite(childRoomNumber) ||
+        Math.trunc(childRoomNumber) !== childRoomNumber ||
+        childRoomNumber < 1 ||
+        childRoomNumber > roomsNumber
+      ) {
+        return {
+          ok: false,
+          searchFlowContextValidationArea: "occupancy",
+          searchFlowContextValidationMessage:
+            "Please select an age for each child."
+        };
+      }
+
+      if (
+        !Number.isFinite(childAge) ||
+        Math.trunc(childAge) !== childAge ||
+        childAge < 0 ||
+        childAge > 17
+      ) {
+        return {
+          ok: false,
+          searchFlowContextValidationArea: "occupancy",
+          searchFlowContextValidationMessage:
+            "Please select an age for each child."
+        };
+      }
+
+      normalizedChildrenTokens.push(`${childRoomNumber}_${childAge}`);
+    }
+  }
+
+  if (!language) {
+    return {
+      ok: false,
+      searchFlowContextValidationArea: "language",
+      searchFlowContextValidationMessage: "Missing language query param."
+    };
+  }
+
+  if (!currency) {
+    return {
+      ok: false,
+      searchFlowContextValidationArea: "currency",
+      searchFlowContextValidationMessage: "Missing currency query param."
+    };
+  }
+
+  return {
+    ok: true,
+    searchFlowContextQuery: {
+      mode,
+      placeId,
+      name,
+      aiSearch,
+      checkin: formatDateForLiteApi(checkinDate),
+      checkout: formatDateForLiteApi(checkoutDate),
+      rooms: String(roomsNumber),
+      adults: normalizedAdultTokens.join(","),
+      children: normalizedChildrenTokens.join(","),
+      sorting,
+      language,
+      currency
+    }
+  };
+}
+
+function normalizeDateValue(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  }
+
+  const raw = String(value ?? "").trim();
+
+  if (!raw) {
+    return null;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [year, month, day] = raw.split("-").map((part) => Number(part));
+    const parsedDate = new Date(year, month - 1, day);
+
+    return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+  }
+
+  const parsedDate = new Date(raw);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  return new Date(
+    parsedDate.getFullYear(),
+    parsedDate.getMonth(),
+    parsedDate.getDate()
+  );
+}
+
+function formatDateForLiteApi(value) {
+  const date = normalizeDateValue(value);
+
+  if (!date) {
+    return "";
+  }
+
+  return [
+    String(date.getFullYear()).padStart(4, "0"),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0")
+  ].join("-");
+}
+
+function dateFromLiteApiDateText(value, fallbackValue) {
+  return normalizeDateValue(value) || normalizeDateValue(fallbackValue);
 }
 
 function dateText(value) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value.toISOString().slice(0, 10);
+    return formatDateForLiteApi(value);
   }
 
   const raw = String(value ?? "").trim();
@@ -270,9 +628,9 @@ function dateText(value) {
     return raw;
   }
 
-  const parsed = new Date(raw);
+  const parsedDate = normalizeDateValue(raw);
 
-  return Number.isNaN(parsed.getTime()) ? raw : parsed.toISOString().slice(0, 10);
+  return parsedDate ? formatDateForLiteApi(parsedDate) : raw;
 }
 
 function number(value, fallback) {
