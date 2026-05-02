@@ -47,41 +47,34 @@ class SearchBarCustomElement extends HTMLElement {
 
           console.log("[SEARCH BAR CUSTOM ELEMENT] rooms", rooms);
 
-          console.log(
-            "[SEARCH BAR CUSTOM ELEMENT] redirect",
-            window.top.location.origin +
-              window.top.location.pathname.replace(/\/?$/, "/") +
-              "hotels"
-          );
+          const hotelsUrl = `${window.top.location.origin}${
+            window.top.location.pathname.replace(/\/[^/]*$/, "/hotels")
+          }?${new URLSearchParams({
+            ...Object.fromEntries(new URLSearchParams(window.top.location.search)),
+            ...JSON.parse(
+              window.top.sessionStorage.getItem(
+                SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY
+              ) || "{}"
+            ),
+            mode: "destination",
+            placeId: String(searchData?.place?.place_id ?? "").trim(),
+            name: String(searchData?.place?.description ?? searchData?.query ?? "").trim(),
+            checkin: dateText(searchData?.checkin || searchData?.dates?.start),
+            checkout: dateText(searchData?.checkout || searchData?.dates?.end),
+            rooms: String(rooms.length || 1),
+            adults: rooms.map((r) => String(number(r?.adults, 1))).join(","),
+            children: rooms
+              .flatMap((r, i) =>
+                (r?.children ?? []).map((age) => `${i + 1}_${number(age, 0)}`)
+              )
+              .join(","),
+            language: "tr",
+            currency: "TRY"
+          })}`;
 
-          window.top.location.assign(
-            new URL(
-              `hotels?${new URLSearchParams({
-                ...Object.fromEntries(new URLSearchParams(window.top.location.search)),
-                ...JSON.parse(
-                  window.top.sessionStorage.getItem(
-                    SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY
-                  ) || "{}"
-                ),
-                mode: "destination",
-                placeId: String(searchData?.place?.place_id ?? "").trim(),
-                name: String(searchData?.place?.description ?? searchData?.query ?? "").trim(),
-                checkin: dateText(searchData?.checkin || searchData?.dates?.start),
-                checkout: dateText(searchData?.checkout || searchData?.dates?.end),
-                rooms: String(rooms.length || 1),
-                adults: rooms.map((r) => String(number(r?.adults, 1))).join(","),
-                children: rooms
-                  .flatMap((r, i) =>
-                    (r?.children ?? []).map((age) => `${i + 1}_${number(age, 0)}`)
-                  )
-                  .join(","),
-                language: "tr",
-                currency: "TRY"
-              })}`,
-              window.top.location.origin +
-                window.top.location.pathname.replace(/\/?$/, "/")
-            ).href
-          );
+          console.log("[SEARCH BAR CUSTOM ELEMENT] redirect", hotelsUrl);
+
+          window.top.location.assign(hotelsUrl);
         }
       });
 
