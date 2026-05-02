@@ -135,22 +135,22 @@ function bindHotelHero(normalizedHotelDetails, normalizedHotelMappedRoomOffers) 
       : [hotelMainImage]
   );
 
-  const roomOffersMinCurrentPriceText = normalizeText(
-    normalizedHotelMappedRoomOffers?.roomOffersMinCurrentPriceText
+  const minCurrentPriceText = normalizeText(
+    normalizedHotelMappedRoomOffers?.minCurrentPriceText
   );
 
-  if (roomOffersMinCurrentPriceText) {
-    $w("#roomOffersMinCurrentPriceText").text = roomOffersMinCurrentPriceText;
-    $w("#roomOffersMinCurrentPriceText").expand();
+  if (minCurrentPriceText) {
+    $w("#minCurrentPriceText").text = minCurrentPriceText;
+    $w("#minCurrentPriceText").expand();
 
-    $w("#roomOffersMinCurrentPricePrefixText").expand();
-    $w("#roomOffersMinCurrentPricePerNightText").expand();
+    $w("#minCurrentPricePrefixText").expand();
+    $w("#minCurrentPricePerNightText").expand();
   } else {
-    $w("#roomOffersMinCurrentPriceText").text = "";
-    $w("#roomOffersMinCurrentPriceText").collapse();
+    $w("#minCurrentPriceText").text = "";
+    $w("#minCurrentPriceText").collapse();
 
-    $w("#roomOffersMinCurrentPricePrefixText").collapse();
-    $w("#roomOffersMinCurrentPricePerNightText").collapse();
+    $w("#minCurrentPricePrefixText").collapse();
+    $w("#minCurrentPricePerNightText").collapse();
   }
 }
 
@@ -360,21 +360,15 @@ function bindRoomOfferSlot($item, slotNumber, roomOffer, mappedRoomOfferItem, ro
   const roomOfferRefundableTagText = normalizeText(
     roomOffer?.roomOfferRefundableTagText
   );
-  const roomOfferCurrentPriceText = normalizeText(
-    roomOffer?.roomOfferCurrentPriceText
-  );
-  const roomOfferBeforeCurrentPriceText = normalizeText(
-    roomOffer?.roomOfferBeforeCurrentPriceText
-  );
-  const roomOfferCurrentPriceNoteText = normalizeText(
-    roomOffer?.roomOfferCurrentPriceNoteText
-  );
+  const currentPriceText = normalizeText(roomOffer?.currentPriceText);
+  const beforeCurrentPriceText = normalizeText(roomOffer?.beforeCurrentPriceText);
+  const currentPriceNoteText = normalizeText(roomOffer?.currentPriceNoteText);
 
   const isBindableRoomOffer = Boolean(
     roomOffer &&
       typeof roomOffer === "object" &&
       roomOfferId &&
-      roomOfferCurrentPriceText
+      currentPriceText
   );
 
   if (!isBindableRoomOffer) {
@@ -442,28 +436,27 @@ function bindRoomOfferSlot($item, slotNumber, roomOffer, mappedRoomOfferItem, ro
     $item(`#roomOfferRefundableTagText${slotNumber}`).collapse();
   }
 
-  $item(`#roomOfferCurrentPriceText${slotNumber}`).text =
-    roomOfferCurrentPriceText;
-  $item(`#roomOfferCurrentPriceText${slotNumber}`).expand();
+  $item(`#currentPriceText${slotNumber}`).text = currentPriceText;
+  $item(`#currentPriceText${slotNumber}`).expand();
 
   $item(`#roomOfferPerNightText${slotNumber}`).expand();
 
-  if (roomOfferBeforeCurrentPriceText) {
-    $item(`#roomOfferBeforeCurrentPriceText${slotNumber}`).text =
-      roomOfferBeforeCurrentPriceText;
-    $item(`#roomOfferBeforeCurrentPriceText${slotNumber}`).expand();
+  if (beforeCurrentPriceText) {
+    $item(`#beforeCurrentPriceText${slotNumber}`).text =
+      beforeCurrentPriceText;
+    $item(`#beforeCurrentPriceText${slotNumber}`).expand();
   } else {
-    $item(`#roomOfferBeforeCurrentPriceText${slotNumber}`).text = "";
-    $item(`#roomOfferBeforeCurrentPriceText${slotNumber}`).collapse();
+    $item(`#beforeCurrentPriceText${slotNumber}`).text = "";
+    $item(`#beforeCurrentPriceText${slotNumber}`).collapse();
   }
 
-  if (roomOfferCurrentPriceNoteText) {
-    $item(`#roomOfferCurrentPriceNoteText${slotNumber}`).text =
-      roomOfferCurrentPriceNoteText;
-    $item(`#roomOfferCurrentPriceNoteText${slotNumber}`).expand();
+  if (currentPriceNoteText) {
+    $item(`#currentPriceNoteText${slotNumber}`).text =
+      currentPriceNoteText;
+    $item(`#currentPriceNoteText${slotNumber}`).expand();
   } else {
-    $item(`#roomOfferCurrentPriceNoteText${slotNumber}`).text = "";
-    $item(`#roomOfferCurrentPriceNoteText${slotNumber}`).collapse();
+    $item(`#currentPriceNoteText${slotNumber}`).text = "";
+    $item(`#currentPriceNoteText${slotNumber}`).collapse();
   }
 
   $item(`#roomOfferSelectionButton${slotNumber}`).expand();
