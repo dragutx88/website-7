@@ -33,8 +33,6 @@ export const getHotelMappedRoomRates = webMethod(
 
     return {
       hotelId: getHotelMappedRoomRatesResult.hotelId,
-      getHotelMappedRoomRatesResponse:
-        getHotelMappedRoomRatesResult.getHotelMappedRoomRatesResponse,
       normalizedHotelMappedRoomRates:
         getHotelMappedRoomRatesResult.normalizedHotelMappedRoomRates
     };
@@ -49,10 +47,6 @@ export const getHotelMappedRoomOffers = webMethod(
 
     return {
       hotelId: getHotelMappedRoomOffersResult.hotelId,
-      getHotelDetailsResponse:
-        getHotelMappedRoomOffersResult.getHotelDetailsResponse,
-      getHotelMappedRoomRatesResponse:
-        getHotelMappedRoomOffersResult.getHotelMappedRoomRatesResponse,
       normalizedHotelDetails:
         getHotelMappedRoomOffersResult.normalizedHotelDetails,
       normalizedHotelMappedRoomOffers:
