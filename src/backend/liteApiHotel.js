@@ -53,7 +53,6 @@ export async function getHotelDetailsHandler(searchFlowContextQuery) {
 
   return {
     hotelId: getHotelDetailsRequest.hotelId,
-    getHotelDetailsResponse: getHotelDetailsJson,
     normalizedHotelDetails
   };
 }
@@ -91,7 +90,6 @@ export async function getHotelMappedRoomRatesHandler(searchFlowContextQuery) {
 
   return {
     hotelId: getHotelMappedRoomRatesRequest.hotelIds[0],
-    getHotelMappedRoomRatesResponse: getHotelMappedRoomRatesJson,
     normalizedHotelMappedRoomRates: normalizeHotelMappedRoomRates({
       getHotelMappedRoomRates: getHotelMappedRoomRatesJson.data,
       checkin: getHotelMappedRoomRatesRequest.checkin,
@@ -117,9 +115,6 @@ export async function getHotelMappedRoomOffersHandler(searchFlowContextQuery) {
 
   return {
     hotelId: getHotelDetailsRequest.hotelId,
-    getHotelDetailsResponse: getHotelDetailsResult.getHotelDetailsResponse,
-    getHotelMappedRoomRatesResponse:
-      getHotelMappedRoomRatesResult.getHotelMappedRoomRatesResponse,
     normalizedHotelDetails: getHotelDetailsResult.normalizedHotelDetails,
     normalizedHotelMappedRoomOffers
   };
@@ -608,17 +603,10 @@ function normalizeHotelMappedRoomRates({
             rateItem?.cancellationPolicies?.refundableTag
           ).toUpperCase() || null;
 
-        let roomOfferRefundableTagText = "";
-
         if (roomOfferRefundableTag === "RFN") {
-          roomOfferRefundableTagText = "Refundable";
           refundableTagRFNCount += 1;
         } else if (roomOfferRefundableTag === "NRFN") {
-          roomOfferRefundableTagText = "Non-Refundable";
           refundableTagNRFNCount += 1;
-        } else if (roomOfferRefundableTag) {
-          roomOfferRefundableTagText = roomOfferRefundableTag;
-          refundableTagOtherCount += 1;
         } else {
           refundableTagOtherCount += 1;
         }
@@ -633,33 +621,18 @@ function normalizeHotelMappedRoomRates({
             : "incl."
           : "";
 
-        const roomOfferCurrentPriceNoteTextItems = [
+        const currentPriceNoteTextItems = [
           `${roomOfferNightCount} night`,
           `${roomOfferOccupancyNumber} room`
         ];
 
         if (roomOfferTaxesAndFeesText) {
-          roomOfferCurrentPriceNoteTextItems.push(
+          currentPriceNoteTextItems.push(
             `${roomOfferTaxesAndFeesText} taxes & fees`
           );
         }
 
-        const roomOfferCurrentPriceNoteText =
-          roomOfferCurrentPriceNoteTextItems.join(", ");
-
-        const roomOfferCurrentPriceText = formatPriceText({
-          amount: roomOfferCurrentPrice,
-          currency: roomOfferCurrency
-        });
-
-        const roomOfferBeforeCurrentPriceText = Number.isFinite(
-          roomOfferBeforeCurrentPrice
-        )
-          ? formatPriceText({
-              amount: roomOfferBeforeCurrentPrice,
-              currency: roomOfferCurrency
-            })
-          : "";
+        const currentPriceNoteText = currentPriceNoteTextItems.join(", ");
 
         const currentPriceText = formatPriceText({
           amount: currentPrice,
@@ -672,8 +645,6 @@ function normalizeHotelMappedRoomRates({
               currency: roomOfferCurrency
             })
           : "";
-
-        const currentPriceNoteText = roomOfferCurrentPriceNoteText;
 
         const normalizedHotelMappedRoomRatesKey = String(roomOfferMappedRoomId);
 
@@ -696,12 +667,6 @@ function normalizeHotelMappedRoomRates({
           roomOfferAdultCount,
           roomOfferChildCount,
           roomOfferChildrenAges,
-          roomOfferCurrentPrice,
-          roomOfferCurrentPriceText,
-          roomOfferBeforeCurrentPrice: Number.isFinite(roomOfferBeforeCurrentPrice)
-            ? roomOfferBeforeCurrentPrice
-            : null,
-          roomOfferBeforeCurrentPriceText,
           currentPrice,
           currentPriceText,
           beforeCurrentPrice: Number.isFinite(beforeCurrentPrice)
@@ -710,9 +675,6 @@ function normalizeHotelMappedRoomRates({
           beforeCurrentPriceText,
           currentPriceNoteText,
           roomOfferCurrency,
-          roomOfferRefundableTag,
-          roomOfferRefundableTagText,
-          roomOfferCurrentPriceNoteText,
           offerId
         });
 
@@ -729,41 +691,41 @@ function normalizeHotelMappedRoomRates({
       roomOffers: mappedRoomRatesItem.roomOffers
         .slice()
         .sort((leftRoomOfferItem, rightRoomOfferItem) => {
-          const leftRoomOfferCurrentPrice = normalizeNumberOrNull(
-            leftRoomOfferItem?.roomOfferCurrentPrice
+          const leftCurrentPrice = normalizeNumberOrNull(
+            leftRoomOfferItem?.currentPrice
           );
-          const rightRoomOfferCurrentPrice = normalizeNumberOrNull(
-            rightRoomOfferItem?.roomOfferCurrentPrice
+          const rightCurrentPrice = normalizeNumberOrNull(
+            rightRoomOfferItem?.currentPrice
           );
 
-          if (!Number.isFinite(leftRoomOfferCurrentPrice)) {
+          if (!Number.isFinite(leftCurrentPrice)) {
             return 1;
           }
 
-          if (!Number.isFinite(rightRoomOfferCurrentPrice)) {
+          if (!Number.isFinite(rightCurrentPrice)) {
             return -1;
           }
 
-          return leftRoomOfferCurrentPrice - rightRoomOfferCurrentPrice;
+          return leftCurrentPrice - rightCurrentPrice;
         })
     }))
     .sort((leftMappedRoomRatesItem, rightMappedRoomRatesItem) => {
-      const leftRoomOfferCurrentPrice = normalizeNumberOrNull(
-        leftMappedRoomRatesItem?.roomOffers?.[0]?.roomOfferCurrentPrice
+      const leftCurrentPrice = normalizeNumberOrNull(
+        leftMappedRoomRatesItem?.roomOffers?.[0]?.currentPrice
       );
-      const rightRoomOfferCurrentPrice = normalizeNumberOrNull(
-        rightMappedRoomRatesItem?.roomOffers?.[0]?.roomOfferCurrentPrice
+      const rightCurrentPrice = normalizeNumberOrNull(
+        rightMappedRoomRatesItem?.roomOffers?.[0]?.currentPrice
       );
 
-      if (!Number.isFinite(leftRoomOfferCurrentPrice)) {
+      if (!Number.isFinite(leftCurrentPrice)) {
         return 1;
       }
 
-      if (!Number.isFinite(rightRoomOfferCurrentPrice)) {
+      if (!Number.isFinite(rightCurrentPrice)) {
         return -1;
       }
 
-      return leftRoomOfferCurrentPrice - rightRoomOfferCurrentPrice;
+      return leftCurrentPrice - rightCurrentPrice;
     });
 
   console.log("LITEAPI_HOTEL normalizeHotelMappedRoomRates summary", {
@@ -831,24 +793,6 @@ function normalizeHotelMappedRoomOffers({
   const roomOfferCurrency =
     normalizeText(allRoomOffers?.[0]?.roomOfferCurrency) || null;
 
-  const roomOffersMinCurrentPriceCandidates = allRoomOffers
-    .map((roomOfferItem) =>
-      normalizeNumberOrNull(roomOfferItem?.roomOfferCurrentPrice)
-    )
-    .filter((roomOfferCurrentPrice) => Number.isFinite(roomOfferCurrentPrice));
-
-  const roomOffersMinCurrentPrice = roomOffersMinCurrentPriceCandidates.length
-    ? Math.min(...roomOffersMinCurrentPriceCandidates)
-    : null;
-
-  const roomOffersMinCurrentPriceText =
-    Number.isFinite(roomOffersMinCurrentPrice) && roomOfferCurrency
-      ? formatPriceText({
-          amount: roomOffersMinCurrentPrice,
-          currency: roomOfferCurrency
-        })
-      : "";
-
   const minCurrentPriceCandidates = allRoomOffers
     .map((roomOfferItem) => normalizeNumberOrNull(roomOfferItem?.currentPrice))
     .filter((currentPrice) => Number.isFinite(currentPrice));
@@ -869,14 +813,11 @@ function normalizeHotelMappedRoomOffers({
     normalizedHotelRoomsCount: rooms.length,
     mappedRoomOffersCount: mappedRoomOffers.length,
     allRoomOffersCount: allRoomOffers.length,
-    hasRoomOffersMinCurrentPrice: Number.isFinite(roomOffersMinCurrentPrice),
     hasMinCurrentPrice: Number.isFinite(minCurrentPrice),
     roomOfferCurrency
   });
 
   return {
-    roomOffersMinCurrentPrice,
-    roomOffersMinCurrentPriceText,
     minCurrentPrice,
     minCurrentPriceText,
     roomOfferCurrency,
