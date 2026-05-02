@@ -1,7 +1,3 @@
-const LITEAPI_SEARCH_BAR_SDK_URL = "https://components.liteapi.travel/v1.0/sdk.umd.js";
-const ELEMENT_TAG_NAME = "liteapi-search-bar-element";
-const WHITELABEL_URL = "https://ozvia.travel/?language=en&currency=TRY";
-const PRIMARY_COLOR = "#7057F0";
 const SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY = "searchFlowContextQueryStringify";
 
 let sdkLoadPromise = null;
@@ -12,11 +8,13 @@ function loadLiteApiSdkOnce() {
 
   sdkLoadPromise = new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = LITEAPI_SEARCH_BAR_SDK_URL;
+    script.src = "https://components.liteapi.travel/v1.0/sdk.umd.js";
     script.async = true;
     script.onload = () => {
-      console.log("[LITEAPI SEARCHBAR] sdk loaded");
-      window.LiteAPI?.SearchBar?.create ? resolve(window.LiteAPI) : reject(new Error("LiteAPI.SearchBar.create is missing."));
+      console.log("[SEARCH BAR CUSTOM ELEMENT] sdk loaded");
+      window.LiteAPI?.SearchBar?.create
+        ? resolve(window.LiteAPI)
+        : reject(new Error("LiteAPI.SearchBar.create is missing."));
     };
     script.onerror = () => reject(new Error("LiteAPI SearchBar SDK failed to load."));
     document.head.appendChild(script);
@@ -25,37 +23,46 @@ function loadLiteApiSdkOnce() {
   return sdkLoadPromise;
 }
 
-class LiteApiSearchBarElement extends HTMLElement {
+class SearchBarCustomElement extends HTMLElement {
   connectedCallback() {
-    this.innerHTML = `<div id="liteapi-searchbar-target"></div>`;
-
-    const whiteLabelUrl = new URL(WHITELABEL_URL);
+    this.innerHTML = `<div id="search-bar" style="width: 100%;"></div>`;
 
     loadLiteApiSdkOnce().then((LiteAPI) => {
       LiteAPI.init({
-        domain: whiteLabelUrl.hostname,
-        deepLinkParams: whiteLabelUrl.searchParams.toString()
+        domain: "ozvia.travel"
       });
 
       LiteAPI.SearchBar.create({
-        selector: "#liteapi-searchbar-target",
-        primaryColor: PRIMARY_COLOR,
+        selector: "#search-bar",
+        primaryColor: "#7057F0",
         onSearchClick: (searchData) => {
-          console.log("[LITEAPI SEARCHBAR] onSearchClick", searchData);
+          console.log("[SEARCH BAR CUSTOM ELEMENT] onSearchClick", searchData);
 
           const occupancies = JSON.parse(atob(String(searchData?.occupancies ?? "").trim()));
-          console.log("[LITEAPI SEARCHBAR] occupancies", occupancies);
+          console.log("[SEARCH BAR CUSTOM ELEMENT] occupancies", occupancies);
 
-          const rooms = Array.isArray(occupancies) && occupancies.length ? occupancies : normalizeOccupancies(searchData);
-          console.log("[LITEAPI SEARCHBAR] rooms", rooms);
+          const rooms = Array.isArray(occupancies) && occupancies.length
+            ? occupancies
+            : normalizeOccupancies(searchData);
 
-          console.log("[LITEAPI SEARCHBAR] redirect", window.top.location.origin + window.top.location.pathname.replace(/\/?$/, '/') + "hotels");
+          console.log("[SEARCH BAR CUSTOM ELEMENT] rooms", rooms);
+
+          console.log(
+            "[SEARCH BAR CUSTOM ELEMENT] redirect",
+            window.top.location.origin +
+              window.top.location.pathname.replace(/\/?$/, "/") +
+              "hotels"
+          );
 
           window.top.location.assign(
             new URL(
               `hotels?${new URLSearchParams({
                 ...Object.fromEntries(new URLSearchParams(window.top.location.search)),
-                ...JSON.parse(window.top.sessionStorage.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"),
+                ...JSON.parse(
+                  window.top.sessionStorage.getItem(
+                    SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY
+                  ) || "{}"
+                ),
                 mode: "destination",
                 placeId: String(searchData?.place?.place_id ?? "").trim(),
                 name: String(searchData?.place?.description ?? searchData?.query ?? "").trim(),
@@ -63,16 +70,23 @@ class LiteApiSearchBarElement extends HTMLElement {
                 checkout: dateText(searchData?.checkout || searchData?.dates?.end),
                 rooms: String(rooms.length || 1),
                 adults: rooms.map((r) => String(number(r?.adults, 1))).join(","),
-                children: rooms.flatMap((r, i) => (r?.children ?? []).map((age) => `${i + 1}_${number(age, 0)}`)).join(",")
+                children: rooms
+                  .flatMap((r, i) =>
+                    (r?.children ?? []).map((age) => `${i + 1}_${number(age, 0)}`)
+                  )
+                  .join(","),
+                language: "tr",
+                currency: "TRY"
               })}`,
-              window.top.location.origin + window.top.location.pathname.replace(/\/?$/, '/')
+              window.top.location.origin +
+                window.top.location.pathname.replace(/\/?$/, "/")
             ).href
           );
         }
       });
 
-      console.log("[LITEAPI SEARCHBAR] mounted");
-    }).catch((error) => console.error("[LITEAPI SEARCHBAR] failed", error));
+      console.log("[SEARCH BAR CUSTOM ELEMENT] mounted");
+    }).catch((error) => console.error("[SEARCH BAR CUSTOM ELEMENT] failed", error));
   }
 }
 
@@ -80,19 +94,26 @@ function normalizeOccupancies(searchData) {
   const rooms = number(searchData?.rooms, 1);
   const adults = number(searchData?.adults, 2);
   const childrenCount = number(searchData?.children, 0);
+
   const result = Array.from({ length: rooms }, (_, i) => ({
     adults: i === 0 ? adults : 1,
     children: i === 0 ? Array.from({ length: childrenCount }, () => 0) : []
   }));
-  console.log("[LITEAPI SEARCHBAR] normalizeOccupancies", result);
+
+  console.log("[SEARCH BAR CUSTOM ELEMENT] normalizeOccupancies", result);
+
   return result;
 }
 
 function dateText(value) {
-  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+
   const raw = String(value ?? "").trim();
   if (!raw) return "";
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? raw : parsed.toISOString().slice(0, 10);
 }
@@ -102,6 +123,6 @@ function number(value, fallback) {
   return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
 }
 
-if (!customElements.get(ELEMENT_TAG_NAME)) {
-  customElements.define(ELEMENT_TAG_NAME, LiteApiSearchBarElement);
+if (!customElements.get("search-bar-custom-element")) {
+  customElements.define("search-bar-custom-element", SearchBarCustomElement);
 }
