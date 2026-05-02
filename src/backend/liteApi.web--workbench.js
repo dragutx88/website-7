@@ -1,5 +1,6 @@
 import { Permissions, webMethod } from "wix-web-module";
-import { getHotelsRatesHandler, searchPlacesHandler } from "./liteApiSearch";
+import { searchPlacesHandler } from "./liteApiPlaces";
+import { getHotelsRatesHandler } from "./liteApiSearch";
 import {
   getHotelDetailsHandler,
   getHotelMappedRoomRatesHandler,
