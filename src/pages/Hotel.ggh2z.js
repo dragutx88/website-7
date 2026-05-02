@@ -1,12 +1,16 @@
 import wixLocationFrontend from "wix-location-frontend";
 import wixWindowFrontend from "wix-window-frontend";
 import wixEcomFrontend from "wix-ecom-frontend";
+import { session } from "wix-storage-frontend";
 import { currentCart } from "wix-ecom-backend";
 import {
   createPrebookSession,
   getHotelMappedRoomOffers
 } from "backend/liteApi.web";
 import { importCatalogImages } from "backend/wix.web";
+
+const SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY =
+  "searchFlowContextQueryStringify";
 
 const ROOM_DETAILS_LIGHTBOX = "roomDetailsPopup";
 const HOTEL_POLICIES_LIGHTBOX = "hotelPoliciesPopup";
@@ -24,12 +28,10 @@ const PURCHASE_FLOW_MODE = PURCHASE_FLOW_MODES.WIX_CART;
 
 const LITEAPI_CATALOG_APP_ID = "e7f94f4b-7e6a-41c6-8ee1-52c1d5f31cf4";
 
-const HOTEL_PAGE_PATH = "/hotel";
 const CART_PAGE_PATH = "/cart-page";
 const CHECKOUT_PAGE_PATH = "/checkout";
 
 let searchFlowContextQuery = {};
-let searchFlowContextUrl = "";
 let hotelPageState = null;
 
 $w.onReady(async function () {
@@ -41,20 +43,45 @@ $w.onReady(async function () {
 });
 
 async function initializeHotelPage() {
-  searchFlowContextQuery = wixLocationFrontend.query || {};
-  searchFlowContextUrl = buildSearchFlowContextUrl(searchFlowContextQuery);
+  session.setItem(
+    SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY,
+    JSON.stringify({
+      ...wixLocationFrontend.query,
+      ...JSON.parse(
+        session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
+      ),
+      language: "tr",
+      currency: "TRY"
+    })
+  );
 
-  const resolvedHotelId = normalizeText(searchFlowContextQuery?.hotelId);
+  wixLocationFrontend.queryParams.add(
+    JSON.parse(session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY))
+  );
 
-  if (!resolvedHotelId) {
-    console.error("HOTEL PAGE missing hotelId.");
-    $w("#hotelNameText").text = "Hotel";
-    $w("#hotelNameText").expand();
-    return;
-  }
+  searchFlowContextQuery = {
+    ...JSON.parse(
+      session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
+    ),
+    ...wixLocationFrontend.query
+  };
+
+  console.log("HOTEL PAGE initialize searchFlowContextQuery", searchFlowContextQuery);
 
   try {
     hotelPageState = await getHotelMappedRoomOffers(searchFlowContextQuery);
+
+    console.log("HOTEL PAGE getHotelMappedRoomOffers summary", {
+      hasNormalizedHotelDetails: Boolean(hotelPageState?.normalizedHotelDetails),
+      mappedRoomOffersCount: Array.isArray(
+        hotelPageState?.normalizedHotelMappedRoomOffers?.mappedRoomOffers
+      )
+        ? hotelPageState.normalizedHotelMappedRoomOffers.mappedRoomOffers.length
+        : 0,
+      hasMinCurrentPrice: Number.isFinite(
+        hotelPageState?.normalizedHotelMappedRoomOffers?.minCurrentPrice
+      )
+    });
 
     bindHotelHero(
       hotelPageState?.normalizedHotelDetails || null,
@@ -67,14 +94,21 @@ async function initializeHotelPage() {
     bindMappedRoomOffersRepeater(
       hotelPageState?.normalizedHotelMappedRoomOffers?.mappedRoomOffers || []
     );
-  } catch (error) {
-    console.error("HOTEL PAGE initialization failed", error);
+  } catch (initializeHotelPageError) {
+    console.error("HOTEL PAGE initialization failed", {
+      name: initializeHotelPageError?.name,
+      message: initializeHotelPageError?.message,
+      stack: initializeHotelPageError?.stack
+    });
 
-    $w("#hotelNameText").text = "Hotel";
-    $w("#hotelNameText").expand();
-
-    $w("#hotelAddressText").text = "";
-    $w("#hotelAddressText").expand();
+    wixLocationFrontend.to(`/hotels?${new URLSearchParams({
+      ...wixLocationFrontend.query,
+      ...JSON.parse(
+        session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
+      ),
+      language: "tr",
+      currency: "TRY"
+    })}`);
   }
 }
 
@@ -354,12 +388,9 @@ function buildRoomDetailsPopupData(room) {
 }
 
 function bindRoomOfferSlot($item, slotNumber, roomOffer, mappedRoomOfferItem, room) {
-  const roomOfferId = normalizeText(roomOffer?.offerId);
+  const offerId = normalizeText(roomOffer?.offerId);
   const roomOfferName = normalizeText(roomOffer?.roomOfferName);
   const roomOfferBoardName = normalizeText(roomOffer?.roomOfferBoardName);
-  const roomOfferRefundableTagText = normalizeText(
-    roomOffer?.roomOfferRefundableTagText
-  );
   const currentPriceText = normalizeText(roomOffer?.currentPriceText);
   const beforeCurrentPriceText = normalizeText(roomOffer?.beforeCurrentPriceText);
   const currentPriceNoteText = normalizeText(roomOffer?.currentPriceNoteText);
@@ -367,7 +398,7 @@ function bindRoomOfferSlot($item, slotNumber, roomOffer, mappedRoomOfferItem, ro
   const isBindableRoomOffer = Boolean(
     roomOffer &&
       typeof roomOffer === "object" &&
-      roomOfferId &&
+      offerId &&
       currentPriceText
   );
 
@@ -425,15 +456,6 @@ function bindRoomOfferSlot($item, slotNumber, roomOffer, mappedRoomOfferItem, ro
   } else {
     $item(`#roomOfferBoardNameText${slotNumber}`).text = "";
     $item(`#roomOfferBoardNameText${slotNumber}`).collapse();
-  }
-
-  if (roomOfferRefundableTagText) {
-    $item(`#roomOfferRefundableTagText${slotNumber}`).text =
-      roomOfferRefundableTagText;
-    $item(`#roomOfferRefundableTagText${slotNumber}`).expand();
-  } else {
-    $item(`#roomOfferRefundableTagText${slotNumber}`).text = "";
-    $item(`#roomOfferRefundableTagText${slotNumber}`).collapse();
   }
 
   $item(`#currentPriceText${slotNumber}`).text = currentPriceText;
@@ -663,17 +685,19 @@ async function handleWixCartFlow(purchaseSelection) {
 
   wixEcomFrontend.refreshCart();
 
-  const redirectSearchFlowContextUrl = buildRedirectSearchFlowContextUrl(
-    CART_PAGE_PATH,
-    searchFlowContextQuery,
-    {
-      hotelId,
-      prebookId,
-      mode: PURCHASE_FLOW_MODES.WIX_CART
-    }
-  );
+  const runtimeSearchFlowContextQuery = {
+    prebookId
+  };
 
-  wixLocationFrontend.to(redirectSearchFlowContextUrl);
+  wixLocationFrontend.to(`${CART_PAGE_PATH}?${new URLSearchParams({
+    ...wixLocationFrontend.query,
+    ...JSON.parse(
+      session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
+    ),
+    ...runtimeSearchFlowContextQuery,
+    language: "tr",
+    currency: "TRY"
+  })}`);
 }
 
 async function handlePaymentSdkFlow(purchaseSelection) {
@@ -727,17 +751,19 @@ async function handlePaymentSdkFlow(purchaseSelection) {
     throw new Error("normalizedPrebook.prebookId is required for payment SDK flow.");
   }
 
-  const redirectSearchFlowContextUrl = buildRedirectSearchFlowContextUrl(
-    CHECKOUT_PAGE_PATH,
-    searchFlowContextQuery,
-    {
-      hotelId,
-      prebookId,
-      mode: PURCHASE_FLOW_MODES.PAYMENT_SDK
-    }
-  );
+  const runtimeSearchFlowContextQuery = {
+    prebookId
+  };
 
-  wixLocationFrontend.to(redirectSearchFlowContextUrl);
+  wixLocationFrontend.to(`${CHECKOUT_PAGE_PATH}?${new URLSearchParams({
+    ...wixLocationFrontend.query,
+    ...JSON.parse(
+      session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
+    ),
+    ...runtimeSearchFlowContextQuery,
+    language: "tr",
+    currency: "TRY"
+  })}`);
 }
 
 async function removePrebookItemsIfCartExists() {
@@ -933,38 +959,6 @@ async function resolveCatalogImageRefs({
       wixRoomMainImageRef: ""
     };
   }
-}
-
-function buildSearchFlowContextUrl(query = {}) {
-  return buildRedirectSearchFlowContextUrl(HOTEL_PAGE_PATH, query, {});
-}
-
-function buildRedirectSearchFlowContextUrl(
-  path,
-  query = {},
-  additionalSearchFlowContextQuery = {}
-) {
-  const params = new URLSearchParams();
-
-  Object.entries({
-    ...query,
-    ...additionalSearchFlowContextQuery
-  }).forEach(([key, value]) => {
-    if (value === undefined || value === null) {
-      return;
-    }
-
-    const text = String(value).trim();
-
-    if (!text) {
-      return;
-    }
-
-    params.set(key, text);
-  });
-
-  const queryString = params.toString();
-  return queryString ? `${path}?${queryString}` : path;
 }
 
 function bindMapElements(hotelMapUrl) {
