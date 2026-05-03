@@ -16,6 +16,8 @@ const OCCUPANCY_MAX_CHILDREN = 10;
 const SEARCH_BAR_DOM_READY_TIMEOUT_MS = 4000;
 const SEARCH_BAR_DESTINATION_SUGGESTION_TIMEOUT_MS = 1800;
 const SEARCH_BAR_DOM_SETTLE_MS = 250;
+const SEARCH_BAR_COUNTER_CLICK_SETTLE_MS = 140;
+const SEARCH_BAR_COUNTER_MAX_CLICKS = 30;
 
 class SearchBarCustomElement2 extends HTMLElement {
   connectedCallback() {
@@ -64,7 +66,7 @@ class SearchBarCustomElement2 extends HTMLElement {
       0
     );
 
-    console.log("[SEARCH BAR CUSTOM ELEMENT 2] create hydrate preset", {
+    logJson("[SEARCH BAR CUSTOM ELEMENT 2] create hydrate preset", {
       hasPreset: Boolean(searchBarPresetSearchFlowContextQuery),
       presetSearchFlowContextQuery: searchBarPresetSearchFlowContextQuery,
       presetOccupancies: searchBarPresetOccupancies,
@@ -220,7 +222,7 @@ async function hydrateSearchBarDomAfterCreate({
   searchBarPresetSearchFlowContextQuery,
   searchBarPresetOccupancies
 }) {
-  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM hydrate start", {
+  logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM hydrate start", {
     searchBarPresetSearchFlowContextQuery,
     searchBarPresetOccupancies
   });
@@ -234,7 +236,7 @@ async function hydrateSearchBarDomAfterCreate({
     return;
   }
 
-  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM snapshot after SDK render", {
+  logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM snapshot after SDK render", {
     snapshot: buildSearchBarDomSnapshot(searchBarRoot)
   });
 
@@ -250,7 +252,7 @@ async function hydrateSearchBarDomAfterCreate({
 
   await waitForMilliseconds(SEARCH_BAR_DOM_SETTLE_MS);
 
-  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM snapshot after DOM hydrate", {
+  logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM snapshot after DOM hydrate", {
     snapshot: buildSearchBarDomSnapshot(searchBarRoot)
   });
 }
@@ -309,14 +311,14 @@ async function hydrateDestinationByDom({
   const destinationInput = findDestinationInput(searchBarRoot);
 
   if (!destinationInput) {
-    console.warn("[SEARCH BAR CUSTOM ELEMENT 2] DOM destination skipped", {
+    logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM destination skipped", {
       reason: "destinationInputNotFound",
       snapshot: buildSearchBarDomSnapshot(searchBarRoot)
     });
     return;
   }
 
-  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM destination input found", {
+  logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM destination input found", {
     tagName: destinationInput.tagName,
     type: destinationInput.getAttribute("type"),
     role: destinationInput.getAttribute("role"),
@@ -341,7 +343,7 @@ async function hydrateDestinationByDom({
     searchBarPresetSearchFlowContextQuery
   );
 
-  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM destination suggestion lookup", {
+  logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM destination suggestion lookup", {
     hasDestinationSuggestionElement: Boolean(destinationSuggestionElement),
     suggestionText: destinationSuggestionElement
       ? getElementText(destinationSuggestionElement)
@@ -357,7 +359,7 @@ async function hydrateDestinationByDom({
 
   await waitForMilliseconds(SEARCH_BAR_DOM_SETTLE_MS);
 
-  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM destination suggestion clicked", {
+  logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM destination suggestion clicked", {
     placeId: searchBarPresetSearchFlowContextQuery.placeId,
     name: searchBarPresetSearchFlowContextQuery.name,
     suggestionText: getElementText(destinationSuggestionElement)
@@ -388,7 +390,7 @@ async function hydrateOccupancyByDom({
   const occupancyTriggerElement = findOccupancyTriggerElement(searchBarRoot);
 
   if (!occupancyTriggerElement) {
-    console.warn("[SEARCH BAR CUSTOM ELEMENT 2] DOM occupancy skipped", {
+    logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM occupancy skipped", {
       reason: "occupancyTriggerNotFound",
       desiredRoomCount,
       desiredAdultCount,
@@ -399,7 +401,7 @@ async function hydrateOccupancyByDom({
     return;
   }
 
-  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM occupancy trigger found", {
+  logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM occupancy trigger found", {
     triggerText: getElementText(occupancyTriggerElement),
     desiredRoomCount,
     desiredAdultCount,
@@ -411,42 +413,31 @@ async function hydrateOccupancyByDom({
 
   await waitForMilliseconds(SEARCH_BAR_DOM_SETTLE_MS);
 
-  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM occupancy popup snapshot", {
-    snapshot: buildSearchBarDomSnapshot(searchBarRoot)
+  logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM occupancy popup snapshot", {
+    snapshot: buildSearchBarDomSnapshot(searchBarRoot),
+    counterRows: buildCounterRowsSnapshot(searchBarRoot)
   });
 
-  const roomIncrementClickCount = Math.max(0, desiredRoomCount - 1);
-  const assumedAdultCountAfterRoomClicks =
-    2 + Math.max(0, desiredRoomCount - 1);
-  const adultIncrementClickCount = Math.max(
-    0,
-    desiredAdultCount - assumedAdultCountAfterRoomClicks
-  );
-  const childrenIncrementClickCount = desiredChildrenCount;
-
-  clickIncrementButtonByLabel({
+  await syncCounterRowToValue({
     searchBarRoot,
-    labelWords: ["room", "rooms"],
-    clickCount: roomIncrementClickCount,
-    logLabel: "rooms"
+    rowLabel: "Rooms",
+    desiredValue: desiredRoomCount
   });
 
   await waitForMilliseconds(SEARCH_BAR_DOM_SETTLE_MS);
 
-  clickIncrementButtonByLabel({
+  await syncCounterRowToValue({
     searchBarRoot,
-    labelWords: ["adult", "adults"],
-    clickCount: adultIncrementClickCount,
-    logLabel: "adults"
+    rowLabel: "Adults",
+    desiredValue: desiredAdultCount
   });
 
   await waitForMilliseconds(SEARCH_BAR_DOM_SETTLE_MS);
 
-  clickIncrementButtonByLabel({
+  await syncCounterRowToValue({
     searchBarRoot,
-    labelWords: ["child", "children"],
-    clickCount: childrenIncrementClickCount,
-    logLabel: "children"
+    rowLabel: "Children",
+    desiredValue: desiredChildrenCount
   });
 
   await waitForMilliseconds(SEARCH_BAR_DOM_SETTLE_MS);
@@ -460,23 +451,331 @@ async function hydrateOccupancyByDom({
 
   const applyOccupancyElement = findApplyOccupancyElement(searchBarRoot);
 
-  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM occupancy apply lookup", {
+  logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM occupancy apply lookup", {
     hasApplyOccupancyElement: Boolean(applyOccupancyElement),
-    applyText: applyOccupancyElement ? getElementText(applyOccupancyElement) : ""
+    applyText: applyOccupancyElement ? getElementText(applyOccupancyElement) : "",
+    counterRows: buildCounterRowsSnapshot(searchBarRoot)
   });
 
   if (applyOccupancyElement) {
     clickElement(applyOccupancyElement);
+  } else {
+    clickElement(occupancyTriggerElement);
   }
 
   await waitForMilliseconds(SEARCH_BAR_DOM_SETTLE_MS);
 
-  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM occupancy finished", {
+  logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM occupancy finished", {
     desiredRoomCount,
     desiredAdultCount,
     desiredChildrenCount,
     desiredChildrenAges,
+    counterRows: buildCounterRowsSnapshot(searchBarRoot),
     snapshot: buildSearchBarDomSnapshot(searchBarRoot)
+  });
+}
+
+async function syncCounterRowToValue({
+  searchBarRoot,
+  rowLabel,
+  desiredValue
+}) {
+  const counterRow = findCounterRowByLabel(searchBarRoot, rowLabel);
+
+  if (!counterRow) {
+    logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM counter row not found", {
+      rowLabel,
+      desiredValue,
+      counterRows: buildCounterRowsSnapshot(searchBarRoot),
+      snapshot: buildSearchBarDomSnapshot(searchBarRoot)
+    });
+    return;
+  }
+
+  logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM counter row found", {
+    rowLabel,
+    desiredValue,
+    rowText: getElementText(counterRow),
+    currentValue: getCounterRowCurrentValue(counterRow),
+    rowSnapshot: buildCounterRowSnapshot(counterRow)
+  });
+
+  for (let clickIndex = 0; clickIndex < SEARCH_BAR_COUNTER_MAX_CLICKS; clickIndex += 1) {
+    const currentValue = getCounterRowCurrentValue(counterRow);
+
+    if (!Number.isFinite(currentValue)) {
+      logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM counter current value missing", {
+        rowLabel,
+        desiredValue,
+        rowText: getElementText(counterRow),
+        rowSnapshot: buildCounterRowSnapshot(counterRow)
+      });
+      return;
+    }
+
+    if (currentValue === desiredValue) {
+      logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM counter synced", {
+        rowLabel,
+        desiredValue,
+        currentValue,
+        clickIndex
+      });
+      return;
+    }
+
+    const nextButton =
+      currentValue < desiredValue
+        ? findCounterRowIncrementButton(counterRow)
+        : findCounterRowDecrementButton(counterRow);
+
+    if (!nextButton) {
+      logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM counter button not found", {
+        rowLabel,
+        desiredValue,
+        currentValue,
+        direction: currentValue < desiredValue ? "increment" : "decrement",
+        rowSnapshot: buildCounterRowSnapshot(counterRow)
+      });
+      return;
+    }
+
+    clickElement(nextButton);
+
+    logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM counter button clicked", {
+      rowLabel,
+      desiredValue,
+      previousValue: currentValue,
+      direction: currentValue < desiredValue ? "increment" : "decrement",
+      buttonText: getElementText(nextButton),
+      buttonAriaLabel: nextButton.getAttribute("aria-label"),
+      clickIndex: clickIndex + 1
+    });
+
+    await waitForMilliseconds(SEARCH_BAR_COUNTER_CLICK_SETTLE_MS);
+  }
+
+  logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM counter sync max clicks reached", {
+    rowLabel,
+    desiredValue,
+    currentValue: getCounterRowCurrentValue(counterRow),
+    rowSnapshot: buildCounterRowSnapshot(counterRow)
+  });
+}
+
+function findCounterRowByLabel(searchBarRoot, rowLabel) {
+  const normalizedRowLabel = rowLabel.toLowerCase();
+
+  const labelElements = getVisibleElements(
+    searchBarRoot,
+    "div, span, p, label, strong"
+  ).filter((element) => {
+    const text = getElementText(element).trim().toLowerCase();
+    return text === normalizedRowLabel || text.startsWith(normalizedRowLabel);
+  });
+
+  const rowCandidates = [];
+
+  labelElements.forEach((labelElement) => {
+    let currentElement = labelElement;
+
+    for (let depth = 0; currentElement && depth < 8; depth += 1) {
+      if (currentElement === searchBarRoot) {
+        break;
+      }
+
+      const currentText = getElementText(currentElement).toLowerCase();
+      const buttons = getVisibleElements(currentElement, "button, [role='button']");
+
+      if (
+        currentText.includes(normalizedRowLabel) &&
+        buttons.some(isIncrementButtonElement) &&
+        buttons.some(isDecrementButtonElement) &&
+        Number.isFinite(getCounterRowCurrentValue(currentElement))
+      ) {
+        rowCandidates.push(currentElement);
+      }
+
+      currentElement = currentElement.parentElement;
+    }
+  });
+
+  if (!rowCandidates.length) {
+    getVisibleElements(searchBarRoot, "div, section, li").forEach((element) => {
+      const text = getElementText(element).toLowerCase();
+      const buttons = getVisibleElements(element, "button, [role='button']");
+
+      if (
+        text.includes(normalizedRowLabel) &&
+        buttons.some(isIncrementButtonElement) &&
+        buttons.some(isDecrementButtonElement) &&
+        Number.isFinite(getCounterRowCurrentValue(element))
+      ) {
+        rowCandidates.push(element);
+      }
+    });
+  }
+
+  return dedupeElements(rowCandidates).sort(compareElementsByArea)[0] || null;
+}
+
+function getCounterRowCurrentValue(counterRow) {
+  const numberElements = getVisibleElements(counterRow, "span, div, p, strong")
+    .map((element) => ({
+      element,
+      text: getElementText(element).trim()
+    }))
+    .filter((item) => /^\d+$/.test(item.text));
+
+  if (numberElements.length) {
+    return Number(numberElements.sort(compareElementItemsByArea)[0].text);
+  }
+
+  const textMatch = getElementText(counterRow).match(/\b\d+\b/);
+  return textMatch ? Number(textMatch[0]) : null;
+}
+
+function findCounterRowIncrementButton(counterRow) {
+  return getVisibleElements(counterRow, "button, [role='button']")
+    .filter(isIncrementButtonElement)
+    .sort(compareElementsByArea)[0] || null;
+}
+
+function findCounterRowDecrementButton(counterRow) {
+  return getVisibleElements(counterRow, "button, [role='button']")
+    .filter(isDecrementButtonElement)
+    .sort(compareElementsByArea)[0] || null;
+}
+
+function isIncrementButtonElement(element) {
+  const elementText = getElementText(element).trim();
+  const ariaLabel = normalizeText(element.getAttribute("aria-label")).toLowerCase();
+  const title = normalizeText(element.getAttribute("title")).toLowerCase();
+  const className = normalizeText(element.getAttribute("class")).toLowerCase();
+
+  return (
+    elementText === "+" ||
+    elementText.includes("+") ||
+    ariaLabel.includes("increase") ||
+    ariaLabel.includes("increment") ||
+    ariaLabel.includes("add") ||
+    ariaLabel.includes("plus") ||
+    title.includes("increase") ||
+    title.includes("increment") ||
+    title.includes("add") ||
+    title.includes("plus") ||
+    className.includes("plus") ||
+    className.includes("increase")
+  );
+}
+
+function isDecrementButtonElement(element) {
+  const elementText = getElementText(element).trim();
+  const ariaLabel = normalizeText(element.getAttribute("aria-label")).toLowerCase();
+  const title = normalizeText(element.getAttribute("title")).toLowerCase();
+  const className = normalizeText(element.getAttribute("class")).toLowerCase();
+
+  return (
+    elementText === "-" ||
+    elementText === "−" ||
+    elementText.includes("-") ||
+    elementText.includes("−") ||
+    ariaLabel.includes("decrease") ||
+    ariaLabel.includes("decrement") ||
+    ariaLabel.includes("remove") ||
+    ariaLabel.includes("minus") ||
+    title.includes("decrease") ||
+    title.includes("decrement") ||
+    title.includes("remove") ||
+    title.includes("minus") ||
+    className.includes("minus") ||
+    className.includes("decrease")
+  );
+}
+
+function setChildrenAgesByDom({ searchBarRoot, desiredChildrenAges }) {
+  if (!desiredChildrenAges.length) {
+    console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM child age skipped", {
+      reason: "noChildren"
+    });
+    return;
+  }
+
+  const visibleSelects = getVisibleElements(searchBarRoot, "select");
+
+  logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM child age select lookup", {
+    desiredChildrenAges,
+    visibleSelectsCount: visibleSelects.length,
+    selectSnapshots: visibleSelects.map((selectElement, index) => ({
+      index,
+      value: selectElement.value,
+      options: Array.from(selectElement.options || []).map((option) => ({
+        value: option.value,
+        text: option.text
+      }))
+    }))
+  });
+
+  desiredChildrenAges.forEach((desiredChildAge, childAgeIndex) => {
+    const selectElement = visibleSelects[childAgeIndex];
+
+    if (!selectElement) {
+      logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM child age skipped", {
+        childAgeIndex,
+        desiredChildAge,
+        reason: "selectNotFound"
+      });
+      return;
+    }
+
+    const desiredChildAgeText = String(desiredChildAge);
+    const matchingOption = Array.from(selectElement.options || []).find(
+      (option) => {
+        const optionValue = String(option.value || "").trim();
+        const optionText = normalizeText(option.text).toLowerCase();
+
+        return (
+          optionValue === desiredChildAgeText ||
+          optionText === desiredChildAgeText ||
+          optionText.startsWith(`${desiredChildAgeText} `) ||
+          optionText.includes(`${desiredChildAgeText} year`)
+        );
+      }
+    );
+
+    if (!matchingOption) {
+      logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM child age skipped", {
+        childAgeIndex,
+        desiredChildAge,
+        reason: "matchingOptionNotFound",
+        options: Array.from(selectElement.options || []).map((option) => ({
+          value: option.value,
+          text: option.text
+        }))
+      });
+      return;
+    }
+
+    selectElement.value = matchingOption.value;
+    selectElement.dispatchEvent(
+      new Event("change", {
+        bubbles: true,
+        cancelable: true
+      })
+    );
+
+    selectElement.dispatchEvent(
+      new Event("input", {
+        bubbles: true,
+        cancelable: true
+      })
+    );
+
+    logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM child age selected", {
+      childAgeIndex,
+      desiredChildAge,
+      selectedValue: selectElement.value,
+      selectedText: matchingOption.text
+    });
   });
 }
 
@@ -503,9 +802,7 @@ function findDestinationInput(searchBarRoot) {
       elementText.includes("search") ||
       elementText.includes("place") ||
       elementText.includes("city") ||
-      elementText.includes("hotel") ||
-      elementText.includes("roma") ||
-      elementText.includes("paris")
+      elementText.includes("hotel")
     );
   });
 
@@ -632,153 +929,6 @@ function findOccupancyTriggerElement(searchBarRoot) {
   return candidates[0] || null;
 }
 
-function clickIncrementButtonByLabel({
-  searchBarRoot,
-  labelWords,
-  clickCount,
-  logLabel
-}) {
-  if (clickCount <= 0) {
-    console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM increment skipped", {
-      logLabel,
-      clickCount,
-      reason: "noClicksRequired"
-    });
-    return;
-  }
-
-  for (let clickIndex = 0; clickIndex < clickCount; clickIndex += 1) {
-    const incrementButton = findIncrementButtonByLabel(
-      searchBarRoot,
-      labelWords
-    );
-
-    if (!incrementButton) {
-      console.warn("[SEARCH BAR CUSTOM ELEMENT 2] DOM increment failed", {
-        logLabel,
-        clickIndex,
-        clickCount,
-        reason: "incrementButtonNotFound",
-        snapshot: buildSearchBarDomSnapshot(searchBarRoot)
-      });
-      return;
-    }
-
-    clickElement(incrementButton);
-
-    console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM increment clicked", {
-      logLabel,
-      clickIndex: clickIndex + 1,
-      clickCount,
-      buttonText: getElementText(incrementButton),
-      buttonAriaLabel: incrementButton.getAttribute("aria-label")
-    });
-  }
-}
-
-function findIncrementButtonByLabel(searchBarRoot, labelWords) {
-  const buttons = getVisibleElements(
-    searchBarRoot,
-    "button, [role='button']"
-  ).filter(isIncrementButtonElement);
-
-  for (const button of buttons) {
-    if (hasAncestorText(button, labelWords, searchBarRoot)) {
-      return button;
-    }
-  }
-
-  return buttons[0] || null;
-}
-
-function isIncrementButtonElement(element) {
-  const elementText = getElementText(element).trim().toLowerCase();
-  const ariaLabel = normalizeText(element.getAttribute("aria-label")).toLowerCase();
-  const title = normalizeText(element.getAttribute("title")).toLowerCase();
-  const className = normalizeText(element.getAttribute("class")).toLowerCase();
-
-  return (
-    elementText === "+" ||
-    elementText.includes("+") ||
-    ariaLabel.includes("increase") ||
-    ariaLabel.includes("increment") ||
-    ariaLabel.includes("add") ||
-    ariaLabel.includes("plus") ||
-    title.includes("increase") ||
-    title.includes("increment") ||
-    title.includes("add") ||
-    title.includes("plus") ||
-    className.includes("plus") ||
-    className.includes("increase")
-  );
-}
-
-function setChildrenAgesByDom({ searchBarRoot, desiredChildrenAges }) {
-  if (!desiredChildrenAges.length) {
-    console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM child age skipped", {
-      reason: "noChildren"
-    });
-    return;
-  }
-
-  const visibleSelects = getVisibleElements(searchBarRoot, "select");
-
-  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM child age select lookup", {
-    desiredChildrenAges,
-    visibleSelectsCount: visibleSelects.length,
-    selectSnapshots: visibleSelects.map((selectElement) => ({
-      value: selectElement.value,
-      options: Array.from(selectElement.options || []).map((option) => ({
-        value: option.value,
-        text: option.text
-      }))
-    }))
-  });
-
-  desiredChildrenAges.forEach((desiredChildAge, childAgeIndex) => {
-    const selectElement = visibleSelects[childAgeIndex];
-
-    if (!selectElement) {
-      console.warn("[SEARCH BAR CUSTOM ELEMENT 2] DOM child age skipped", {
-        childAgeIndex,
-        desiredChildAge,
-        reason: "selectNotFound"
-      });
-      return;
-    }
-
-    const desiredChildAgeText = String(desiredChildAge);
-    const matchingOption = Array.from(selectElement.options || []).find(
-      (option) =>
-        String(option.value) === desiredChildAgeText ||
-        normalizeText(option.text) === desiredChildAgeText
-    );
-
-    if (!matchingOption) {
-      console.warn("[SEARCH BAR CUSTOM ELEMENT 2] DOM child age skipped", {
-        childAgeIndex,
-        desiredChildAge,
-        reason: "matchingOptionNotFound"
-      });
-      return;
-    }
-
-    selectElement.value = matchingOption.value;
-    selectElement.dispatchEvent(
-      new Event("change", {
-        bubbles: true,
-        cancelable: true
-      })
-    );
-
-    console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM child age selected", {
-      childAgeIndex,
-      desiredChildAge,
-      selectedValue: selectElement.value
-    });
-  });
-}
-
 function findApplyOccupancyElement(searchBarRoot) {
   const candidates = getVisibleElements(
     searchBarRoot,
@@ -804,26 +954,6 @@ function findApplyOccupancyElement(searchBarRoot) {
   return candidates[0] || null;
 }
 
-function hasAncestorText(element, labelWords, stopElement) {
-  let currentElement = element;
-
-  for (let depth = 0; currentElement && depth < 7; depth += 1) {
-    const currentText = getElementText(currentElement).toLowerCase();
-
-    if (labelWords.some((labelWord) => currentText.includes(labelWord))) {
-      return true;
-    }
-
-    if (currentElement === stopElement) {
-      return false;
-    }
-
-    currentElement = currentElement.parentElement;
-  }
-
-  return false;
-}
-
 function buildSearchBarDomSnapshot(searchBarRoot) {
   return {
     inputs: getVisibleElements(
@@ -842,7 +972,7 @@ function buildSearchBarDomSnapshot(searchBarRoot) {
         text: trimLongText(getElementText(element), 120)
       })),
     buttons: getVisibleElements(searchBarRoot, "button, [role='button'], a")
-      .slice(0, 30)
+      .slice(0, 40)
       .map((element, index) => ({
         index,
         tagName: element.tagName,
@@ -850,15 +980,26 @@ function buildSearchBarDomSnapshot(searchBarRoot) {
         ariaLabel: element.getAttribute("aria-label"),
         title: element.getAttribute("title"),
         text: trimLongText(getElementText(element), 120),
-        className: trimLongText(element.getAttribute("class") || "", 120)
+        className: trimLongText(element.getAttribute("class") || "", 120),
+        parentText: trimLongText(
+          getElementText(element.parentElement),
+          160
+        )
       })),
     selects: getVisibleElements(searchBarRoot, "select")
       .slice(0, 15)
       .map((element, index) => ({
         index,
         value: element.value,
-        optionsCount: element.options ? element.options.length : 0
+        optionsCount: element.options ? element.options.length : 0,
+        options: Array.from(element.options || [])
+          .slice(0, 25)
+          .map((option) => ({
+            value: option.value,
+            text: option.text
+          }))
       })),
+    counterRows: buildCounterRowsSnapshot(searchBarRoot),
     textCandidates: getVisibleElements(
       searchBarRoot,
       "[role='option'], [role='listitem'], li, div, span"
@@ -866,7 +1007,39 @@ function buildSearchBarDomSnapshot(searchBarRoot) {
       .map((element) => trimLongText(getElementText(element), 120))
       .filter(Boolean)
       .filter((text, index, allTexts) => allTexts.indexOf(text) === index)
-      .slice(0, 40)
+      .slice(0, 60)
+  };
+}
+
+function buildCounterRowsSnapshot(searchBarRoot) {
+  return ["Adults", "Children", "Rooms"].map((rowLabel) => {
+    const counterRow = findCounterRowByLabel(searchBarRoot, rowLabel);
+
+    return {
+      rowLabel,
+      found: Boolean(counterRow),
+      ...(counterRow ? buildCounterRowSnapshot(counterRow) : {})
+    };
+  });
+}
+
+function buildCounterRowSnapshot(counterRow) {
+  return {
+    text: trimLongText(getElementText(counterRow), 200),
+    currentValue: getCounterRowCurrentValue(counterRow),
+    rectangle: getElementRectangle(counterRow),
+    buttons: getVisibleElements(counterRow, "button, [role='button']").map(
+      (button, index) => ({
+        index,
+        text: getElementText(button),
+        ariaLabel: button.getAttribute("aria-label"),
+        title: button.getAttribute("title"),
+        className: trimLongText(button.getAttribute("class") || "", 120),
+        isIncrement: isIncrementButtonElement(button),
+        isDecrement: isDecrementButtonElement(button),
+        rectangle: getElementRectangle(button)
+      })
+    )
   };
 }
 
@@ -889,6 +1062,24 @@ function isVisibleElement(element) {
     computedStyle.display !== "none" &&
     computedStyle.opacity !== "0"
   );
+}
+
+function compareElementsByArea(leftElement, rightElement) {
+  const leftRectangle = leftElement.getBoundingClientRect();
+  const rightRectangle = rightElement.getBoundingClientRect();
+
+  return (
+    leftRectangle.width * leftRectangle.height -
+    rightRectangle.width * rightRectangle.height
+  );
+}
+
+function compareElementItemsByArea(leftItem, rightItem) {
+  return compareElementsByArea(leftItem.element, rightItem.element);
+}
+
+function dedupeElements(elements) {
+  return Array.from(new Set(elements));
 }
 
 function getClickableElementScore(element) {
@@ -1050,6 +1241,21 @@ function getElementText(element) {
   return normalizeText(element?.innerText || element?.textContent || "");
 }
 
+function getElementRectangle(element) {
+  if (!element) {
+    return null;
+  }
+
+  const rectangle = element.getBoundingClientRect();
+
+  return {
+    x: Math.round(rectangle.x),
+    y: Math.round(rectangle.y),
+    width: Math.round(rectangle.width),
+    height: Math.round(rectangle.height)
+  };
+}
+
 function trimLongText(value, maxLength) {
   const normalizedValue = normalizeText(value);
 
@@ -1064,6 +1270,16 @@ function waitForMilliseconds(milliseconds) {
   return new Promise((resolve) => {
     setTimeout(resolve, milliseconds);
   });
+}
+
+function logJson(label, value) {
+  console.log(label, value);
+
+  try {
+    console.log(`${label} JSON`, JSON.stringify(value, null, 2));
+  } catch (error) {
+    console.warn(`${label} JSON stringify failed`, error);
+  }
 }
 
 function buildRuntimeSearchFlowContextQueryFromSdkSearchData(
