@@ -1,4 +1,5 @@
 import wixLocationFrontend from "wix-location-frontend";
+import wixWindow from "wix-window-frontend";
 import { session } from "wix-storage-frontend";
 import { currentCart } from "wix-ecom-backend";
 import { onCartChange, refreshCart } from "wix-ecom-frontend";
@@ -14,6 +15,13 @@ let isApplyingReservationType = false;
 let isProgrammaticSwitchUpdate = false;
 
 $w.onReady(async function () {
+  const renderingEnv = wixWindow.rendering.env;
+
+  if (renderingEnv !== "browser") {
+    console.log("CART PAGE skipped outside browser", { renderingEnv });
+    return;
+  }
+  
   bindReservationTypeControls();
   bindCartChangeListener();
 
