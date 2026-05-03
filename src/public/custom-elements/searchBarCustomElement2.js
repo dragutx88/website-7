@@ -14,11 +14,13 @@ const OCCUPANCY_MAX_ADULTS = 20;
 const OCCUPANCY_MAX_CHILDREN = 10;
 
 const SEARCH_BAR_DOM_READY_TIMEOUT_MS = 4000;
-const SEARCH_BAR_DESTINATION_SUGGESTION_TIMEOUT_MS = 1800;
+const SEARCH_BAR_DESTINATION_SUGGESTION_TIMEOUT_MS = 2600;
+const SEARCH_BAR_OCCUPANCY_OVERLAY_TIMEOUT_MS = 3200;
 const SEARCH_BAR_DOM_SETTLE_MS = 250;
-const SEARCH_BAR_COUNTER_CLICK_SETTLE_MS = 140;
+const SEARCH_BAR_TYPE_CHARACTER_SETTLE_MS = 45;
+const SEARCH_BAR_COUNTER_CLICK_SETTLE_MS = 160;
 const SEARCH_BAR_COUNTER_MAX_CLICKS = 30;
-const SEARCH_BAR_OCCUPANCY_OVERLAY_TIMEOUT_MS = 2500;
+const SEARCH_BAR_ACTIVATION_SETTLE_MS = 220;
 
 class SearchBarCustomElement2 extends HTMLElement {
   connectedCallback() {
@@ -147,7 +149,6 @@ class SearchBarCustomElement2 extends HTMLElement {
               "[SEARCH BAR CUSTOM ELEMENT 2] raw SDK data failed validation; redirect skipped",
               runtimeSearchFlowContextValidationResult
             );
-
             return;
           }
 
@@ -274,9 +275,10 @@ function waitForSearchBarDomRoot() {
 
       if (
         searchBarRoot &&
-        searchBarRoot.querySelector(
+        getVisibleElements(
+          searchBarRoot,
           "input, textarea, button, select, [role='button'], [role='combobox'], [contenteditable='true']"
-        )
+        ).length
       ) {
         resolve(searchBarRoot);
         return true;
@@ -336,18 +338,18 @@ async function hydrateDestinationByDom({
     value: getElementValue(destinationInput)
   });
 
-  clickElement(destinationInput);
+  await activateElementWithPointerSequence(destinationInput);
   focusElement(destinationInput);
 
-  setElementValue(destinationInput, searchBarPresetSearchFlowContextQuery.name);
-  dispatchTextInputEvents(destinationInput);
+  await typeTextLikeUser(
+    destinationInput,
+    searchBarPresetSearchFlowContextQuery.name
+  );
 
-  await waitForMilliseconds(SEARCH_BAR_DESTINATION_SUGGESTION_TIMEOUT_MS);
-
-  const destinationSuggestionElement = findDestinationSuggestionElement(
+  const destinationSuggestionElement = await waitForDestinationSuggestionElement({
     searchBarOverlayRoot,
     searchBarPresetSearchFlowContextQuery
-  );
+  });
 
   logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM destination suggestion lookup", {
     hasDestinationSuggestionElement: Boolean(destinationSuggestionElement),
@@ -359,17 +361,36 @@ async function hydrateDestinationByDom({
   });
 
   if (!destinationSuggestionElement) {
+    await pressKeyboardKey(destinationInput, "ArrowDown");
+    await pressKeyboardKey(destinationInput, "Enter");
+
+    logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM destination keyboard fallback", {
+      name: searchBarPresetSearchFlowContextQuery.name,
+      mainSnapshot: buildSearchBarDomSnapshot(searchBarRoot),
+      overlaySnapshot: buildSearchBarOverlayDomSnapshot(searchBarOverlayRoot)
+    });
+
     return;
   }
 
-  clickElement(destinationSuggestionElement);
+  await activateElementWithAncestorLadder({
+    element: destinationSuggestionElement,
+    rootBoundary: searchBarOverlayRoot,
+    shouldStop: () => !findDestinationSuggestionElement(
+      searchBarOverlayRoot,
+      searchBarPresetSearchFlowContextQuery
+    ),
+    logLabel: "destinationSuggestion"
+  });
 
   await waitForMilliseconds(SEARCH_BAR_DOM_SETTLE_MS);
 
   logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM destination suggestion clicked", {
     placeId: searchBarPresetSearchFlowContextQuery.placeId,
     name: searchBarPresetSearchFlowContextQuery.name,
-    suggestionText: getElementText(destinationSuggestionElement)
+    suggestionText: getElementText(destinationSuggestionElement),
+    mainSnapshot: buildSearchBarDomSnapshot(searchBarRoot),
+    overlaySnapshot: buildSearchBarOverlayDomSnapshot(searchBarOverlayRoot)
   });
 }
 
@@ -418,14 +439,15 @@ async function hydrateOccupancyByDom({
     desiredRoomCount,
     desiredAdultCount,
     desiredChildrenCount,
-    desiredChildrenAges
+    desiredChildrenAges,
+    triggerSnapshot: buildElementSnapshot(occupancyTriggerElement)
   });
 
-  clickElement(occupancyTriggerElement);
-
-  const hasOccupancyOverlay = await waitForOccupancyOverlayReady(
-    searchBarOverlayRoot
-  );
+  const hasOccupancyOverlay = await openOccupancyOverlayByDom({
+    searchBarRoot,
+    searchBarOverlayRoot,
+    occupancyTriggerElement
+  });
 
   await waitForMilliseconds(SEARCH_BAR_DOM_SETTLE_MS);
 
@@ -435,6 +457,10 @@ async function hydrateOccupancyByDom({
     overlaySnapshot: buildSearchBarOverlayDomSnapshot(searchBarOverlayRoot),
     counterRows: buildCounterRowsSnapshot(searchBarOverlayRoot)
   });
+
+  if (!hasOccupancyOverlay) {
+    return;
+  }
 
   await syncCounterRowToValue({
     searchBarRoot: searchBarOverlayRoot,
@@ -477,9 +503,9 @@ async function hydrateOccupancyByDom({
   });
 
   if (applyOccupancyElement) {
-    clickElement(applyOccupancyElement);
+    await activateElementWithPointerSequence(applyOccupancyElement);
   } else {
-    clickElement(occupancyTriggerElement);
+    await activateElementWithPointerSequence(occupancyTriggerElement);
   }
 
   await waitForMilliseconds(SEARCH_BAR_DOM_SETTLE_MS);
@@ -493,6 +519,39 @@ async function hydrateOccupancyByDom({
     mainSnapshot: buildSearchBarDomSnapshot(searchBarRoot),
     overlaySnapshot: buildSearchBarOverlayDomSnapshot(searchBarOverlayRoot)
   });
+}
+
+async function openOccupancyOverlayByDom({
+  searchBarRoot,
+  searchBarOverlayRoot,
+  occupancyTriggerElement
+}) {
+  const activationCandidates = buildActivationAncestorCandidates({
+    element: occupancyTriggerElement,
+    rootBoundary: searchBarRoot
+  });
+
+  logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM occupancy activation candidates", {
+    candidates: activationCandidates.map((candidate, index) => ({
+      index,
+      snapshot: buildElementSnapshot(candidate)
+    }))
+  });
+
+  for (const activationCandidate of activationCandidates) {
+    await activateElementWithPointerSequence(activationCandidate);
+    await waitForMilliseconds(SEARCH_BAR_ACTIVATION_SETTLE_MS);
+
+    if (isOccupancyOverlayOpen(searchBarOverlayRoot)) {
+      logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM occupancy opened", {
+        openedBy: buildElementSnapshot(activationCandidate),
+        overlaySnapshot: buildSearchBarOverlayDomSnapshot(searchBarOverlayRoot)
+      });
+      return true;
+    }
+  }
+
+  return false;
 }
 
 async function syncCounterRowToValue({
@@ -563,7 +622,7 @@ async function syncCounterRowToValue({
       return;
     }
 
-    clickElement(nextButton);
+    await activateElementWithPointerSequence(nextButton);
 
     logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM counter button clicked", {
       rowLabel,
@@ -586,25 +645,63 @@ async function syncCounterRowToValue({
   });
 }
 
+function waitForDestinationSuggestionElement({
+  searchBarOverlayRoot,
+  searchBarPresetSearchFlowContextQuery
+}) {
+  const startedAt = Date.now();
+
+  return new Promise((resolve) => {
+    const resolveIfReady = () => {
+      const destinationSuggestionElement = findDestinationSuggestionElement(
+        searchBarOverlayRoot,
+        searchBarPresetSearchFlowContextQuery
+      );
+
+      if (destinationSuggestionElement) {
+        resolve(destinationSuggestionElement);
+        return true;
+      }
+
+      if (
+        Date.now() - startedAt >=
+        SEARCH_BAR_DESTINATION_SUGGESTION_TIMEOUT_MS
+      ) {
+        resolve(null);
+        return true;
+      }
+
+      return false;
+    };
+
+    if (resolveIfReady()) {
+      return;
+    }
+
+    const mutationObserver = new MutationObserver(() => {
+      if (resolveIfReady()) {
+        mutationObserver.disconnect();
+      }
+    });
+
+    mutationObserver.observe(searchBarOverlayRoot, {
+      childList: true,
+      subtree: true
+    });
+
+    setTimeout(() => {
+      mutationObserver.disconnect();
+      resolve(null);
+    }, SEARCH_BAR_DESTINATION_SUGGESTION_TIMEOUT_MS);
+  });
+}
+
 function waitForOccupancyOverlayReady(searchBarOverlayRoot) {
   const startedAt = Date.now();
 
   return new Promise((resolve) => {
     const resolveIfReady = () => {
-      const hasAdultsRow = Boolean(
-        findCounterRowByLabel(searchBarOverlayRoot, "Adults")
-      );
-
-      const hasChildrenOrRoomsText = getVisibleElements(
-        searchBarOverlayRoot,
-        "div, span, p, label"
-      ).some((element) => {
-        const text = getElementText(element).toLowerCase();
-
-        return text.includes("children") || text.includes("rooms");
-      });
-
-      if (hasAdultsRow && hasChildrenOrRoomsText) {
+      if (isOccupancyOverlayOpen(searchBarOverlayRoot)) {
         resolve(true);
         return true;
       }
@@ -639,6 +736,22 @@ function waitForOccupancyOverlayReady(searchBarOverlayRoot) {
   });
 }
 
+function isOccupancyOverlayOpen(searchBarOverlayRoot) {
+  return Boolean(findCounterRowByLabel(searchBarOverlayRoot, "Adults")) &&
+    getVisibleElements(searchBarOverlayRoot, "div, span, p, label, button").some(
+      (element) => {
+        const text = getElementText(element).toLowerCase();
+
+        return (
+          text === "children" ||
+          text.startsWith("children") ||
+          text === "rooms" ||
+          text.startsWith("rooms")
+        );
+      }
+    );
+}
+
 function findCounterRowByLabel(searchBarRoot, rowLabel) {
   const normalizedRowLabel = rowLabel.toLowerCase();
   const counterControlSelector =
@@ -646,7 +759,7 @@ function findCounterRowByLabel(searchBarRoot, rowLabel) {
 
   const labelElements = getVisibleElements(
     searchBarRoot,
-    "div, span, p, label, strong"
+    "div, span, p, label, strong, button"
   ).filter((element) => {
     const text = getElementText(element).trim().toLowerCase();
 
@@ -658,7 +771,7 @@ function findCounterRowByLabel(searchBarRoot, rowLabel) {
   labelElements.forEach((labelElement) => {
     let currentElement = labelElement;
 
-    for (let depth = 0; currentElement && depth < 10; depth += 1) {
+    for (let depth = 0; currentElement && depth < 12; depth += 1) {
       if (currentElement === searchBarRoot) {
         break;
       }
@@ -673,7 +786,8 @@ function findCounterRowByLabel(searchBarRoot, rowLabel) {
         currentText.includes(normalizedRowLabel) &&
         counterControls.some(isIncrementButtonElement) &&
         counterControls.some(isDecrementButtonElement) &&
-        Number.isFinite(getCounterRowCurrentValue(currentElement))
+        Number.isFinite(getCounterRowCurrentValue(currentElement)) &&
+        isLikelySmallControlContainer(currentElement)
       ) {
         rowCandidates.push(currentElement);
       }
@@ -694,7 +808,8 @@ function findCounterRowByLabel(searchBarRoot, rowLabel) {
         text.includes(normalizedRowLabel) &&
         counterControls.some(isIncrementButtonElement) &&
         counterControls.some(isDecrementButtonElement) &&
-        Number.isFinite(getCounterRowCurrentValue(element))
+        Number.isFinite(getCounterRowCurrentValue(element)) &&
+        isLikelySmallControlContainer(element)
       ) {
         rowCandidates.push(element);
       }
@@ -744,13 +859,14 @@ function findCounterRowDecrementButton(counterRow) {
 
 function isIncrementButtonElement(element) {
   const elementText = getElementText(element).trim();
-  const ariaLabel = normalizeText(element.getAttribute("aria-label")).toLowerCase();
+  const ariaLabel = normalizeText(
+    element.getAttribute("aria-label")
+  ).toLowerCase();
   const title = normalizeText(element.getAttribute("title")).toLowerCase();
   const className = normalizeText(element.getAttribute("class")).toLowerCase();
 
   return (
     elementText === "+" ||
-    elementText.includes("+") ||
     ariaLabel.includes("increase") ||
     ariaLabel.includes("increment") ||
     ariaLabel.includes("add") ||
@@ -766,15 +882,15 @@ function isIncrementButtonElement(element) {
 
 function isDecrementButtonElement(element) {
   const elementText = getElementText(element).trim();
-  const ariaLabel = normalizeText(element.getAttribute("aria-label")).toLowerCase();
+  const ariaLabel = normalizeText(
+    element.getAttribute("aria-label")
+  ).toLowerCase();
   const title = normalizeText(element.getAttribute("title")).toLowerCase();
   const className = normalizeText(element.getAttribute("class")).toLowerCase();
 
   return (
     elementText === "-" ||
     elementText === "−" ||
-    elementText.includes("-") ||
-    elementText.includes("−") ||
     ariaLabel.includes("decrease") ||
     ariaLabel.includes("decrement") ||
     ariaLabel.includes("remove") ||
@@ -938,7 +1054,7 @@ function findDestinationSuggestionElement(
         return false;
       }
 
-      if (candidateText.length > 180) {
+      if (!isLikelySearchBarOverlayCandidate(candidate)) {
         return false;
       }
 
@@ -1109,6 +1225,7 @@ function buildSearchBarOverlayDomSnapshot(searchBarOverlayRoot) {
   return {
     counterRows: buildCounterRowsSnapshot(searchBarOverlayRoot),
     selects: getVisibleElements(searchBarOverlayRoot, "select")
+      .filter(isLikelySearchBarOverlayCandidate)
       .slice(0, 20)
       .map((element, index) => ({
         index,
@@ -1126,6 +1243,7 @@ function buildSearchBarOverlayDomSnapshot(searchBarOverlayRoot) {
       searchBarOverlayRoot,
       "button, [role='button'], [aria-label], a, span, div"
     )
+      .filter(isLikelySearchBarOverlayCandidate)
       .filter((element) => {
         const text = [
           getElementText(element),
@@ -1147,28 +1265,21 @@ function buildSearchBarOverlayDomSnapshot(searchBarOverlayRoot) {
           text.includes("select age") ||
           text.includes("year") ||
           text.includes("+") ||
-          text.includes("-") ||
           text.includes("−")
         );
       })
       .slice(0, 80)
       .map((element, index) => ({
         index,
-        tagName: element.tagName,
-        role: element.getAttribute("role"),
-        ariaLabel: element.getAttribute("aria-label"),
-        title: element.getAttribute("title"),
-        text: trimLongText(getElementText(element), 160),
-        className: trimLongText(element.getAttribute("class") || "", 160),
-        parentText: trimLongText(getElementText(element.parentElement), 220),
+        snapshot: buildElementSnapshot(element),
         isIncrement: isIncrementButtonElement(element),
-        isDecrement: isDecrementButtonElement(element),
-        rectangle: getElementRectangle(element)
+        isDecrement: isDecrementButtonElement(element)
       })),
     textCandidates: getVisibleElements(
       searchBarOverlayRoot,
       "[role='option'], [role='listitem'], li, div, span, label, p"
     )
+      .filter(isLikelySearchBarOverlayCandidate)
       .map((element) => trimLongText(getElementText(element), 180))
       .filter(Boolean)
       .filter((text) => {
@@ -1213,22 +1324,295 @@ function buildCounterRowSnapshot(counterRow) {
       "button, [role='button'], [aria-label], span, div, svg"
     ).map((button, index) => ({
       index,
-      tagName: button.tagName,
-      text: getElementText(button),
-      ariaLabel: button.getAttribute("aria-label"),
-      title: button.getAttribute("title"),
-      className: trimLongText(button.getAttribute("class") || "", 120),
+      snapshot: buildElementSnapshot(button),
       isIncrement: isIncrementButtonElement(button),
-      isDecrement: isDecrementButtonElement(button),
-      rectangle: getElementRectangle(button)
+      isDecrement: isDecrementButtonElement(button)
     }))
   };
 }
 
-function getVisibleElements(rootElement, selector) {
-  return Array.from(rootElement.querySelectorAll(selector)).filter(
-    isVisibleElement
+function buildElementSnapshot(element) {
+  return {
+    tagName: element?.tagName || "",
+    role: element?.getAttribute?.("role") || null,
+    ariaLabel: element?.getAttribute?.("aria-label") || null,
+    title: element?.getAttribute?.("title") || null,
+    text: trimLongText(getElementText(element), 180),
+    className: trimLongText(element?.getAttribute?.("class") || "", 180),
+    parentText: trimLongText(getElementText(element?.parentElement), 220),
+    rectangle: getElementRectangle(element)
+  };
+}
+
+function buildActivationAncestorCandidates({ element, rootBoundary }) {
+  const candidates = [];
+  let currentElement = element;
+
+  for (let depth = 0; currentElement && depth < 8; depth += 1) {
+    if (currentElement === rootBoundary.parentElement) {
+      break;
+    }
+
+    if (
+      currentElement instanceof Element &&
+      isVisibleElement(currentElement) &&
+      !isLikelyWholePageContainer(currentElement)
+    ) {
+      candidates.push(currentElement);
+    }
+
+    if (currentElement === rootBoundary) {
+      break;
+    }
+
+    currentElement = currentElement.parentElement;
+  }
+
+  return dedupeElements(candidates);
+}
+
+async function activateElementWithAncestorLadder({
+  element,
+  rootBoundary,
+  shouldStop,
+  logLabel
+}) {
+  const activationCandidates = buildActivationAncestorCandidates({
+    element,
+    rootBoundary
+  });
+
+  logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM activation ladder", {
+    logLabel,
+    candidates: activationCandidates.map((candidate, index) => ({
+      index,
+      snapshot: buildElementSnapshot(candidate)
+    }))
+  });
+
+  for (const activationCandidate of activationCandidates) {
+    await activateElementWithPointerSequence(activationCandidate);
+    await waitForMilliseconds(SEARCH_BAR_ACTIVATION_SETTLE_MS);
+
+    if (typeof shouldStop === "function" && shouldStop()) {
+      logJson("[SEARCH BAR CUSTOM ELEMENT 2] DOM activation ladder stopped", {
+        logLabel,
+        stoppedBy: buildElementSnapshot(activationCandidate)
+      });
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function activateElementWithPointerSequence(element) {
+  if (!element) {
+    return;
+  }
+
+  try {
+    if (typeof element.scrollIntoView === "function") {
+      element.scrollIntoView({
+        block: "center",
+        inline: "center"
+      });
+    }
+  } catch {
+    // no-op
+  }
+
+  const rectangle = element.getBoundingClientRect();
+  const clientX = rectangle.left + rectangle.width / 2;
+  const clientY = rectangle.top + rectangle.height / 2;
+
+  element.dispatchEvent(
+    new PointerEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      pointerType: "mouse",
+      clientX,
+      clientY
+    })
   );
+
+  element.dispatchEvent(
+    new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      clientX,
+      clientY
+    })
+  );
+
+  if (typeof element.focus === "function") {
+    element.focus();
+  }
+
+  element.dispatchEvent(
+    new PointerEvent("pointerup", {
+      bubbles: true,
+      cancelable: true,
+      pointerType: "mouse",
+      clientX,
+      clientY
+    })
+  );
+
+  element.dispatchEvent(
+    new MouseEvent("mouseup", {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      clientX,
+      clientY
+    })
+  );
+
+  element.dispatchEvent(
+    new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      clientX,
+      clientY
+    })
+  );
+
+  try {
+    if (typeof element.click === "function") {
+      element.click();
+    }
+  } catch {
+    // no-op
+  }
+
+  await waitForMilliseconds(SEARCH_BAR_ACTIVATION_SETTLE_MS);
+}
+
+async function typeTextLikeUser(element, text) {
+  focusElement(element);
+
+  setElementValue(element, "");
+  element.dispatchEvent(
+    new InputEvent("input", {
+      bubbles: true,
+      cancelable: true,
+      inputType: "deleteContentBackward",
+      data: null
+    })
+  );
+
+  element.dispatchEvent(
+    new Event("change", {
+      bubbles: true,
+      cancelable: true
+    })
+  );
+
+  await waitForMilliseconds(SEARCH_BAR_TYPE_CHARACTER_SETTLE_MS);
+
+  const normalizedText = String(text || "");
+
+  for (const character of normalizedText) {
+    element.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: character
+      })
+    );
+
+    element.dispatchEvent(
+      new KeyboardEvent("keypress", {
+        bubbles: true,
+        cancelable: true,
+        key: character
+      })
+    );
+
+    setElementValue(element, `${getElementValue(element)}${character}`);
+
+    element.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        cancelable: true,
+        inputType: "insertText",
+        data: character
+      })
+    );
+
+    element.dispatchEvent(
+      new KeyboardEvent("keyup", {
+        bubbles: true,
+        cancelable: true,
+        key: character
+      })
+    );
+
+    await waitForMilliseconds(SEARCH_BAR_TYPE_CHARACTER_SETTLE_MS);
+  }
+
+  element.dispatchEvent(
+    new Event("change", {
+      bubbles: true,
+      cancelable: true
+    })
+  );
+}
+
+async function pressKeyboardKey(element, key) {
+  focusElement(element);
+
+  element.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key
+    })
+  );
+
+  element.dispatchEvent(
+    new KeyboardEvent("keyup", {
+      bubbles: true,
+      cancelable: true,
+      key
+    })
+  );
+
+  await waitForMilliseconds(SEARCH_BAR_DOM_SETTLE_MS);
+}
+
+function getVisibleElements(rootElement, selector) {
+  const queryRoots = getQueryRoots(rootElement);
+  const elements = [];
+
+  queryRoots.forEach((queryRoot) => {
+    try {
+      elements.push(...Array.from(queryRoot.querySelectorAll(selector)));
+    } catch {
+      // no-op
+    }
+  });
+
+  return dedupeElements(elements).filter(isVisibleElement);
+}
+
+function getQueryRoots(rootElement) {
+  const roots = [rootElement];
+
+  try {
+    Array.from(rootElement.querySelectorAll("*")).forEach((element) => {
+      if (element.shadowRoot) {
+        roots.push(element.shadowRoot);
+      }
+    });
+  } catch {
+    // no-op
+  }
+
+  return roots;
 }
 
 function isVisibleElement(element) {
@@ -1245,6 +1629,39 @@ function isVisibleElement(element) {
     computedStyle.visibility !== "hidden" &&
     computedStyle.display !== "none" &&
     computedStyle.opacity !== "0"
+  );
+}
+
+function isLikelyWholePageContainer(element) {
+  const rectangle = element.getBoundingClientRect();
+
+  return (
+    rectangle.width > window.innerWidth * 0.85 &&
+    rectangle.height > window.innerHeight * 0.85
+  );
+}
+
+function isLikelySmallControlContainer(element) {
+  const rectangle = element.getBoundingClientRect();
+
+  return (
+    rectangle.width > 0 &&
+    rectangle.height > 0 &&
+    rectangle.width < Math.max(760, window.innerWidth * 0.75) &&
+    rectangle.height < Math.max(420, window.innerHeight * 0.65)
+  );
+}
+
+function isLikelySearchBarOverlayCandidate(element) {
+  const rectangle = element.getBoundingClientRect();
+  const text = getElementText(element);
+
+  return (
+    rectangle.width > 0 &&
+    rectangle.height > 0 &&
+    rectangle.width < Math.max(900, window.innerWidth * 0.9) &&
+    rectangle.height < Math.max(640, window.innerHeight * 0.8) &&
+    text.length < 700
   );
 }
 
@@ -1356,58 +1773,6 @@ function setElementValue(element, value) {
   }
 }
 
-function dispatchTextInputEvents(element) {
-  element.dispatchEvent(
-    new InputEvent("input", {
-      bubbles: true,
-      cancelable: true,
-      inputType: "insertText",
-      data: getElementValue(element)
-    })
-  );
-
-  element.dispatchEvent(
-    new Event("change", {
-      bubbles: true,
-      cancelable: true
-    })
-  );
-
-  element.dispatchEvent(
-    new KeyboardEvent("keyup", {
-      bubbles: true,
-      cancelable: true,
-      key: "a"
-    })
-  );
-}
-
-function clickElement(element) {
-  element.dispatchEvent(
-    new MouseEvent("mousedown", {
-      bubbles: true,
-      cancelable: true,
-      view: window
-    })
-  );
-
-  element.dispatchEvent(
-    new MouseEvent("mouseup", {
-      bubbles: true,
-      cancelable: true,
-      view: window
-    })
-  );
-
-  element.dispatchEvent(
-    new MouseEvent("click", {
-      bubbles: true,
-      cancelable: true,
-      view: window
-    })
-  );
-}
-
 function focusElement(element) {
   if (typeof element.focus === "function") {
     element.focus();
@@ -1478,7 +1843,11 @@ function buildRuntimeSearchFlowContextQueryFromSdkSearchData(
   return {
     mode: "destination",
     placeId: String(searchData?.place?.place_id || "").trim(),
-    name: String(searchData?.place?.description || searchData?.query || "").trim(),
+    name: String(
+      searchData?.place?.description ||
+        searchData?.query ||
+        ""
+    ).trim(),
     aiSearch: "",
     checkin: dateText(searchData?.checkin || searchData?.dates?.start),
     checkout: dateText(searchData?.checkout || searchData?.dates?.end),
