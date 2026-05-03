@@ -138,11 +138,7 @@ function normalizePrebook(prebookResponse, normalizedMarkupRate) {
     occupancyNumber: normalizeCount(
       prebookResponse?.data?.roomTypes?.[0]?.rates?.[0]?.occupancyNumber
     ),
-    refundableTag:
-      normalizeText(
-        prebookResponse?.data?.roomTypes?.[0]?.rates?.[0]?.cancellationPolicies
-          ?.refundableTag
-      ) || null,
+    refundableTag: "NRFN",
     currency,
     currentPrice,
     beforeCurrentPrice: Number.isFinite(beforeCurrentPrice)
