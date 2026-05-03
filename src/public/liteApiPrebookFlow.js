@@ -251,13 +251,11 @@ async function handleWixCartFlow(purchaseSelection) {
   });
 
   wixLocationFrontend.to(`${CART_PAGE_PATH}?${new URLSearchParams({
-    ...wixLocationFrontend.query,
     ...JSON.parse(
       session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
     ),
-    ...runtimeSearchFlowContextQuery,
-    language: "tr",
-    currency: "TRY"
+    ...wixLocationFrontend.query,
+    ...runtimeSearchFlowContextQuery
   })}`);
 }
 
@@ -304,13 +302,11 @@ async function handlePaymentSdkFlow(purchaseSelection) {
   };
 
   wixLocationFrontend.to(`${CHECKOUT_PAGE_PATH}?${new URLSearchParams({
-    ...wixLocationFrontend.query,
     ...JSON.parse(
       session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
     ),
-    ...runtimeSearchFlowContextQuery,
-    language: "tr",
-    currency: "TRY"
+    ...wixLocationFrontend.query,
+    ...runtimeSearchFlowContextQuery
   })}`);
 }
 
