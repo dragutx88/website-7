@@ -1,7 +1,7 @@
 import wixLocationFrontend from "wix-location-frontend";
 import wixWindow from "wix-window-frontend";
 import { session } from "wix-storage-frontend";
-import { getHotelsRates } from "backend/liteApi.web";
+import { getHotelsRates, getOzviaClubOffers } from "backend/liteApi.web";
 
 const SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY =
   "searchFlowContextQueryStringify";
@@ -46,14 +46,24 @@ async function initializeHotelsPage() {
     ...wixLocationFrontend.query
   };
 
-  console.log("HOTELS initialize searchFlowContextQuery", searchFlowContextQuery);
+  const isOzviaClubOffersMode =
+    normalizeText(searchFlowContextQuery?.club).toLowerCase() === "ozvia";
+
+  console.log("HOTELS initialize searchFlowContextQuery", {
+    searchFlowContextQuery,
+    searchBackendMode: isOzviaClubOffersMode
+      ? "ozviaClubOffers"
+      : "standardHotelsRates"
+  });
 
   configureRepeater();
   configureHotelOfferResultsProgressiveLoadingButton();
   hideNoResultsState();
 
   try {
-    const getHotelsRatesResult = await getHotelsRates(searchFlowContextQuery);
+    const getHotelsRatesResult = isOzviaClubOffersMode
+      ? await getOzviaClubOffers(searchFlowContextQuery)
+      : await getHotelsRates(searchFlowContextQuery);
 
     const normalizedHotelsRates = getHotelsRatesResult?.normalizedHotelsRates;
 
@@ -64,6 +74,9 @@ async function initializeHotelsPage() {
     }
 
     console.log("HOTELS getHotelsRates normalizedHotelsRates summary", {
+      searchBackendMode: isOzviaClubOffersMode
+        ? "ozviaClubOffers"
+        : "standardHotelsRates",
       normalizedHotelsRatesCount: normalizedHotelsRates.length,
       initialResultsCount: INITIAL_RESULTS_COUNT,
       hotelOfferResultsRenderStep: HOTEL_OFFER_RESULTS_RENDER_STEP
@@ -85,6 +98,9 @@ async function initializeHotelsPage() {
     );
 
     console.log("HOTELS prepared hotel offer results", {
+      searchBackendMode: isOzviaClubOffersMode
+        ? "ozviaClubOffers"
+        : "standardHotelsRates",
       allHotelOfferResultsCount: allHotelOfferResults.length,
       renderedHotelOfferResultsCount
     });
@@ -92,6 +108,9 @@ async function initializeHotelsPage() {
     renderHotelOfferResults("initial");
   } catch (initializeHotelsPageError) {
     console.error("HOTELS initialization failed", {
+      searchBackendMode: isOzviaClubOffersMode
+        ? "ozviaClubOffers"
+        : "standardHotelsRates",
       name: initializeHotelsPageError?.name,
       message: initializeHotelsPageError?.message,
       stack: initializeHotelsPageError?.stack
