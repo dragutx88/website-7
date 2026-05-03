@@ -1,4 +1,5 @@
 import wixLocationFrontend from "wix-location-frontend";
+import wixWindow from "wix-window-frontend";
 import { session } from "wix-storage-frontend";
 import { getHotelsRates } from "backend/liteApi.web";
 
@@ -13,6 +14,13 @@ let renderedHotelOfferResultsCount = 0;
 let isRenderingNextHotelOfferResults = false;
 
 $w.onReady(async function () {
+  const renderingEnv = wixWindow.rendering.env;
+
+  if (renderingEnv !== "browser") {
+    console.log("HOTELS skipped outside browser", { renderingEnv });
+    return;
+  }
+
   await initializeHotelsPage();
 });
 
@@ -91,7 +99,7 @@ async function initializeHotelsPage() {
       stack: initializeHotelsPageError?.stack
     });
 
-    wixLocationFrontend.to(`/?${new URLSearchParams({
+    wixLocationFrontend.to(`/hotels?${new URLSearchParams({
       ...wixLocationFrontend.query,
       ...JSON.parse(
         session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
