@@ -40,10 +40,7 @@ async function initializeHotelsPage() {
     ...wixLocationFrontend.query
   };
 
-  console.log(
-    "HOTELS initialize searchFlowContextQuery",
-    JSON.stringify(searchFlowContextQuery)
-  );
+  console.log("HOTELS initialize searchFlowContextQuery", searchFlowContextQuery);
 
   configureRepeater();
   configureHotelOfferResultsProgressiveLoadingButton();
@@ -52,53 +49,56 @@ async function initializeHotelsPage() {
   try {
     const getHotelsRatesResult = await getHotelsRates(searchFlowContextQuery);
 
-    const normalizedHotelsRates = Array.isArray(
-      getHotelsRatesResult?.normalizedHotelsRates
-    )
-      ? getHotelsRatesResult.normalizedHotelsRates
-      : [];
+    const normalizedHotelsRates = getHotelsRatesResult?.normalizedHotelsRates;
 
-    console.log(
-      "HOTELS getHotelsRates normalizedHotelsRates summary",
-      JSON.stringify({
-        normalizedHotelsRatesCount: normalizedHotelsRates.length,
-        initialResultsCount: INITIAL_RESULTS_COUNT,
-        hotelOfferResultsRenderStep: HOTEL_OFFER_RESULTS_RENDER_STEP
-      })
-    );
+    if (!Array.isArray(normalizedHotelsRates)) {
+      throw new Error(
+        "getHotelsRatesResult.normalizedHotelsRates must be an array."
+      );
+    }
+
+    console.log("HOTELS getHotelsRates normalizedHotelsRates summary", {
+      normalizedHotelsRatesCount: normalizedHotelsRates.length,
+      initialResultsCount: INITIAL_RESULTS_COUNT,
+      hotelOfferResultsRenderStep: HOTEL_OFFER_RESULTS_RENDER_STEP
+    });
 
     if (!normalizedHotelsRates.length) {
       renderNoResultsState();
       return;
     }
 
-    allHotelOfferResults = normalizedHotelsRates.map(
-      (normalizedHotelItem, normalizedHotelItemIndex) => ({
-        ...normalizedHotelItem,
-        _id: buildRepeaterId(
-          normalizedHotelItem?.hotelId,
-          normalizedHotelItemIndex
-        )
-      })
-    );
+    allHotelOfferResults = normalizedHotelsRates.map((normalizedHotelItem) => ({
+      ...normalizedHotelItem,
+      _id: buildRepeaterId(normalizedHotelItem?.hotelId)
+    }));
 
     renderedHotelOfferResultsCount = Math.min(
       INITIAL_RESULTS_COUNT,
       allHotelOfferResults.length
     );
 
-    console.log(
-      "HOTELS prepared hotel offer results",
-      JSON.stringify({
-        allHotelOfferResultsCount: allHotelOfferResults.length,
-        renderedHotelOfferResultsCount
-      })
-    );
+    console.log("HOTELS prepared hotel offer results", {
+      allHotelOfferResultsCount: allHotelOfferResults.length,
+      renderedHotelOfferResultsCount
+    });
 
     renderHotelOfferResults("initial");
   } catch (initializeHotelsPageError) {
-    console.error("HOTELS initialization failed", initializeHotelsPageError);
-    renderNoResultsState();
+    console.error("HOTELS initialization failed", {
+      name: initializeHotelsPageError?.name,
+      message: initializeHotelsPageError?.message,
+      stack: initializeHotelsPageError?.stack
+    });
+
+    wixLocationFrontend.to(`/?${new URLSearchParams({
+      ...wixLocationFrontend.query,
+      ...JSON.parse(
+        session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
+      ),
+      language: "tr",
+      currency: "TRY"
+    })}`);
   }
 }
 
@@ -134,46 +134,37 @@ function renderHotelOfferResults(renderHotelOfferResultsSource) {
   hideNoResultsState();
   syncHotelOfferResultsProgressiveLoadingButton();
 
-  console.log(
-    "HOTELS renderHotelOfferResults",
-    JSON.stringify({
-      renderHotelOfferResultsSource,
-      renderedHotelOfferResultsCount,
-      allHotelOfferResultsCount: allHotelOfferResults.length,
-      remainingHotelOfferResultsCount: Math.max(
-        0,
-        allHotelOfferResults.length - renderedHotelOfferResultsCount
-      )
-    })
-  );
+  console.log("HOTELS renderHotelOfferResults", {
+    renderHotelOfferResultsSource,
+    renderedHotelOfferResultsCount,
+    allHotelOfferResultsCount: allHotelOfferResults.length,
+    remainingHotelOfferResultsCount: Math.max(
+      0,
+      allHotelOfferResults.length - renderedHotelOfferResultsCount
+    )
+  });
 }
 
 function renderNextHotelOfferResults(renderNextHotelOfferResultsSource) {
   if (isRenderingNextHotelOfferResults) {
-    console.log(
-      "HOTELS renderNextHotelOfferResults skipped",
-      JSON.stringify({
-        renderNextHotelOfferResultsSource,
-        reason: "alreadyRendering",
-        renderedHotelOfferResultsCount,
-        allHotelOfferResultsCount: allHotelOfferResults.length
-      })
-    );
+    console.log("HOTELS renderNextHotelOfferResults skipped", {
+      renderNextHotelOfferResultsSource,
+      reason: "alreadyRendering",
+      renderedHotelOfferResultsCount,
+      allHotelOfferResultsCount: allHotelOfferResults.length
+    });
     return;
   }
 
   if (renderedHotelOfferResultsCount >= allHotelOfferResults.length) {
     syncHotelOfferResultsProgressiveLoadingButton();
 
-    console.log(
-      "HOTELS renderNextHotelOfferResults skipped",
-      JSON.stringify({
-        renderNextHotelOfferResultsSource,
-        reason: "allResultsRendered",
-        renderedHotelOfferResultsCount,
-        allHotelOfferResultsCount: allHotelOfferResults.length
-      })
-    );
+    console.log("HOTELS renderNextHotelOfferResults skipped", {
+      renderNextHotelOfferResultsSource,
+      reason: "allResultsRendered",
+      renderedHotelOfferResultsCount,
+      allHotelOfferResultsCount: allHotelOfferResults.length
+    });
     return;
   }
 
@@ -188,15 +179,12 @@ function renderNextHotelOfferResults(renderNextHotelOfferResultsSource) {
       allHotelOfferResults.length
     );
 
-    console.log(
-      "HOTELS renderNextHotelOfferResults",
-      JSON.stringify({
-        renderNextHotelOfferResultsSource,
-        previousRenderedHotelOfferResultsCount,
-        nextRenderedHotelOfferResultsCount: renderedHotelOfferResultsCount,
-        allHotelOfferResultsCount: allHotelOfferResults.length
-      })
-    );
+    console.log("HOTELS renderNextHotelOfferResults", {
+      renderNextHotelOfferResultsSource,
+      previousRenderedHotelOfferResultsCount,
+      nextRenderedHotelOfferResultsCount: renderedHotelOfferResultsCount,
+      allHotelOfferResultsCount: allHotelOfferResults.length
+    });
 
     renderHotelOfferResults(renderNextHotelOfferResultsSource);
   } finally {
@@ -300,12 +288,9 @@ function openHotelDetailsPage(itemData) {
   const hotelId = normalizeText(itemData?.hotelId);
 
   if (!hotelId) {
-    console.warn(
-      "HOTELS openHotelDetailsPage skipped",
-      JSON.stringify({
-        reason: "missingHotelId"
-      })
-    );
+    console.warn("HOTELS openHotelDetailsPage skipped", {
+      reason: "missingHotelId"
+    });
     return;
   }
 
@@ -313,10 +298,7 @@ function openHotelDetailsPage(itemData) {
     hotelId
   };
 
-  console.log(
-    "HOTELS openHotelDetailsPage",
-    JSON.stringify(runtimeSearchFlowContextQuery)
-  );
+  console.log("HOTELS openHotelDetailsPage", runtimeSearchFlowContextQuery);
 
   wixLocationFrontend.to(`/hotel?${new URLSearchParams({
     ...wixLocationFrontend.query,
@@ -341,13 +323,10 @@ function renderNoResultsState() {
 
   noResultsBox.expand();
 
-  console.log(
-    "HOTELS renderNoResultsState",
-    JSON.stringify({
-      allHotelOfferResultsCount: allHotelOfferResults.length,
-      renderedHotelOfferResultsCount
-    })
-  );
+  console.log("HOTELS renderNoResultsState", {
+    allHotelOfferResultsCount: allHotelOfferResults.length,
+    renderedHotelOfferResultsCount
+  });
 }
 
 function hideNoResultsState() {
@@ -371,12 +350,16 @@ function syncHotelOfferResultsProgressiveLoadingButton() {
   loadMoreHotelOffersButton.expand();
 }
 
-function buildRepeaterId(hotelId, index) {
+function buildRepeaterId(hotelId) {
   const safeHotelId = normalizeText(hotelId)
     .replace(/[^a-zA-Z0-9-]/g, "")
     .slice(0, 40);
 
-  return safeHotelId || `hotel-${index + 1}`;
+  if (!safeHotelId) {
+    throw new Error("hotelId is required to build hotel offer repeater item id.");
+  }
+
+  return safeHotelId;
 }
 
 function normalizeText(value) {
