@@ -197,7 +197,10 @@ async function handleWixCartFlow(purchaseSelection) {
     wixRoomMainImageRef: importedImageRefs.wixRoomMainImageRef,
     starRating: purchaseSelection.hotelStarRatingText,
     hotelReview: purchaseSelection.hotelReviewText,
-    hotelAddress: purchaseSelection.hotelAddress
+    hotelAddress: purchaseSelection.hotelAddress,
+    currency: purchaseSelection.roomOfferCurrency,
+    currentPrice: purchaseSelection.currentPrice,
+    beforeCurrentPrice: purchaseSelection.beforeCurrentPrice
   });
 
   console.log("HOTEL PAGE buildPrebookShell success", {
@@ -397,7 +400,10 @@ function buildPrebookShell({
   wixRoomMainImageRef,
   starRating,
   hotelReview,
-  hotelAddress
+  hotelAddress,
+  currency,
+  currentPrice,
+  beforeCurrentPrice
 }) {
   return {
     mappedRoomId: normalizeText(mappedRoomId),
@@ -424,12 +430,10 @@ function buildPrebookShell({
       : [],
     occupancyNumber: normalizedPrebook?.occupancyNumber,
     refundableTag: normalizeText(normalizedPrebook?.refundableTag),
-    currency: normalizeText(normalizedPrebook?.currency),
-    currentPrice: normalizedPrebook?.currentPrice,
+    currency: normalizeText(currency),
+    currentPrice,
     beforeCurrentPrice:
-      normalizedPrebook?.beforeCurrentPrice === undefined
-        ? null
-        : normalizedPrebook.beforeCurrentPrice
+      beforeCurrentPrice === undefined ? null : beforeCurrentPrice
   };
 }
 
