@@ -61,7 +61,24 @@ class SearchBarCustomElement2 extends HTMLElement {
     script.src = LITEAPI_SDK_URL;
 
     script.onload = () => {
-      window.LiteAPI.init({
+      const LiteAPI = window.LiteAPI;
+
+      if (!LiteAPI?.init || !LiteAPI?.SearchBar?.create) {
+        console.error(
+          "[SEARCH BAR CUSTOM ELEMENT 2] LiteAPI global is not ready after sdk onload",
+          {
+            hasLiteAPI: Boolean(window.LiteAPI),
+            hasInit: Boolean(window.LiteAPI?.init),
+            hasSearchBar: Boolean(window.LiteAPI?.SearchBar),
+            hasSearchBarCreate: Boolean(window.LiteAPI?.SearchBar?.create),
+            scriptSrc: script.src
+          }
+        );
+
+        return;
+      }
+
+      LiteAPI.init({
         domain: LITEAPI_DOMAIN,
         deepLinkParams: "language=tr&currency=TRY",
         labelsOverride: {
@@ -163,7 +180,7 @@ class SearchBarCustomElement2 extends HTMLElement {
         onSearchClick: "function"
       });
 
-      window.LiteAPI.SearchBar.create(searchBarCreatePayload);
+      LiteAPI.SearchBar.create(searchBarCreatePayload);
     };
 
     script.onerror = () => {
