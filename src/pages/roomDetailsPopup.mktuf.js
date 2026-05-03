@@ -1,15 +1,4 @@
 import wixWindowFrontend from "wix-window-frontend";
-import {
-  safeCollapseAndHide,
-  safeExpand,
-  safeGetItemElement,
-  safeGetPageElement,
-  safeShow,
-  setOptionalTextIfExists
-} from "public/liteApiHelpers";
-
-const FALLBACK_IMAGE_URL =
-  "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1200&q=80";
 
 $w.onReady(function () {
   const context = wixWindowFrontend.lightbox.getContext() || {};
@@ -19,87 +8,98 @@ $w.onReady(function () {
 function bindRoomDetailsPopup(context) {
   bindRoomDetailsGallery(context?.images || []);
 
-  setOptionalTextIfExists("#roomNameText", context?.roomName || "");
-  setOptionalTextIfExists("#roomDescriptionText", context?.description || "");
-  setOptionalTextIfExists("#roomSizeText", context?.sizeText || "");
-  setOptionalTextIfExists("#roomSleepsText", context?.sleepsText || "");
-  setOptionalTextIfExists("#roomBedTypesText", context?.bedTypesText || "");
+  const roomName = String(context?.roomName || "").trim();
+  const description = String(context?.description || "").trim();
+  const sizeText = String(context?.sizeText || "").trim();
+  const sleepsText = String(context?.sleepsText || "").trim();
+  const bedTypesText = String(context?.bedTypesText || "").trim();
 
-  const amenitiesTitle = safeGetPageElement("#roomAmenitiesTitleText");
-  const amenitiesRepeater = safeGetPageElement("#roomAmenitiesRepeater");
-  const amenities = Array.isArray(context?.amenities) ? context.amenities : [];
-
-  if (!amenities.length) {
-    if (amenitiesTitle) {
-      safeCollapseAndHide(amenitiesTitle);
-    }
-
-    if (amenitiesRepeater) {
-      try {
-        amenitiesRepeater.data = [];
-      } catch (error) {}
-      safeCollapseAndHide(amenitiesRepeater);
-    }
-
-    return;
+  $w("#roomNameText").text = roomName;
+  if (roomName) {
+    $w("#roomNameText").expand();
+  } else {
+    $w("#roomNameText").collapse();
   }
 
-  if (amenitiesTitle) {
-    safeShow(amenitiesTitle);
-    safeExpand(amenitiesTitle);
+  $w("#roomDescriptionText").text = description;
+  if (description) {
+    $w("#roomDescriptionText").expand();
+  } else {
+    $w("#roomDescriptionText").collapse();
   }
 
-  if (!amenitiesRepeater) {
-    return;
+  $w("#roomSizeText").text = sizeText;
+  if (sizeText) {
+    $w("#roomSizeText").expand();
+  } else {
+    $w("#roomSizeText").collapse();
   }
 
-  amenitiesRepeater.onItemReady(($item, itemData) => {
-    const text = safeGetItemElement($item, "#roomAmenitiesText");
-    if (!text) {
-      return;
+  $w("#roomSleepsText").text = sleepsText;
+  if (sleepsText) {
+    $w("#roomSleepsText").expand();
+  } else {
+    $w("#roomSleepsText").collapse();
+  }
+
+  $w("#roomBedTypesText").text = bedTypesText;
+  if (bedTypesText) {
+    $w("#roomBedTypesText").expand();
+  } else {
+    $w("#roomBedTypesText").collapse();
+  }
+
+  const amenities = Array.isArray(context?.amenities)
+    ? context.amenities
+        .map((amenity) => String(amenity || "").trim())
+        .filter(Boolean)
+    : [];
+
+  $w("#roomAmenitiesRepeater").onItemReady(($item, itemData) => {
+    const amenityText = String(itemData?.text || "").trim();
+
+    $item("#roomAmenitiesText").text = amenityText;
+
+    if (amenityText) {
+      $item("#roomAmenitiesText").expand();
+    } else {
+      $item("#roomAmenitiesText").collapse();
     }
-
-    text.text = String(itemData.text || "");
-    safeShow(text);
-    safeExpand(text);
   });
 
-  amenitiesRepeater.data = amenities.map((item, index) => ({
+  if (!amenities.length) {
+    $w("#roomAmenitiesTitleText").collapse();
+    $w("#roomAmenitiesRepeater").data = [];
+    $w("#roomAmenitiesRepeater").collapse();
+    return;
+  }
+
+  $w("#roomAmenitiesTitleText").expand();
+
+  $w("#roomAmenitiesRepeater").data = amenities.map((amenity, index) => ({
     _id: `amenity-${index + 1}`,
-    text: String(item || "")
+    text: amenity
   }));
 
-  safeShow(amenitiesRepeater);
-  safeExpand(amenitiesRepeater);
+  $w("#roomAmenitiesRepeater").expand();
 }
 
 function bindRoomDetailsGallery(images) {
-  const gallery = safeGetPageElement("#roomDetailsGallery");
-  if (!gallery) {
-    return;
-  }
-
-  const items = (Array.isArray(images) ? images : [])
+  const galleryItems = (Array.isArray(images) ? images : [])
+    .map((imageUrl) => String(imageUrl || "").trim())
     .filter(Boolean)
-    .map((url, index) => ({
+    .map((imageUrl, index) => ({
       type: "image",
-      src: url || FALLBACK_IMAGE_URL,
+      src: imageUrl,
       title: `Room image ${index + 1}`
     }));
 
-  const normalizedItems = items.length
-    ? items
-    : [
-        {
-          type: "image",
-          src: FALLBACK_IMAGE_URL,
-          title: "Room image"
-        }
-      ];
-
-  try {
-    gallery.items = normalizedItems;
-  } catch (error) {
-    console.error("ROOM POPUP gallery bind failed", error);
+  if (!galleryItems.length) {
+    $w("#roomDetailsGallery").items = [];
+    $w("#roomDetailsGallery").collapse();
+    return;
   }
+
+  $w("#roomDetailsGallery").items = galleryItems;
+  $w("#roomDetailsGallery").expand();
 }
