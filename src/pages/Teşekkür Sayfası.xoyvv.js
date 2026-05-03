@@ -1,4 +1,3 @@
-import wixLocationFrontend from "wix-location-frontend";
 import wixWindow from "wix-window-frontend";
 import { completeBooking } from "backend/liteApi.web";
 
@@ -26,16 +25,8 @@ $w.onReady(function () {
 
   console.log("COMPLETE BOOKING onReady", {
     renderingEnv,
-    url: wixLocationFrontend.url,
-    path: Array.isArray(wixLocationFrontend.path)
-      ? wixLocationFrontend.path.join("/")
-      : wixLocationFrontend.path,
-    query: wixLocationFrontend.query,
     bookingMode: "browser-only",
     uiMode: "statebox-only",
-    progressBarEnabled: false,
-    exactPathMode: true,
-    backendBookingImportEnabled: true,
     backendBookingCallEnabled: true,
     completeBookingType: typeof completeBooking
   });
@@ -56,7 +47,11 @@ $w.onReady(function () {
 
   initializeCompleteBookingFlow()
     .catch((error) => {
-      console.error("COMPLETE BOOKING onReady flow failed", error);
+      console.error("COMPLETE BOOKING onReady flow failed", {
+        name: error?.name,
+        message: error?.message,
+        stack: error?.stack
+      });
     })
     .finally(() => {
       isCompleteBookingFlowRunning = false;
@@ -70,15 +65,10 @@ async function initializeCompleteBookingFlow() {
   const completeBookingStateBox = $w(COMPLETE_BOOKING_STATE_BOX_SELECTOR);
 
   console.log("COMPLETE BOOKING initialize-enter", {
-    url: wixLocationFrontend.url,
-    query: wixLocationFrontend.query,
-    completeBookingType: typeof completeBooking,
-    thankYouPageSelector: THANK_YOU_PAGE_SELECTOR,
     thankYouPageHasGetOrder: typeof thankYouPage.getOrder === "function",
     thankYouPageCollapsed: Boolean(thankYouPage.collapsed),
     thankYouPageHidden: Boolean(thankYouPage.hidden),
     thankYouPageIsVisible: Boolean(thankYouPage.isVisible),
-    stateBoxSelector: COMPLETE_BOOKING_STATE_BOX_SELECTOR,
     stateBoxCurrentStateId: normalizeText(
       completeBookingStateBox.currentState?.id
     ),
@@ -105,7 +95,7 @@ async function initializeCompleteBookingFlow() {
 
   if (typeof thankYouPage.getOrder !== "function") {
     console.warn("COMPLETE BOOKING getOrder missing", {
-      thankYouPageSelector: THANK_YOU_PAGE_SELECTOR
+      thankYouPageHasGetOrder: false
     });
 
     await completeBookingStateBox.changeState(
@@ -129,30 +119,39 @@ async function initializeCompleteBookingFlow() {
     const getOrderStartedAt = Date.now();
 
     console.log("COMPLETE BOOKING getOrder-start", {
-      thankYouPageSelector: THANK_YOU_PAGE_SELECTOR
+      thankYouPageHasGetOrder: typeof thankYouPage.getOrder === "function"
     });
 
     const currentOrder = await thankYouPage.getOrder();
 
     console.log("COMPLETE BOOKING getOrder-success", {
       elapsedMs: Date.now() - getOrderStartedAt,
-      orderTopLevelKeys: currentOrder ? Object.keys(currentOrder).sort() : [],
-      orderSummary: summarizeOrderForTrace(currentOrder)
+      hasOrder: Boolean(currentOrder),
+      hasOrderId: Boolean(resolveOrderId(currentOrder)),
+      paymentStatus: normalizeText(currentOrder?.paymentStatus).toUpperCase(),
+      lineItemsCount: Array.isArray(currentOrder?.lineItems)
+        ? currentOrder.lineItems.length
+        : 0,
+      reservationType: resolveReservationTypeFromOrder(currentOrder)
     });
 
     const completeBookingDecision = resolveCompleteBookingDecision(currentOrder);
 
     console.log("COMPLETE BOOKING decision-resolved", {
-      completeBookingDecision,
-      orderId: resolveOrderId(currentOrder),
-      lineItemOptionsSummary: summarizeOrderLineItemOptions(currentOrder),
-      lineItemBookingContextSummary:
-        summarizeOrderLineItemBookingContext(currentOrder)
+      shouldStartCompleteBooking:
+        completeBookingDecision.shouldStartCompleteBooking,
+      reason: completeBookingDecision.reason,
+      hasOrderId: Boolean(completeBookingDecision.orderId),
+      paymentStatus: completeBookingDecision.paymentStatus,
+      reservationType: completeBookingDecision.reservationType
     });
 
     if (!completeBookingDecision.shouldStartCompleteBooking) {
       console.log("COMPLETE BOOKING decision-skip", {
-        completeBookingDecision
+        reason: completeBookingDecision.reason,
+        hasOrderId: Boolean(completeBookingDecision.orderId),
+        paymentStatus: completeBookingDecision.paymentStatus,
+        reservationType: completeBookingDecision.reservationType
       });
 
       await completeBookingStateBox.changeState(
@@ -178,10 +177,12 @@ async function initializeCompleteBookingFlow() {
       orderId: completeBookingDecision.orderId
     };
 
-    console.warn("COMPLETE BOOKING call-start", {
-      payload: completeBookingPayload,
-      completeBookingDecision,
-      orderSummary: summarizeOrderForTrace(currentOrder)
+    console.log("COMPLETE BOOKING call-start", {
+      bookingFlowMode: COMPLETE_BOOKING_FLOW_MODE,
+      hasOrderId: Boolean(completeBookingDecision.orderId),
+      reason: completeBookingDecision.reason,
+      paymentStatus: completeBookingDecision.paymentStatus,
+      reservationType: completeBookingDecision.reservationType
     });
 
     const completeBookingStartedAt = Date.now();
@@ -190,8 +191,13 @@ async function initializeCompleteBookingFlow() {
 
     console.log("COMPLETE BOOKING call-success", {
       elapsedMs: Date.now() - completeBookingStartedAt,
-      payload: completeBookingPayload,
-      resultSummary: summarizeCompleteBookingResult(completeBookingResult)
+      hasCompleteBookingResult: Boolean(completeBookingResult),
+      hasCompletedBooking: Boolean(completeBookingResult?.completedBooking),
+      hasNormalizedBooking: Boolean(completeBookingResult?.normalizedBooking),
+      hasPersistence: Boolean(completeBookingResult?.persistence),
+      orderPersistenceStatus: normalizeText(
+        completeBookingResult?.persistence?.order?.status
+      )
     });
 
     await completeBookingStateBox.changeState(
@@ -208,12 +214,14 @@ async function initializeCompleteBookingFlow() {
       )
     });
   } catch (error) {
-    console.error("COMPLETE BOOKING failed", error);
+    console.error("COMPLETE BOOKING failed", {
+      name: error?.name,
+      message: error?.message,
+      stack: error?.stack
+    });
 
     console.log("COMPLETE BOOKING initialize-failed", {
-      elapsedMs: Date.now() - initializeStartedAt,
-      url: wixLocationFrontend.url,
-      query: wixLocationFrontend.query
+      elapsedMs: Date.now() - initializeStartedAt
     });
 
     await completeBookingStateBox.changeState(
@@ -231,9 +239,7 @@ async function initializeCompleteBookingFlow() {
     });
   } finally {
     console.log("COMPLETE BOOKING initialize-end", {
-      elapsedMs: Date.now() - initializeStartedAt,
-      url: wixLocationFrontend.url,
-      query: wixLocationFrontend.query
+      elapsedMs: Date.now() - initializeStartedAt
     });
   }
 }
@@ -328,84 +334,10 @@ function resolveReservationTypeFromLineItem(lineItem) {
   return "";
 }
 
-function summarizeOrderForTrace(currentOrder) {
-  return {
-    orderId: resolveOrderId(currentOrder),
-    cartId: normalizeText(currentOrder?.cartId),
-    paymentStatus: normalizeText(currentOrder?.paymentStatus).toUpperCase(),
-    lineItemsCount: Array.isArray(currentOrder?.lineItems)
-      ? currentOrder.lineItems.length
-      : 0,
-    reservationType: resolveReservationTypeFromOrder(currentOrder),
-    lineItemBookingContextSummary:
-      summarizeOrderLineItemBookingContext(currentOrder),
-    lineItemOptionsSummary: summarizeOrderLineItemOptions(currentOrder)
-  };
-}
-
-function summarizeOrderLineItemOptions(currentOrder) {
-  const lineItems = Array.isArray(currentOrder?.lineItems)
-    ? currentOrder.lineItems
-    : [];
-
-  return lineItems.map((lineItem, index) => ({
-    index,
-    name: normalizeText(lineItem?.name),
-    options: Array.isArray(lineItem?.options)
-      ? lineItem.options.map((optionItem) => ({
-          option: normalizeText(optionItem?.option),
-          selection: normalizeText(optionItem?.selection)
-        }))
-      : []
-  }));
-}
-
-function summarizeOrderLineItemBookingContext(currentOrder) {
-  const lineItems = Array.isArray(currentOrder?.lineItems)
-    ? currentOrder.lineItems
-    : [];
-
-  return lineItems.map((lineItem, index) => ({
-    index,
-    name: normalizeText(lineItem?.name),
-    reservationType: resolveReservationTypeFromLineItem(lineItem),
-    quantity: normalizeText(lineItem?.quantity)
-  }));
-}
-
 function resolveOrderId(currentOrder) {
   return normalizeText(currentOrder?._id);
 }
 
-function summarizeCompleteBookingResult(completeBookingResult) {
-  return {
-    completedBookingBookingId: normalizeText(
-      completeBookingResult?.completedBooking?.data?.bookingId
-    ),
-    completedBookingStatus: normalizeText(
-      completeBookingResult?.completedBooking?.data?.status
-    ),
-    completedBookingMessage: normalizeText(
-      completeBookingResult?.completedBooking?.data?.message
-    ),
-    normalizedBookingId: normalizeText(
-      completeBookingResult?.normalizedBooking?.bookingId
-    ),
-    normalizedBookingStatus: normalizeText(
-      completeBookingResult?.normalizedBooking?.status
-    ),
-    normalizedHotelConfirmationCode: normalizeText(
-      completeBookingResult?.normalizedBooking?.hotelConfirmationCode
-    ),
-    orderPersistenceStatus: normalizeText(
-      completeBookingResult?.persistence?.order?.status
-    ),
-    orderPersistenceBookingId: normalizeText(
-      completeBookingResult?.persistence?.order?.bookingId
-    )
-  };
-}
-
 function normalizeText(value) {
-  return String(value || "").trim();
+  return String(value ?? "").trim();
 }
