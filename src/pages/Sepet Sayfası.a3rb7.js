@@ -21,19 +21,17 @@ $w.onReady(async function () {
     console.log("CART PAGE skipped outside browser", { renderingEnv });
     return;
   }
-  
+
   bindReservationTypeControls();
   bindCartChangeListener();
 
   session.setItem(
     SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY,
     JSON.stringify({
-      ...wixLocationFrontend.query,
       ...JSON.parse(
         session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
       ),
-      language: "tr",
-      currency: "TRY"
+      ...wixLocationFrontend.query
     })
   );
 
@@ -67,9 +65,7 @@ $w.onReady(async function () {
         ...JSON.parse(
           session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) ||
             "{}"
-        ),
-        language: "tr",
-        currency: "TRY"
+        )
       })}`);
 
       return;
@@ -87,9 +83,7 @@ $w.onReady(async function () {
         ...JSON.parse(
           session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) ||
             "{}"
-        ),
-        language: "tr",
-        currency: "TRY"
+        )
       })}`);
 
       return;
@@ -141,9 +135,7 @@ function bindCartChangeListener() {
             ...JSON.parse(
               session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) ||
                 "{}"
-            ),
-            language: "tr",
-            currency: "TRY"
+            )
           })}`);
 
           return;
@@ -164,9 +156,7 @@ function bindCartChangeListener() {
             ...JSON.parse(
               session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) ||
                 "{}"
-            ),
-            language: "tr",
-            currency: "TRY"
+            )
           })}`);
 
           return;
@@ -262,9 +252,7 @@ async function applyReservationType(isFlexible, source) {
         ...JSON.parse(
           session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) ||
             "{}"
-        ),
-        language: "tr",
-        currency: "TRY"
+        )
       })}`);
 
       return;
@@ -312,9 +300,7 @@ async function applyReservationType(isFlexible, source) {
           ...JSON.parse(
             session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) ||
               "{}"
-          ),
-          language: "tr",
-          currency: "TRY"
+          )
         })}`);
 
         return;
@@ -367,9 +353,7 @@ async function applyReservationType(isFlexible, source) {
         ...JSON.parse(
           session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) ||
             "{}"
-        ),
-        language: "tr",
-        currency: "TRY"
+        )
       })}`);
 
       return;
@@ -412,9 +396,7 @@ async function applyReservationType(isFlexible, source) {
         ...JSON.parse(
           session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) ||
             "{}"
-        ),
-        language: "tr",
-        currency: "TRY"
+        )
       })}`);
 
       return;
@@ -437,9 +419,7 @@ async function applyReservationType(isFlexible, source) {
         ...JSON.parse(
           session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) ||
             "{}"
-        ),
-        language: "tr",
-        currency: "TRY"
+        )
       })}`);
 
       return;
