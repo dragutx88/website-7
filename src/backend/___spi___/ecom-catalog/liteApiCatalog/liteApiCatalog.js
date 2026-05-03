@@ -10,22 +10,32 @@ const CHECK_OUT_DATE_LABEL = "Check Out Date";
 
 export async function getCatalogItems(options = {}, context = {}) {
   const request = normalizeCatalogRequest(options, context);
-
-  logInfo("liteApiCatalog getCatalogItems called", {
-    requestSummary: buildRequestSummary(request),
-    rawOptions: options,
-    rawContext: context
-  });
-
   const catalogReferences = Array.isArray(request?.catalogReferences)
     ? request.catalogReferences
     : [];
 
-  logInfo("liteApiCatalog catalogReferences resolved", {
-    count: catalogReferences.length,
-    catalogItemIds: catalogReferences.map((item) =>
-      String((item?.catalogReference || item)?.catalogItemId || "")
-    )
+  const requestId = normalizeText(
+    request?.requestId || request?.__context?.requestId
+  );
+
+  const requestLanguages = Array.isArray(
+    request?.languages || request?.__context?.languages
+  )
+    ? request.languages || request.__context.languages
+    : [];
+
+  console.log("liteApiCatalog getCatalogItems start", {
+    requestId,
+    currency: normalizeText(
+      request?.currency || request?.__context?.currency
+    ).toUpperCase(),
+    languagesCount: requestLanguages.length,
+    catalogReferencesCount: catalogReferences.length
+  });
+
+  console.log("liteApiCatalog catalogReferences resolved", {
+    requestId,
+    catalogReferencesCount: catalogReferences.length
   });
 
   const catalogItems = [];
@@ -44,11 +54,12 @@ export async function getCatalogItems(options = {}, context = {}) {
     }
   }
 
-  logInfo("liteApiCatalog getCatalogItems completed", {
+  console.log("liteApiCatalog getCatalogItems completed", {
+    requestId,
     requestedCount: catalogReferences.length,
     returnedCount: catalogItems.length,
     returnedCatalogItemIds: catalogItems.map((item) =>
-      String(item?.catalogReference?.catalogItemId || "")
+      normalizeText(item?.catalogReference?.catalogItemId)
     )
   });
 
@@ -82,18 +93,27 @@ async function resolveCatalogItem(rawCatalogReference, request, prebookValidatio
   const catalogReference =
     rawCatalogReference?.catalogReference || rawCatalogReference;
 
-  const catalogItemId = String(catalogReference?.catalogItemId || "");
-  const requestId = String(request?.requestId || request?.__context?.requestId || "");
+  const catalogItemId = normalizeText(catalogReference?.catalogItemId);
+  const requestId = normalizeText(
+    request?.requestId || request?.__context?.requestId
+  );
 
   try {
-    logInfo("liteApiCatalog resolveCatalogItem start", {
+    console.log("liteApiCatalog resolveCatalogItem start", {
       requestId,
       catalogItemId,
-      catalogReference
+      hasCatalogReference: Boolean(
+        catalogReference && typeof catalogReference === "object"
+      ),
+      hasOptions: Boolean(
+        catalogReference?.options &&
+          typeof catalogReference.options === "object" &&
+          !Array.isArray(catalogReference.options)
+      )
     });
 
     if (!catalogReference || typeof catalogReference !== "object") {
-      logWarn("liteApiCatalog missing catalogReference", {
+      console.warn("liteApiCatalog missing catalogReference", {
         requestId,
         catalogItemId
       });
@@ -101,20 +121,27 @@ async function resolveCatalogItem(rawCatalogReference, request, prebookValidatio
     }
 
     const prebookShell = getPrebookShell(catalogReference);
-
-    logInfo("liteApiCatalog shell extracted", {
-      requestId,
-      catalogItemId,
-      shellSummary: buildShellSummary(prebookShell)
-    });
-
     const prebookId = normalizeText(prebookShell?.prebookId);
 
+    console.log("liteApiCatalog prebookShell extracted", {
+      requestId,
+      catalogItemId,
+      hasPrebookId: Boolean(prebookId),
+      hasPrebookSnapshot: Boolean(normalizeText(prebookShell?.prebookSnapshot)),
+      hasCurrentPrice: Number.isFinite(Number(prebookShell?.currentPrice)),
+      hasMedia: Boolean(
+        normalizeText(prebookShell?.wixHotelMainImageRef) ||
+          normalizeText(prebookShell?.wixRoomMainImageRef)
+      ),
+      hasReservationType: Boolean(normalizeText(prebookShell?.[RESERVATION_TYPE_KEY]))
+    });
+
     if (!prebookId) {
-      logWarn("liteApiCatalog missing prebookId in prebookShell", {
+      console.warn("liteApiCatalog missing prebookId in prebookShell", {
         requestId,
         catalogItemId,
-        shellSummary: buildShellSummary(prebookShell)
+        hasPrebookShell: Boolean(prebookShell && typeof prebookShell === "object"),
+        hasPrebookSnapshot: Boolean(normalizeText(prebookShell?.prebookSnapshot))
       });
       return null;
     }
@@ -128,39 +155,45 @@ async function resolveCatalogItem(rawCatalogReference, request, prebookValidatio
       }
     );
 
-    logInfo("liteApiCatalog prebook validation result", {
+    console.log("liteApiCatalog prebook validation result", {
       requestId,
       catalogItemId,
-      prebookId,
+      hasPrebookId: Boolean(prebookId),
       isPrebookValid
     });
 
     if (!isPrebookValid) {
-      logWarn("liteApiCatalog prebook validation failed; excluding cart item", {
+      console.warn("liteApiCatalog prebook validation failed; excluding cart item", {
         requestId,
         catalogItemId,
-        prebookId
+        hasPrebookId: Boolean(prebookId)
       });
       return null;
     }
 
     const catalogItem = buildCatalogItem(catalogReference, prebookShell);
 
-    logInfo("liteApiCatalog built catalogItem", {
+    console.log("liteApiCatalog catalogItem built", {
       requestId,
       catalogItemId,
-      prebookId,
-      builtSummary: buildBuiltCatalogItemSummary(catalogItem),
-      catalogItem
+      hasProductName: Boolean(
+        normalizeText(catalogItem?.data?.productName?.original)
+      ),
+      hasPrice: Boolean(normalizeText(catalogItem?.data?.price)),
+      hasMedia: Boolean(normalizeText(catalogItem?.data?.media)),
+      descriptionLineCount: Array.isArray(catalogItem?.data?.descriptionLines)
+        ? catalogItem.data.descriptionLines.length
+        : 0
     });
 
     return catalogItem;
   } catch (error) {
-    logError("liteApiCatalog resolveCatalogItem failed", {
+    console.error("liteApiCatalog resolveCatalogItem failed", {
       requestId,
       catalogItemId,
-      error,
-      catalogReference
+      name: error?.name,
+      message: error?.message,
+      stack: error?.stack
     });
     return null;
   }
@@ -178,22 +211,11 @@ function buildCatalogItem(catalogReference, prebookShell) {
   const price = extractPriceValue(prebookShell);
   const descriptionLines = buildDescriptionLines(prebookShell);
 
-  logInfo("liteApiCatalog buildCatalogItem inputs", {
-    productName,
-    hotelName,
-    rateName,
-    selectedMedia: media,
-    selectedMediaSource: normalizeText(prebookShell?.wixHotelMainImageRef)
-      ? "wixHotelMainImageRef"
-      : normalizeText(prebookShell?.wixRoomMainImageRef)
-      ? "wixRoomMainImageRef"
-      : "",
-    price,
-    descriptionLineCount: descriptionLines.length,
-    descriptionLinesPreview: descriptionLines.map((line) => ({
-      name: line?.name?.original || "",
-      plainText: line?.plainText?.original || ""
-    }))
+  console.log("liteApiCatalog buildCatalogItem summary", {
+    hasProductName: Boolean(productName),
+    hasMedia: Boolean(media),
+    hasPrice: Boolean(price),
+    descriptionLineCount: descriptionLines.length
   });
 
   const data = {
@@ -233,13 +255,7 @@ function extractPriceValue(prebookShell) {
   const currentPrice = Number(prebookShell?.currentPrice);
 
   if (Number.isFinite(currentPrice)) {
-    const value = toPriceString(currentPrice);
-    logInfo("liteApiCatalog price source selected", {
-      source: "prebookShell.currentPrice",
-      rawValue: currentPrice,
-      normalizedValue: value
-    });
-    return value;
+    return toPriceString(currentPrice);
   }
 
   throw new Error("prebookShell.currentPrice is required.");
@@ -303,14 +319,6 @@ function buildDescriptionLines(prebookShell) {
   if (refundableText) {
     pushDescriptionLine(lines, `Refundability: ${refundableText}`);
   }
-
-  logInfo("liteApiCatalog descriptionLines built", {
-    count: lines.length,
-    lines: lines.map((line) => ({
-      name: line?.name?.original || "",
-      plainText: line?.plainText?.original || ""
-    }))
-  });
 
   return lines;
 }
@@ -379,30 +387,37 @@ function formatRefundableTag(value) {
 async function validatePrebookWithRetry(prebookId, cache, meta = {}) {
   const normalizedPrebookId = normalizeText(prebookId);
   if (!normalizedPrebookId) {
-    logWarn("liteApiCatalog validatePrebookWithRetry missing prebookId", meta);
+    console.warn("liteApiCatalog validatePrebookWithRetry missing prebookId", {
+      requestId: meta?.requestId,
+      catalogItemId: meta?.catalogItemId,
+      hasPrebookId: false
+    });
     return false;
   }
 
   if (cache.has(normalizedPrebookId)) {
-    logInfo("liteApiCatalog prebook validation cache hit", {
-      ...meta,
-      prebookId: normalizedPrebookId
+    console.log("liteApiCatalog prebook validation cache hit", {
+      requestId: meta?.requestId,
+      catalogItemId: meta?.catalogItemId,
+      hasPrebookId: true
     });
     return cache.get(normalizedPrebookId);
   }
 
   const validationPromise = (async () => {
-    logInfo("liteApiCatalog prebook validation attempt 1 start", {
-      ...meta,
-      prebookId: normalizedPrebookId
+    console.log("liteApiCatalog prebook validation attempt 1 start", {
+      requestId: meta?.requestId,
+      catalogItemId: meta?.catalogItemId,
+      hasPrebookId: true
     });
 
     try {
       const isValid = await validatePrebook(normalizedPrebookId);
 
-      logInfo("liteApiCatalog prebook validation attempt 1 result", {
-        ...meta,
-        prebookId: normalizedPrebookId,
+      console.log("liteApiCatalog prebook validation attempt 1 result", {
+        requestId: meta?.requestId,
+        catalogItemId: meta?.catalogItemId,
+        hasPrebookId: true,
         isValid
       });
 
@@ -414,11 +429,14 @@ async function validatePrebookWithRetry(prebookId, cache, meta = {}) {
     } catch (error) {
       const transient = isTransientPrebookError(error);
 
-      logWarn("liteApiCatalog prebook validation attempt 1 failed", {
-        ...meta,
-        prebookId: normalizedPrebookId,
+      console.warn("liteApiCatalog prebook validation attempt 1 failed", {
+        requestId: meta?.requestId,
+        catalogItemId: meta?.catalogItemId,
+        hasPrebookId: true,
         transient,
-        error
+        name: error?.name,
+        message: error?.message,
+        stack: error?.stack
       });
 
       if (!transient) {
@@ -427,26 +445,31 @@ async function validatePrebookWithRetry(prebookId, cache, meta = {}) {
 
       await sleep(400);
 
-      logInfo("liteApiCatalog prebook validation attempt 2 start", {
-        ...meta,
-        prebookId: normalizedPrebookId
+      console.log("liteApiCatalog prebook validation attempt 2 start", {
+        requestId: meta?.requestId,
+        catalogItemId: meta?.catalogItemId,
+        hasPrebookId: true
       });
 
       try {
         const retryIsValid = await validatePrebook(normalizedPrebookId);
 
-        logInfo("liteApiCatalog prebook validation attempt 2 result", {
-          ...meta,
-          prebookId: normalizedPrebookId,
+        console.log("liteApiCatalog prebook validation attempt 2 result", {
+          requestId: meta?.requestId,
+          catalogItemId: meta?.catalogItemId,
+          hasPrebookId: true,
           isValid: retryIsValid
         });
 
         return retryIsValid;
       } catch (retryError) {
-        logWarn("liteApiCatalog prebook validation attempt 2 failed", {
-          ...meta,
-          prebookId: normalizedPrebookId,
-          error: retryError
+        console.warn("liteApiCatalog prebook validation attempt 2 failed", {
+          requestId: meta?.requestId,
+          catalogItemId: meta?.catalogItemId,
+          hasPrebookId: true,
+          name: retryError?.name,
+          message: retryError?.message,
+          stack: retryError?.stack
         });
         return false;
       }
@@ -482,102 +505,5 @@ function normalizeCount(value) {
 }
 
 function normalizeText(value) {
-  return String(value || "").trim();
-}
-
-function normalizeCurrencyCode(value) {
-  return normalizeText(value).toUpperCase();
-}
-
-function buildRequestSummary(request) {
-  return {
-    requestId: String(request?.requestId || request?.__context?.requestId || ""),
-    currency: normalizeCurrencyCode(request?.currency || request?.__context?.currency),
-    languages: Array.isArray(request?.languages || request?.__context?.languages)
-      ? request.languages || request.__context.languages
-      : [],
-    catalogReferencesCount: Array.isArray(request?.catalogReferences)
-      ? request.catalogReferences.length
-      : 0
-  };
-}
-
-function buildShellSummary(prebookShell) {
-  return {
-    mappedRoomId: normalizeText(prebookShell?.mappedRoomId),
-    prebookId: normalizeText(prebookShell?.prebookId),
-    hotelName: normalizeText(prebookShell?.hotelName),
-    starRating: normalizeText(prebookShell?.starRating),
-    hotelReview: normalizeText(prebookShell?.hotelReview),
-    hotelAddress: normalizeText(prebookShell?.hotelAddress),
-    checkInDate: normalizeText(prebookShell?.checkInDate),
-    checkOutDate: normalizeText(prebookShell?.checkOutDate),
-    rateName: normalizeText(prebookShell?.rateName),
-    boardName: normalizeText(prebookShell?.boardName),
-    adultCount: normalizeCount(prebookShell?.adultCount),
-    childCount: normalizeCount(prebookShell?.childCount),
-    occupancyNumber: normalizeCount(prebookShell?.occupancyNumber),
-    refundableTag: normalizeText(prebookShell?.refundableTag),
-    currency: normalizeCurrencyCode(prebookShell?.currency),
-    currentPrice: Number(prebookShell?.currentPrice),
-    beforeCurrentPrice: Number(prebookShell?.beforeCurrentPrice),
-    reservationType: normalizeText(prebookShell?.[RESERVATION_TYPE_KEY]),
-    hotelMainImage: normalizeText(prebookShell?.hotelMainImage),
-    roomMainImage: normalizeText(prebookShell?.roomMainImage),
-    wixHotelMainImageRef: normalizeText(prebookShell?.wixHotelMainImageRef),
-    wixRoomMainImageRef: normalizeText(prebookShell?.wixRoomMainImageRef),
-    hasPrebookSnapshot: Boolean(normalizeText(prebookShell?.prebookSnapshot))
-  };
-}
-
-function buildBuiltCatalogItemSummary(catalogItem) {
-  return {
-    catalogItemId: String(catalogItem?.catalogReference?.catalogItemId || ""),
-    productName: normalizeText(catalogItem?.data?.productName?.original),
-    price: normalizeText(catalogItem?.data?.price),
-    descriptionLineCount: Array.isArray(catalogItem?.data?.descriptionLines)
-      ? catalogItem.data.descriptionLines.length
-      : 0,
-    media: normalizeText(catalogItem?.data?.media)
-  };
-}
-
-function safeJson(value) {
-  try {
-    return JSON.stringify(
-      value,
-      (key, currentValue) => {
-        if (currentValue instanceof Error) {
-          const errorPayload = {
-            name: currentValue.name,
-            message: currentValue.message,
-            stack: currentValue.stack
-          };
-
-          Object.getOwnPropertyNames(currentValue).forEach((propName) => {
-            errorPayload[propName] = currentValue[propName];
-          });
-
-          return errorPayload;
-        }
-
-        return currentValue;
-      },
-      2
-    );
-  } catch (error) {
-    return `[unserializable: ${String(error?.message || error)}]`;
-  }
-}
-
-function logInfo(message, payload) {
-  console.log(message, safeJson(payload));
-}
-
-function logWarn(message, payload) {
-  console.warn(message, safeJson(payload));
-}
-
-function logError(message, payload) {
-  console.error(message, safeJson(payload));
+  return String(value ?? "").trim();
 }
