@@ -311,6 +311,12 @@ function normalizeOzviaClubOffers(
   let refundableTagNRFNCount = 0;
   let refundableTagOtherCount = 0;
 
+  let inspectedOzviaClubGapRatioCount = 0;
+  let totalOzviaClubGapRatio = 0;
+  let minOzviaClubGapRatio = null;
+  let maxOzviaClubGapRatio = null;
+
+  const ozviaClubGapRatioSamples = [];
   const normalizedHotelsRates = [];
 
   for (const dataItem of getHotelsRatesData) {
@@ -368,6 +374,30 @@ function normalizeOzviaClubOffers(
         ? (hotelOffersBeforeMinCurrentPrice - hotelOffersMinCurrentPrice) /
           hotelOffersMinCurrentPrice
         : null;
+
+    if (Number.isFinite(ozviaClubGapRatio)) {
+      inspectedOzviaClubGapRatioCount += 1;
+      totalOzviaClubGapRatio += ozviaClubGapRatio;
+
+      minOzviaClubGapRatio =
+        minOzviaClubGapRatio === null
+          ? ozviaClubGapRatio
+          : Math.min(minOzviaClubGapRatio, ozviaClubGapRatio);
+
+      maxOzviaClubGapRatio =
+        maxOzviaClubGapRatio === null
+          ? ozviaClubGapRatio
+          : Math.max(maxOzviaClubGapRatio, ozviaClubGapRatio);
+
+      ozviaClubGapRatioSamples.push({
+        hotelId: dataItemHotelId,
+        hotelName: getHotelsRatesHotelName,
+        rawRateTotalAmount: hotelOffersMinCurrentPrice,
+        rawSuggestedSellingPriceAmount: hotelOffersBeforeMinCurrentPrice,
+        ozviaClubGapRatio: Number(ozviaClubGapRatio.toFixed(4)),
+        ozviaClubGapPercent: Number((ozviaClubGapRatio * 100).toFixed(2))
+      });
+    }
 
     if (
       !Number.isFinite(ozviaClubGapRatio) ||
@@ -480,11 +510,37 @@ function normalizeOzviaClubOffers(
     });
   }
 
+  const averageOzviaClubGapRatio =
+    inspectedOzviaClubGapRatioCount > 0
+      ? totalOzviaClubGapRatio / inspectedOzviaClubGapRatioCount
+      : null;
+
+  const topOzviaClubGapRatioSamples = ozviaClubGapRatioSamples
+    .sort(
+      (firstSample, secondSample) =>
+        secondSample.ozviaClubGapRatio - firstSample.ozviaClubGapRatio
+    )
+    .slice(0, 5);
+
   console.log("OZVIA_CLUB_OFFERS normalizeOzviaClubOffers summary", {
     getHotelsRatesDataCount: getHotelsRatesData.length,
     getHotelsRatesHotelsCount: getHotelsRatesHotels.length,
     normalizedHotelsRatesCount: normalizedHotelsRates.length,
     ozviaClubMinGapRatio: OZVIA_CLUB_MIN_GAP_RATIO,
+    inspectedOzviaClubGapRatioCount,
+    minOzviaClubGapRatio:
+      minOzviaClubGapRatio === null
+        ? null
+        : Number(minOzviaClubGapRatio.toFixed(4)),
+    maxOzviaClubGapRatio:
+      maxOzviaClubGapRatio === null
+        ? null
+        : Number(maxOzviaClubGapRatio.toFixed(4)),
+    averageOzviaClubGapRatio:
+      averageOzviaClubGapRatio === null
+        ? null
+        : Number(averageOzviaClubGapRatio.toFixed(4)),
+    topOzviaClubGapRatioSamples,
     skippedMissingHotelIdCount,
     skippedMissingMatchingHotelCount,
     skippedMissingHotelNameCount,
