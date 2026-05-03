@@ -1,6 +1,7 @@
 import { Permissions, webMethod } from "wix-web-module";
 import { searchPlacesHandler } from "./liteApiPlaces";
 import { getHotelsRatesHandler } from "./liteApiSearch";
+import { getOzviaClubOffersHandler } from "./ozviaClubOffers";
 import {
   getHotelDetailsHandler,
   getHotelMappedRoomRatesHandler,
@@ -17,6 +18,12 @@ export const getHotelsRates = webMethod(
   Permissions.Anyone,
   async (searchFlowContextQuery) =>
     getHotelsRatesHandler(searchFlowContextQuery)
+);
+
+export const getOzviaClubOffers = webMethod(
+  Permissions.Anyone,
+  async (searchFlowContextQuery) =>
+    getOzviaClubOffersHandler(searchFlowContextQuery)
 );
 
 export const getHotelDetails = webMethod(
