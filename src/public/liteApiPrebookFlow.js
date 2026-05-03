@@ -46,12 +46,111 @@ async function handleWixCartFlow(purchaseSelection) {
     throw new Error("offerId is required for Wix cart flow.");
   }
 
-  await removePrebookItemsIfCartExists();
+  const liteApiPrebookFlowId = `liteapi-prebook-${Date.now()}`;
 
-  const prebookResult = await createPrebookSession({
+  console.log("HOTEL PAGE prebookFlow start", {
+    liteApiPrebookFlowId,
+    hasMappedRoomId: Boolean(mappedRoomId),
+    hasOfferId: Boolean(offerId),
+    hasHotelId: Boolean(normalizeText(purchaseSelection?.hotelId)),
+    hasHotelName: Boolean(normalizeText(purchaseSelection?.hotelName)),
+    hasHotelMainImage: Boolean(
+      normalizeText(purchaseSelection?.hotelMainImage)
+    ),
+    hasRoomId: Boolean(normalizeText(purchaseSelection?.roomId)),
+    hasRoomName: Boolean(normalizeText(purchaseSelection?.roomName)),
+    hasRoomMainImage: Boolean(normalizeText(purchaseSelection?.roomImage))
+  });
+
+  const cartCleanupPromise = removePrebookItemsIfCartExists()
+    .then(() => {
+      console.log("HOTEL PAGE cartCleanup ok", {
+        liteApiPrebookFlowId
+      });
+
+      return true;
+    })
+    .catch((error) => {
+      console.error("HOTEL PAGE cartCleanup failed", {
+        liteApiPrebookFlowId,
+        name: error?.name,
+        message: error?.message,
+        stack: error?.stack
+      });
+
+      throw error;
+    });
+
+  const prebookPromise = createPrebookSession({
     offerId,
     usePaymentSdk: false
-  });
+  })
+    .then((prebookResult) => {
+      console.log("HOTEL PAGE prebook ok", {
+        liteApiPrebookFlowId,
+        hasPrebookSnapshot: Boolean(
+          normalizeText(prebookResult?.prebookSnapshot)
+        ),
+        hasNormalizedPrebook: Boolean(
+          prebookResult?.normalizedPrebook &&
+            typeof prebookResult.normalizedPrebook === "object"
+        ),
+        hasPrebookId: Boolean(
+          normalizeText(prebookResult?.normalizedPrebook?.prebookId)
+        )
+      });
+
+      return prebookResult;
+    })
+    .catch((error) => {
+      console.error("HOTEL PAGE prebook failed", {
+        liteApiPrebookFlowId,
+        name: error?.name,
+        message: error?.message,
+        stack: error?.stack
+      });
+
+      throw error;
+    });
+
+  const imageRefsPromise = resolveCatalogImageRefs({
+    hotelId: purchaseSelection.hotelId,
+    hotelName: purchaseSelection.hotelName,
+    hotelMainImage: purchaseSelection.hotelMainImage,
+
+    roomId: purchaseSelection.roomId,
+    roomName: purchaseSelection.roomName,
+    roomMainImage: purchaseSelection.roomImage
+  })
+    .then((importedImageRefs) => {
+      console.log("HOTEL PAGE imageRefs ok", {
+        liteApiPrebookFlowId,
+        hasWixHotelMainImageRef: Boolean(
+          normalizeText(importedImageRefs?.wixHotelMainImageRef)
+        ),
+        hasWixRoomMainImageRef: Boolean(
+          normalizeText(importedImageRefs?.wixRoomMainImageRef)
+        )
+      });
+
+      return importedImageRefs;
+    })
+    .catch((error) => {
+      console.error("HOTEL PAGE imageRefs failed", {
+        liteApiPrebookFlowId,
+        name: error?.name,
+        message: error?.message,
+        stack: error?.stack
+      });
+
+      throw error;
+    });
+
+  const [, prebookResult, importedImageRefs] = await Promise.all([
+    cartCleanupPromise,
+    prebookPromise,
+    imageRefsPromise
+  ]);
 
   const prebookSnapshot = normalizeText(prebookResult?.prebookSnapshot);
   const normalizedPrebook =
@@ -74,20 +173,17 @@ async function handleWixCartFlow(purchaseSelection) {
     throw new Error("normalizedPrebook.prebookId is required.");
   }
 
-  console.log("HOTEL PAGE createPrebookSession success", {
+  console.log("HOTEL PAGE prebookFlow preparation ok", {
+    liteApiPrebookFlowId,
     hasPrebookSnapshot: Boolean(prebookSnapshot),
     hasNormalizedPrebook: Boolean(normalizedPrebook),
-    hasPrebookId: Boolean(prebookId)
-  });
-
-  const importedImageRefs = await resolveCatalogImageRefs({
-    hotelId: purchaseSelection.hotelId,
-    hotelName: purchaseSelection.hotelName,
-    hotelMainImage: purchaseSelection.hotelMainImage,
-
-    roomId: purchaseSelection.roomId,
-    roomName: purchaseSelection.roomName,
-    roomMainImage: purchaseSelection.roomImage
+    hasPrebookId: Boolean(prebookId),
+    hasWixHotelMainImageRef: Boolean(
+      normalizeText(importedImageRefs?.wixHotelMainImageRef)
+    ),
+    hasWixRoomMainImageRef: Boolean(
+      normalizeText(importedImageRefs?.wixRoomMainImageRef)
+    )
   });
 
   const prebookShell = buildPrebookShell({
@@ -104,9 +200,31 @@ async function handleWixCartFlow(purchaseSelection) {
     hotelAddress: purchaseSelection.hotelAddress
   });
 
+  console.log("HOTEL PAGE buildPrebookShell success", {
+    liteApiPrebookFlowId,
+    hasPrebookShell: Boolean(prebookShell),
+    hasPrebookId: Boolean(prebookShell?.prebookId),
+    hasMappedRoomId: Boolean(prebookShell?.mappedRoomId),
+    hasCurrentPrice: Number.isFinite(Number(prebookShell?.currentPrice)),
+    hasWixHotelMainImageRef: Boolean(
+      normalizeText(prebookShell?.wixHotelMainImageRef)
+    ),
+    hasWixRoomMainImageRef: Boolean(
+      normalizeText(prebookShell?.wixRoomMainImageRef)
+    )
+  });
+
   const lineItem = buildWixCatalogLineItem({
     mappedRoomId,
     prebookShell
+  });
+
+  console.log("HOTEL PAGE addToCurrentCart start", {
+    liteApiPrebookFlowId,
+    requestedLineItemsCount: 1,
+    hasPrebookShell: Boolean(prebookShell),
+    hasPrebookId: Boolean(prebookShell?.prebookId),
+    hasMappedRoomId: Boolean(mappedRoomId)
   });
 
   await currentCart.addToCurrentCart({
@@ -114,6 +232,7 @@ async function handleWixCartFlow(purchaseSelection) {
   });
 
   console.log("HOTEL PAGE addToCurrentCart success", {
+    liteApiPrebookFlowId,
     requestedLineItemsCount: 1,
     hasPrebookShell: Boolean(prebookShell),
     hasPrebookId: Boolean(prebookShell?.prebookId)
@@ -124,6 +243,12 @@ async function handleWixCartFlow(purchaseSelection) {
   const runtimeSearchFlowContextQuery = {
     prebookId
   };
+
+  console.log("HOTEL PAGE redirect cart-page", {
+    liteApiPrebookFlowId,
+    hasPrebookId: Boolean(prebookId),
+    cartPagePath: CART_PAGE_PATH
+  });
 
   wixLocationFrontend.to(`${CART_PAGE_PATH}?${new URLSearchParams({
     ...wixLocationFrontend.query,
@@ -344,39 +469,23 @@ async function resolveCatalogImageRefs({
   );
 
   if (!hasAnyImage) {
-    return {
-      wixHotelMainImageRef: "",
-      wixRoomMainImageRef: ""
-    };
+    throw new Error("hotelMainImage or roomMainImage is required.");
   }
 
-  try {
-    const result = await importCatalogImages({
-      hotelId: normalizeText(hotelId),
-      hotelName: normalizeText(hotelName),
-      hotelMainImage: normalizeText(hotelMainImage),
+  const result = await importCatalogImages({
+    hotelId: normalizeText(hotelId),
+    hotelName: normalizeText(hotelName),
+    hotelMainImage: normalizeText(hotelMainImage),
 
-      roomId: normalizeText(roomId),
-      roomName: normalizeText(roomName),
-      roomMainImage: normalizeText(roomMainImage)
-    });
+    roomId: normalizeText(roomId),
+    roomName: normalizeText(roomName),
+    roomMainImage: normalizeText(roomMainImage)
+  });
 
-    return {
-      wixHotelMainImageRef: normalizeText(result?.wixHotelMainImageRef),
-      wixRoomMainImageRef: normalizeText(result?.wixRoomMainImageRef)
-    };
-  } catch (error) {
-    console.error("HOTEL PAGE importCatalogImages failed", {
-      name: error?.name,
-      message: error?.message,
-      stack: error?.stack
-    });
-
-    return {
-      wixHotelMainImageRef: "",
-      wixRoomMainImageRef: ""
-    };
-  }
+  return {
+    wixHotelMainImageRef: normalizeText(result?.wixHotelMainImageRef),
+    wixRoomMainImageRef: normalizeText(result?.wixRoomMainImageRef)
+  };
 }
 
 function normalizeText(value) {
