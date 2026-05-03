@@ -1,8 +1,4 @@
 import wixWindowFrontend from "wix-window-frontend";
-import {
-  safeGetPageElement,
-  setOptionalItemText
-} from "public/liteApiHelpers";
 
 $w.onReady(function () {
   const context = wixWindowFrontend.lightbox.getContext() || {};
@@ -10,21 +6,40 @@ $w.onReady(function () {
 });
 
 function bindHotelPoliciesPopup(context) {
-  const repeater = safeGetPageElement("#hotelPoliciesRepeater");
-  const policies = Array.isArray(context?.policies) ? context.policies : [];
+  const policies = Array.isArray(context?.policies)
+    ? context.policies
+    : [];
 
-  if (!repeater) {
+  $w("#hotelPoliciesRepeater").onItemReady(($item, itemData) => {
+    const policyName = String(itemData?.name || "").trim();
+    const policyDescription = String(itemData?.description || "").trim();
+
+    $item("#hotelPoliciesNameText").text = policyName;
+    if (policyName) {
+      $item("#hotelPoliciesNameText").expand();
+    } else {
+      $item("#hotelPoliciesNameText").collapse();
+    }
+
+    $item("#hotelPoliciesDescriptionText").text = policyDescription;
+    if (policyDescription) {
+      $item("#hotelPoliciesDescriptionText").expand();
+    } else {
+      $item("#hotelPoliciesDescriptionText").collapse();
+    }
+  });
+
+  if (!policies.length) {
+    $w("#hotelPoliciesRepeater").data = [];
+    $w("#hotelPoliciesRepeater").collapse();
     return;
   }
 
-  repeater.onItemReady(($item, itemData) => {
-    setOptionalItemText($item, "#hotelPoliciesNameText", itemData.name);
-    setOptionalItemText($item, "#hotelPoliciesDescriptionText", itemData.description);
-  });
-
-  repeater.data = policies.map((policy, index) => ({
+  $w("#hotelPoliciesRepeater").data = policies.map((policy, index) => ({
     _id: `policy-${index + 1}`,
-    name: String(policy?.name || ""),
-    description: String(policy?.description || "")
+    name: String(policy?.name || "").trim(),
+    description: String(policy?.description || "").trim()
   }));
+
+  $w("#hotelPoliciesRepeater").expand();
 }
