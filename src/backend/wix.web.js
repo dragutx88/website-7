@@ -16,10 +16,6 @@ export const importCatalogImages = webMethod(
 );
 
 async function importCatalogImagesHandler(payload) {
-  logInfo("WIX WEB importCatalogImages start", {
-    payload
-  });
-
   const hotelId = normalizeText(payload?.hotelId);
   const hotelName = normalizeDisplayName(payload?.hotelName) || "Hotel";
   const hotelMainImage = normalizeText(
@@ -46,15 +42,15 @@ async function importCatalogImagesHandler(payload) {
     roomName
   });
 
-  logInfo("WIX WEB importCatalogImages normalized input", {
-    hotelId,
-    hotelName,
-    hotelMainImage,
-    hotelDisplayName,
-    roomId,
-    roomName,
-    roomMainImage,
-    roomDisplayName
+  console.log("WIX WEB importCatalogImages start", {
+    hasHotelId: Boolean(hotelId),
+    hasHotelName: Boolean(hotelName),
+    hasHotelMainImage: Boolean(hotelMainImage),
+    hasHotelDisplayName: Boolean(hotelDisplayName),
+    hasRoomId: Boolean(roomId),
+    hasRoomName: Boolean(roomName),
+    hasRoomMainImage: Boolean(roomMainImage),
+    hasRoomDisplayName: Boolean(roomDisplayName)
   });
 
   const hotelImageImportPromise = importSingleImage({
@@ -86,12 +82,23 @@ async function importCatalogImagesHandler(payload) {
     roomImageImportPromise
   ]);
 
+  if (!wixHotelMainImageRef) {
+    throw new Error("wixHotelMainImageRef is required.");
+  }
+
+  if (!wixRoomMainImageRef) {
+    throw new Error("wixRoomMainImageRef is required.");
+  }
+
   const result = {
     wixHotelMainImageRef,
     wixRoomMainImageRef
   };
 
-  logInfo("WIX WEB importCatalogImages final result", result);
+  console.log("WIX WEB importCatalogImages success", {
+    hasWixHotelMainImageRef: Boolean(wixHotelMainImageRef),
+    hasWixRoomMainImageRef: Boolean(wixRoomMainImageRef)
+  });
 
   return result;
 }
@@ -102,102 +109,84 @@ async function importSingleImage({
   displayName,
   importContext = {}
 }) {
-  logInfo("WIX WEB importSingleImage start", {
+  const normalizedSourceUrl = normalizeText(sourceUrl);
+  const normalizedDisplayName = normalizeDisplayName(displayName);
+
+  console.log("WIX WEB importSingleImage start", {
     imageKind,
-    sourceUrl,
-    displayName,
+    hasSourceUrl: Boolean(normalizedSourceUrl),
+    hasDisplayName: Boolean(normalizedDisplayName),
     importContext
   });
 
-  if (!sourceUrl) {
-    logWarn("WIX WEB importSingleImage skipped: missing sourceUrl", {
-      imageKind,
-      displayName,
-      importContext
-    });
-    return "";
+  if (!normalizedSourceUrl) {
+    throw new Error(`${imageKind} sourceUrl is required.`);
+  }
+
+  if (!normalizedDisplayName) {
+    throw new Error(`${imageKind} displayName is required.`);
   }
 
   let importResponse = null;
 
   try {
-    importResponse = await elevatedImportFile(sourceUrl, {
-      displayName,
+    importResponse = await elevatedImportFile(normalizedSourceUrl, {
+      displayName: normalizedDisplayName,
       mimeType: "image/jpeg",
       mediaType: "IMAGE"
     });
-
-    logInfo("WIX WEB importFile raw response", {
-      imageKind,
-      sourceUrl,
-      displayName,
-      importContext,
-      responseKeys: safeKeys(importResponse),
-      response: importResponse
-    });
   } catch (error) {
-    logError("WIX WEB importFile threw", {
+    console.error("WIX WEB importFile failed", {
       imageKind,
-      sourceUrl,
-      displayName,
+      hasSourceUrl: Boolean(normalizedSourceUrl),
+      hasDisplayName: Boolean(normalizedDisplayName),
       importContext,
-      error
+      name: error?.name,
+      message: error?.message,
+      stack: error?.stack
     });
-    return "";
+
+    throw error;
   }
 
   const fileIdExtraction = extractImportedFileId(importResponse);
-  const immediateImportedRef = extractImmediateImportedRef(importResponse);
 
-  logInfo("WIX WEB importFile fileId extraction", {
+  console.log("WIX WEB importFile result", {
     imageKind,
-    sourceUrl,
-    displayName,
+    hasSourceUrl: Boolean(normalizedSourceUrl),
+    hasDisplayName: Boolean(normalizedDisplayName),
     importContext,
-    fileId: fileIdExtraction.fileId,
-    candidates: fileIdExtraction.candidates,
-    immediateImportedRef
+    responseKeys:
+      importResponse && typeof importResponse === "object"
+        ? Object.keys(importResponse)
+        : [],
+    hasFileId: Boolean(fileIdExtraction.fileId),
+    fileIdCandidatePaths: fileIdExtraction.candidates
+      .filter((candidate) => Boolean(candidate.value))
+      .map((candidate) => candidate.path)
   });
 
   if (!fileIdExtraction.fileId) {
-    if (immediateImportedRef) {
-      logWarn(
-        "WIX WEB importFile no fileId extracted, using immediate imported ref fallback",
-        {
-          imageKind,
-          sourceUrl,
-          displayName,
-          importContext,
-          immediateImportedRef
-        }
-      );
-      return immediateImportedRef;
-    }
-
-    logWarn("WIX WEB importFile no fileId extracted", {
-      imageKind,
-      sourceUrl,
-      displayName,
-      importContext,
-      importResponse
-    });
-    return "";
+    throw new Error(`${imageKind} importFile response did not include a file id.`);
   }
 
   const bestImageRef = await resolveBestImageRef({
     imageKind,
     fileId: fileIdExtraction.fileId,
-    fallbackRef: immediateImportedRef,
     importContext
   });
 
-  logInfo("WIX WEB importSingleImage final resolved ref", {
+  if (!bestImageRef) {
+    throw new Error(`${imageKind} image ref could not be resolved.`);
+  }
+
+  console.log("WIX WEB importSingleImage success", {
     imageKind,
-    sourceUrl,
-    displayName,
+    hasSourceUrl: Boolean(normalizedSourceUrl),
+    hasDisplayName: Boolean(normalizedDisplayName),
     importContext,
-    fileId: fileIdExtraction.fileId,
-    bestImageRef
+    hasFileId: Boolean(fileIdExtraction.fileId),
+    hasBestImageRef: Boolean(bestImageRef)
   });
 
   return bestImageRef;
@@ -206,60 +195,62 @@ async function importSingleImage({
 async function resolveBestImageRef({
   imageKind,
   fileId,
-  fallbackRef,
   importContext = {}
 }) {
+  const normalizedFileId = normalizeText(fileId);
+
+  if (!normalizedFileId) {
+    throw new Error(`${imageKind} fileId is required.`);
+  }
+
+  let lastDescriptorError = null;
+
   for (let attempt = 1; attempt <= IMPORT_RETRY_ATTEMPTS; attempt += 1) {
     try {
-      logInfo("WIX WEB getFileDescriptor attempt start", {
+      console.log("WIX WEB getFileDescriptor attempt start", {
         imageKind,
-        fileId,
+        hasFileId: Boolean(normalizedFileId),
         attempt,
         maxAttempts: IMPORT_RETRY_ATTEMPTS,
         importContext
       });
 
-      const descriptor = await elevatedGetFileDescriptor(fileId);
-
-      logInfo("WIX WEB getFileDescriptor raw response", {
-        imageKind,
-        fileId,
-        attempt,
-        importContext,
-        descriptorKeys: safeKeys(descriptor),
-        descriptor
-      });
-
+      const descriptor = await elevatedGetFileDescriptor(normalizedFileId);
       const refExtraction = extractBestImageRefFromDescriptor(descriptor);
 
-      logInfo("WIX WEB getFileDescriptor image ref extraction", {
+      console.log("WIX WEB getFileDescriptor attempt result", {
         imageKind,
-        fileId,
+        hasFileId: Boolean(normalizedFileId),
         attempt,
+        maxAttempts: IMPORT_RETRY_ATTEMPTS,
         importContext,
-        preferredRef: refExtraction.preferredRef,
-        wixImageRef: refExtraction.wixImageRef,
-        staticUrlRef: refExtraction.staticUrlRef,
-        candidates: refExtraction.candidates
+        descriptorKeys:
+          descriptor && typeof descriptor === "object"
+            ? Object.keys(descriptor)
+            : [],
+        hasPreferredRef: Boolean(refExtraction.preferredRef),
+        hasWixImageRef: Boolean(refExtraction.wixImageRef),
+        hasStaticUrlRef: Boolean(refExtraction.staticUrlRef),
+        refCandidatePaths: refExtraction.candidates
+          .filter((candidate) => Boolean(candidate.value))
+          .map((candidate) => candidate.path)
       });
 
       if (refExtraction.preferredRef) {
         return refExtraction.preferredRef;
       }
-
-      logWarn("WIX WEB getFileDescriptor returned no usable image ref", {
-        imageKind,
-        fileId,
-        attempt,
-        importContext
-      });
     } catch (error) {
-      logError("WIX WEB getFileDescriptor threw", {
+      lastDescriptorError = error;
+
+      console.error("WIX WEB getFileDescriptor attempt failed", {
         imageKind,
-        fileId,
+        hasFileId: Boolean(normalizedFileId),
         attempt,
+        maxAttempts: IMPORT_RETRY_ATTEMPTS,
         importContext,
-        error
+        name: error?.name,
+        message: error?.message,
+        stack: error?.stack
       });
     }
 
@@ -268,24 +259,13 @@ async function resolveBestImageRef({
     }
   }
 
-  if (fallbackRef) {
-    logWarn("WIX WEB resolveBestImageRef fell back to immediate imported ref", {
-      imageKind,
-      fileId,
-      fallbackRef,
-      importContext
-    });
-    return fallbackRef;
+  if (lastDescriptorError) {
+    throw lastDescriptorError;
   }
 
-  logWarn("WIX WEB resolveBestImageRef failed after retries", {
-    imageKind,
-    fileId,
-    maxAttempts: IMPORT_RETRY_ATTEMPTS,
-    importContext
-  });
-
-  return "";
+  throw new Error(
+    `${imageKind} getFileDescriptor did not return a usable image ref.`
+  );
 }
 
 function buildHotelImageDisplayName({ hotelId, hotelName }) {
@@ -337,7 +317,10 @@ function extractImportedFileId(importResponse) {
     buildCandidate("files[0].file._id", importResponse?.files?.[0]?.file?._id),
     buildCandidate("files[0].fileId", importResponse?.files?.[0]?.fileId),
     buildCandidate("uploadedFiles[0].id", importResponse?.uploadedFiles?.[0]?.id),
-    buildCandidate("uploadedFiles[0]._id", importResponse?.uploadedFiles?.[0]?._id),
+    buildCandidate(
+      "uploadedFiles[0]._id",
+      importResponse?.uploadedFiles?.[0]?._id
+    ),
     buildCandidate(
       "uploadedFiles[0].file.id",
       importResponse?.uploadedFiles?.[0]?.file?.id
@@ -354,29 +337,6 @@ function extractImportedFileId(importResponse) {
     fileId: firstHit?.value || "",
     candidates
   };
-}
-
-function extractImmediateImportedRef(importResponse) {
-  const candidates = [
-    buildCandidate("file.url", importResponse?.file?.url),
-    buildCandidate("file.thumbnailUrl", importResponse?.file?.thumbnailUrl),
-    buildCandidate("fileDescriptor.url", importResponse?.fileDescriptor?.url),
-    buildCandidate("fileDescriptor.fileUrl", importResponse?.fileDescriptor?.fileUrl),
-    buildCandidate("url", importResponse?.url)
-  ];
-
-  const wixImageCandidate = candidates.find((item) =>
-    String(item.value || "").startsWith("wix:image://")
-  );
-
-  if (wixImageCandidate?.value) {
-    return wixImageCandidate.value;
-  }
-
-  const staticWixCandidate = candidates.find((item) =>
-    isStaticWixMediaUrl(item.value)
-  );
-  return staticWixCandidate?.value || "";
 }
 
 function extractBestImageRefFromDescriptor(descriptor) {
@@ -410,8 +370,14 @@ function extractBestImageRefFromDescriptor(descriptor) {
       "fileDescriptor.media.image.fileUrl",
       descriptor?.fileDescriptor?.media?.image?.fileUrl
     ),
-    buildCandidate("fileDescriptor.media.url", descriptor?.fileDescriptor?.media?.url),
-    buildCandidate("fileDescriptor.fileUrl", descriptor?.fileDescriptor?.fileUrl),
+    buildCandidate(
+      "fileDescriptor.media.url",
+      descriptor?.fileDescriptor?.media?.url
+    ),
+    buildCandidate(
+      "fileDescriptor.fileUrl",
+      descriptor?.fileDescriptor?.fileUrl
+    ),
     buildCandidate("fileDescriptor.url", descriptor?.fileDescriptor?.url)
   ];
 
@@ -456,58 +422,6 @@ function normalizeDisplayName(value) {
 
 function normalizeText(value) {
   return typeof value === "string" ? value.trim() : String(value || "").trim();
-}
-
-function safeKeys(value) {
-  if (!value || typeof value !== "object") {
-    return [];
-  }
-
-  try {
-    return Object.keys(value);
-  } catch (error) {
-    return [];
-  }
-}
-
-function safeJson(value) {
-  try {
-    return JSON.stringify(
-      value,
-      (key, currentValue) => {
-        if (currentValue instanceof Error) {
-          return {
-            name: currentValue.name,
-            message: currentValue.message,
-            stack: currentValue.stack,
-            ...Object.fromEntries(
-              Object.getOwnPropertyNames(currentValue).map((name) => [
-                name,
-                currentValue[name]
-              ])
-            )
-          };
-        }
-
-        return currentValue;
-      },
-      2
-    );
-  } catch (error) {
-    return `[unserializable: ${String(error?.message || error)}]`;
-  }
-}
-
-function logInfo(message, payload) {
-  console.log(message, safeJson(payload));
-}
-
-function logWarn(message, payload) {
-  console.warn(message, safeJson(payload));
-}
-
-function logError(message, payload) {
-  console.error(message, safeJson(payload));
 }
 
 function sleep(ms) {
