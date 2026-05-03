@@ -493,11 +493,11 @@ function bindRoomOfferSlot($item, slotNumber, roomOffer, mappedRoomOfferItem, ro
 
       await handleOfferSelection(purchaseSelection);
     } catch (error) {
-      console.error(
-        "HOTEL PAGE offer selection failed",
-        error,
-        JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
-      );
+      console.error("HOTEL PAGE offer selection failed", {
+        name: error?.name,
+        message: error?.message,
+        stack: error?.stack
+      });
     }
   });
 }
@@ -530,35 +530,16 @@ function buildPurchaseSelection({ mappedRoomOfferItem, room, roomOffer }) {
 
     roomOfferName: normalizeText(roomOffer?.roomOfferName),
     roomOfferBoardName: normalizeText(roomOffer?.roomOfferBoardName),
-    roomOfferRefundableTag: normalizeText(roomOffer?.roomOfferRefundableTag),
-    roomOfferRefundableTagText: normalizeText(
-      roomOffer?.roomOfferRefundableTagText
-    ),
-    roomOfferCurrentPrice: normalizeNumberOrNull(
-      roomOffer?.roomOfferCurrentPrice
-    ),
-    roomOfferBeforeCurrentPrice: normalizeNumberOrNull(
-      roomOffer?.roomOfferBeforeCurrentPrice
-    ),
+    currentPrice: normalizeNumberOrNull(roomOffer?.currentPrice),
+    beforeCurrentPrice: normalizeNumberOrNull(roomOffer?.beforeCurrentPrice),
     roomOfferCurrency: normalizeText(roomOffer?.roomOfferCurrency),
-    roomOfferCurrentPriceText: normalizeText(
-      roomOffer?.roomOfferCurrentPriceText
-    ),
-    roomOfferBeforeCurrentPriceText: normalizeText(
-      roomOffer?.roomOfferBeforeCurrentPriceText
-    ),
-    roomOfferCurrentPriceNoteText: normalizeText(
-      roomOffer?.roomOfferCurrentPriceNoteText
-    )
+    currentPriceText: normalizeText(roomOffer?.currentPriceText),
+    beforeCurrentPriceText: normalizeText(roomOffer?.beforeCurrentPriceText),
+    currentPriceNoteText: normalizeText(roomOffer?.currentPriceNoteText)
   };
 }
 
 async function handleOfferSelection(purchaseSelection) {
-  console.log(
-    "HOTEL PAGE handleOfferSelection purchaseSelection",
-    JSON.stringify(purchaseSelection, null, 2)
-  );
-
   if (PURCHASE_FLOW_MODE === PURCHASE_FLOW_MODES.WIX_CART) {
     await handleWixCartFlow(purchaseSelection);
     return;
@@ -575,22 +556,6 @@ async function handleOfferSelection(purchaseSelection) {
 async function handleWixCartFlow(purchaseSelection) {
   const mappedRoomId = normalizeText(purchaseSelection?.mappedRoomId);
   const offerId = normalizeText(purchaseSelection?.offerId);
-  const hotelId = normalizeText(purchaseSelection?.hotelId);
-
-  console.log(
-    "HOTEL PAGE handleWixCartFlow start",
-    JSON.stringify(
-      {
-        mappedRoomId,
-        offerId,
-        hotelId,
-        purchaseFlowMode: PURCHASE_FLOW_MODE,
-        catalogAppId: LITEAPI_CATALOG_APP_ID
-      },
-      null,
-      2
-    )
-  );
 
   if (!mappedRoomId) {
     throw new Error("mappedRoomId is required for Wix cart flow.");
@@ -606,11 +571,6 @@ async function handleWixCartFlow(purchaseSelection) {
     offerId,
     usePaymentSdk: false
   });
-
-  console.log(
-    "HOTEL PAGE prebookResult",
-    JSON.stringify(prebookResult, null, 2)
-  );
 
   const prebookSnapshot = normalizeText(prebookResult?.prebookSnapshot);
   const normalizedPrebook =
@@ -632,6 +592,12 @@ async function handleWixCartFlow(purchaseSelection) {
   if (!prebookId) {
     throw new Error("normalizedPrebook.prebookId is required.");
   }
+
+  console.log("HOTEL PAGE createPrebookSession success", {
+    hasPrebookSnapshot: Boolean(prebookSnapshot),
+    hasNormalizedPrebook: Boolean(normalizedPrebook),
+    hasPrebookId: Boolean(prebookId)
+  });
 
   const importedImageRefs = await resolveCatalogImageRefs({
     hotelId: purchaseSelection.hotelId,
@@ -662,26 +628,15 @@ async function handleWixCartFlow(purchaseSelection) {
     prebookShell
   });
 
-  console.log(
-    "HOTEL PAGE lineItem before addToCurrentCart",
-    JSON.stringify(lineItem, null, 2)
-  );
-
-  const addResult = await currentCart.addToCurrentCart({
+  await currentCart.addToCurrentCart({
     lineItems: [lineItem]
   });
 
-  console.log(
-    "HOTEL PAGE addToCurrentCart result",
-    JSON.stringify(addResult, null, 2)
-  );
-
-  const cartAfterAdd = await currentCart.getCurrentCart();
-
-  console.log(
-    "HOTEL PAGE currentCart after add",
-    JSON.stringify(cartAfterAdd, null, 2)
-  );
+  console.log("HOTEL PAGE addToCurrentCart success", {
+    requestedLineItemsCount: 1,
+    hasPrebookShell: Boolean(prebookShell),
+    hasPrebookId: Boolean(prebookShell?.prebookId)
+  });
 
   wixEcomFrontend.refreshCart();
 
@@ -704,19 +659,6 @@ async function handlePaymentSdkFlow(purchaseSelection) {
   const offerId = normalizeText(purchaseSelection?.offerId);
   const hotelId = normalizeText(purchaseSelection?.hotelId);
 
-  console.log(
-    "HOTEL PAGE handlePaymentSdkFlow start",
-    JSON.stringify(
-      {
-        offerId,
-        hotelId,
-        purchaseFlowMode: PURCHASE_FLOW_MODE
-      },
-      null,
-      2
-    )
-  );
-
   if (!offerId) {
     throw new Error("offerId is required for payment SDK flow.");
   }
@@ -729,11 +671,6 @@ async function handlePaymentSdkFlow(purchaseSelection) {
     offerId,
     usePaymentSdk: true
   });
-
-  console.log(
-    "HOTEL PAGE payment SDK prebookResult",
-    JSON.stringify(prebookResult, null, 2)
-  );
 
   const normalizedPrebook =
     prebookResult?.normalizedPrebook &&
@@ -750,6 +687,11 @@ async function handlePaymentSdkFlow(purchaseSelection) {
   if (!prebookId) {
     throw new Error("normalizedPrebook.prebookId is required for payment SDK flow.");
   }
+
+  console.log("HOTEL PAGE createPaymentSdkPrebookSession success", {
+    hasNormalizedPrebook: Boolean(normalizedPrebook),
+    hasPrebookId: Boolean(prebookId)
+  });
 
   const runtimeSearchFlowContextQuery = {
     prebookId
@@ -807,11 +749,6 @@ async function removePrebookItemsIfCartExists() {
   if (!lineItemIdsToRemove.length) {
     return;
   }
-
-  console.log(
-    "HOTEL PAGE removing existing prebook line items",
-    JSON.stringify(lineItemIdsToRemove, null, 2)
-  );
 
   await currentCart.removeLineItemsFromCurrentCart(lineItemIdsToRemove);
   wixEcomFrontend.refreshCart();
@@ -948,11 +885,11 @@ async function resolveCatalogImageRefs({
       wixRoomMainImageRef: normalizeText(result?.wixRoomMainImageRef)
     };
   } catch (error) {
-    console.error(
-      "HOTEL PAGE importCatalogImages failed",
-      error,
-      JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
-    );
+    console.error("HOTEL PAGE importCatalogImages failed", {
+      name: error?.name,
+      message: error?.message,
+      stack: error?.stack
+    });
 
     return {
       wixHotelMainImageRef: "",
