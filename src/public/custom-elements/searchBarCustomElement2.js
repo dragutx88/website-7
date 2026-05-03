@@ -1,3 +1,5 @@
+/* global LiteAPI */
+
 const SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY = "searchFlowContextQueryStringify";
 
 const LITEAPI_SDK_URL = "https://components.liteapi.travel/v1.0/sdk.umd.js";
@@ -61,22 +63,7 @@ class SearchBarCustomElement2 extends HTMLElement {
     script.src = LITEAPI_SDK_URL;
 
     script.onload = () => {
-      const LiteAPI = window.LiteAPI;
-
-      if (!LiteAPI?.init || !LiteAPI?.SearchBar?.create) {
-        console.error(
-          "[SEARCH BAR CUSTOM ELEMENT 2] LiteAPI global is not ready after sdk onload",
-          {
-            hasLiteAPI: Boolean(window.LiteAPI),
-            hasInit: Boolean(window.LiteAPI?.init),
-            hasSearchBar: Boolean(window.LiteAPI?.SearchBar),
-            hasSearchBarCreate: Boolean(window.LiteAPI?.SearchBar?.create),
-            scriptSrc: script.src
-          }
-        );
-
-        return;
-      }
+      console.log("[SEARCH BAR CUSTOM ELEMENT 2] sdk script onload before bare LiteAPI init");
 
       LiteAPI.init({
         domain: LITEAPI_DOMAIN,
