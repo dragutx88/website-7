@@ -20,7 +20,9 @@ $w.onReady(function () {
       ...JSON.parse(
         session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
       ),
-      ...wixLocationFrontend.query
+      ...wixLocationFrontend.query,
+      language: "tr",
+      currency: "TRY"
     })
   );
 
@@ -32,7 +34,9 @@ $w.onReady(function () {
     ...JSON.parse(
       session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
     ),
-    ...wixLocationFrontend.query
+    ...wixLocationFrontend.query,
+    language: "tr",
+    currency: "TRY"
   };
 
   console.log("HOME session/query init", {
