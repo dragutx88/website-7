@@ -63,10 +63,10 @@ export function initSearchForm({ $w } = {}) {
   bindSubmitEvent();
 
   const searchFlowContextQuery = {
-    ...wixLocationFrontend.query,
     ...JSON.parse(
       session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
-    )
+    ),
+    ...wixLocationFrontend.query
   };
 
   const searchFlowContextValidationResult =
@@ -272,10 +272,12 @@ export function initSearchForm({ $w } = {}) {
       validateSearchFlowContextQuery(runtimeSearchFlowContextQuery);
 
     if (!searchFlowContextValidationResult.ok) {
-      console.warn(
-        "Search validation error:",
-        searchFlowContextValidationResult.searchFlowContextValidationMessage
-      );
+      console.warn("SEARCH FORM validation failed", {
+        searchFlowContextValidationArea:
+          searchFlowContextValidationResult.searchFlowContextValidationArea,
+        searchFlowContextValidationMessage:
+          searchFlowContextValidationResult.searchFlowContextValidationMessage
+      });
 
       if (
         searchFlowContextValidationResult.searchFlowContextValidationArea ===
@@ -294,16 +296,26 @@ export function initSearchForm({ $w } = {}) {
     searchFormButton.disable();
 
     try {
-      console.log(
-        "[searchForm] runtimeSearchFlowContextQuery",
-        runtimeSearchFlowContextQuery
-      );
+      console.log("SEARCH FORM runtimeSearchFlowContextQuery summary", {
+        mode: runtimeSearchFlowContextQuery.mode,
+        hasPlaceId: Boolean(runtimeSearchFlowContextQuery.placeId),
+        hasName: Boolean(runtimeSearchFlowContextQuery.name),
+        hasAiSearch: Boolean(runtimeSearchFlowContextQuery.aiSearch),
+        hasCheckin: Boolean(runtimeSearchFlowContextQuery.checkin),
+        hasCheckout: Boolean(runtimeSearchFlowContextQuery.checkout),
+        rooms: runtimeSearchFlowContextQuery.rooms,
+        adults: runtimeSearchFlowContextQuery.adults,
+        hasChildren: Boolean(runtimeSearchFlowContextQuery.children),
+        sorting: runtimeSearchFlowContextQuery.sorting || "",
+        language: runtimeSearchFlowContextQuery.language,
+        currency: runtimeSearchFlowContextQuery.currency
+      });
 
       wixLocationFrontend.to(`/hotels?${new URLSearchParams({
-        ...wixLocationFrontend.query,
         ...JSON.parse(
           session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
         ),
+        ...wixLocationFrontend.query,
         ...runtimeSearchFlowContextQuery,
         language: "tr",
         currency: "TRY"
@@ -418,10 +430,10 @@ export function initSearchForm({ $w } = {}) {
     const { checkIn, checkOut } = getResolvedDateSelection();
 
     const searchFlowContextQuery = {
-      ...wixLocationFrontend.query,
       ...JSON.parse(
         session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
-      )
+      ),
+      ...wixLocationFrontend.query
     };
 
     const children = state.occupancy.childAges
@@ -511,7 +523,12 @@ export function initSearchForm({ $w } = {}) {
 
         renderSuggestionsPanel(state.autocompleteSuggestions);
       } catch (error) {
-        console.error("Autocomplete error:", error);
+        console.error("SEARCH FORM autocomplete failed", {
+          name: error?.name,
+          message: error?.message,
+          stack: error?.stack
+        });
+
         state.autocompleteSuggestions = [];
         $w("#searchSuggestionsRepeater").data = [];
         $w("#searchSuggestionsBox").collapse();
@@ -678,7 +695,10 @@ export function initSearchForm({ $w } = {}) {
     const occupancyValidationMessage = validateOccupancyState(state.occupancy);
 
     if (occupancyValidationMessage) {
-      console.warn("Occupancy validation error:", occupancyValidationMessage);
+      console.warn("SEARCH FORM occupancy validation failed", {
+        occupancyValidationMessage
+      });
+
       $w("#occupancySelectionBox").expand();
       return false;
     }
@@ -814,20 +834,16 @@ function validateSearchFlowContextQuery(searchFlowContextQuery) {
   }
 
   const roomsNumber = Number(rooms);
-  if (!Number.isFinite(roomsNumber) || Math.trunc(roomsNumber) !== roomsNumber) {
-    return {
-      ok: false,
-      searchFlowContextValidationArea: "occupancy",
-      searchFlowContextValidationMessage: "Rooms value is invalid."
-    };
-  }
-
-  if (roomsNumber !== 1) {
+  if (
+    !Number.isFinite(roomsNumber) ||
+    Math.trunc(roomsNumber) !== roomsNumber ||
+    roomsNumber < 1
+  ) {
     return {
       ok: false,
       searchFlowContextValidationArea: "occupancy",
       searchFlowContextValidationMessage:
-        "Only 1 room is supported by this search form."
+        "Rooms value must be a positive integer."
     };
   }
 
@@ -836,83 +852,74 @@ function validateSearchFlowContextQuery(searchFlowContextQuery) {
     .map((adultToken) => String(adultToken || "").trim())
     .filter(Boolean);
 
-  if (adultTokens.length !== 1) {
+  if (adultTokens.length !== roomsNumber) {
     return {
       ok: false,
       searchFlowContextValidationArea: "occupancy",
-      searchFlowContextValidationMessage: "Adults value is invalid."
+      searchFlowContextValidationMessage:
+        "Adults count must match rooms count."
     };
   }
 
-  const adultCount = Number(adultTokens[0]);
-  if (!Number.isFinite(adultCount) || Math.trunc(adultCount) !== adultCount) {
+  const adultCounts = adultTokens.map((adultToken) => Number(adultToken));
+
+  if (
+    adultCounts.some(
+      (adultCount) =>
+        !Number.isFinite(adultCount) ||
+        Math.trunc(adultCount) !== adultCount ||
+        adultCount < 1
+    )
+  ) {
     return {
       ok: false,
       searchFlowContextValidationArea: "occupancy",
-      searchFlowContextValidationMessage: "Adults value is invalid."
+      searchFlowContextValidationMessage:
+        "Adults must contain positive integers only."
     };
   }
 
-  const childAges = [];
+  const normalizedChildrenTokens = [];
 
   if (children) {
     const childTokens = children
       .split(",")
       .map((childToken) => String(childToken || "").trim());
 
-    if (childTokens.length > OCCUPANCY_MAX_CHILDREN) {
-      return {
-        ok: false,
-        searchFlowContextValidationArea: "occupancy",
-        searchFlowContextValidationMessage:
-          `Children cannot exceed ${OCCUPANCY_MAX_CHILDREN}.`
-      };
-    }
-
     for (const childToken of childTokens) {
       const childTokenParts = childToken.split("_");
 
-      if (childTokenParts.length !== 2 || childTokenParts[0] !== "1") {
+      if (childTokenParts.length !== 2) {
         return {
           ok: false,
           searchFlowContextValidationArea: "occupancy",
           searchFlowContextValidationMessage:
-            "Please select an age for each child."
+            "Children must contain valid room_age tokens."
         };
       }
 
+      const roomNumber = Number(childTokenParts[0]);
       const childAge = Number(childTokenParts[1]);
 
       if (
+        !Number.isFinite(roomNumber) ||
+        Math.trunc(roomNumber) !== roomNumber ||
+        roomNumber < 1 ||
+        roomNumber > roomsNumber ||
         !Number.isFinite(childAge) ||
         Math.trunc(childAge) !== childAge ||
-        childAge < 0 ||
-        childAge > 17
+        childAge < 0
       ) {
         return {
           ok: false,
           searchFlowContextValidationArea: "occupancy",
           searchFlowContextValidationMessage:
-            "Please select an age for each child."
+            "Children must contain valid room_age tokens."
         };
       }
 
-      childAges.push(String(childAge));
+      normalizedChildrenTokens.push(`${roomNumber}_${childAge}`);
     }
-  }
-
-  const occupancyValidationMessage = validateOccupancyState({
-    adults: adultCount,
-    children: childAges.length,
-    childAges
-  });
-
-  if (occupancyValidationMessage) {
-    return {
-      ok: false,
-      searchFlowContextValidationArea: "occupancy",
-      searchFlowContextValidationMessage: occupancyValidationMessage
-    };
   }
 
   if (!language) {
@@ -941,8 +948,8 @@ function validateSearchFlowContextQuery(searchFlowContextQuery) {
       checkin: formatDateForLiteApi(checkinDate),
       checkout: formatDateForLiteApi(checkoutDate),
       rooms: String(roomsNumber),
-      adults: String(adultCount),
-      children,
+      adults: adultTokens.join(","),
+      children: normalizedChildrenTokens.join(","),
       sorting,
       language,
       currency
