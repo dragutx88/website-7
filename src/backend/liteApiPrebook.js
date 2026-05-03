@@ -139,11 +139,6 @@ function normalizePrebook(prebookResponse, normalizedMarkupRate) {
       prebookResponse?.data?.roomTypes?.[0]?.rates?.[0]?.occupancyNumber
     ),
     refundableTag: "NRFN",
-    currency,
-    currentPrice,
-    beforeCurrentPrice: Number.isFinite(beforeCurrentPrice)
-      ? beforeCurrentPrice
-      : null,
 
     transactionId: normalizeText(prebookResponse?.data?.transactionId),
     secretKey: normalizeText(prebookResponse?.data?.secretKey),
