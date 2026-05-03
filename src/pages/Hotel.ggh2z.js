@@ -35,6 +35,13 @@ let searchFlowContextQuery = {};
 let hotelPageState = null;
 
 $w.onReady(async function () {
+  const renderingEnv = wixWindowFrontend.rendering.env;
+
+  if (renderingEnv !== "browser") {
+    console.log("HOTEL PAGE skipped outside browser", { renderingEnv });
+    return;
+  }
+
   $w("#mappedRoomOffersRepeater").onItemReady(($item, itemData) => {
     bindMappedRoomOfferItem($item, itemData);
   });
