@@ -1,6 +1,7 @@
 /* global LiteAPI */
 
-const SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY = "searchFlowContextQueryStringify";
+const SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY =
+  "searchFlowContextQueryStringify";
 
 const LITEAPI_SDK_URL = "https://components.liteapi.travel/v1.0/sdk.umd.js";
 const LITEAPI_DOMAIN = "ozvia.travel";
@@ -11,6 +12,10 @@ const DEFAULT_PRIMARY_COLOR = "#7057F0";
 const OCCUPANCY_MIN_ADULTS = 1;
 const OCCUPANCY_MAX_ADULTS = 20;
 const OCCUPANCY_MAX_CHILDREN = 10;
+
+const SEARCH_BAR_DOM_READY_TIMEOUT_MS = 4000;
+const SEARCH_BAR_DESTINATION_SUGGESTION_TIMEOUT_MS = 1800;
+const SEARCH_BAR_DOM_SETTLE_MS = 250;
 
 class SearchBarCustomElement2 extends HTMLElement {
   connectedCallback() {
@@ -45,7 +50,9 @@ class SearchBarCustomElement2 extends HTMLElement {
         : null;
 
     const searchBarPresetOccupancies = searchBarPresetSearchFlowContextQuery
-      ? buildOccupanciesFromSearchFlowContextQuery(searchBarPresetSearchFlowContextQuery)
+      ? buildOccupanciesFromSearchFlowContextQuery(
+          searchBarPresetSearchFlowContextQuery
+        )
       : [];
 
     const searchBarPresetChildrenAges = searchBarPresetOccupancies.flatMap(
@@ -57,24 +64,21 @@ class SearchBarCustomElement2 extends HTMLElement {
       0
     );
 
-    const searchBarPresetOccupanciesBase64 = searchBarPresetOccupancies.length
-      ? btoa(JSON.stringify(searchBarPresetOccupancies))
-      : "";
-
     console.log("[SEARCH BAR CUSTOM ELEMENT 2] create hydrate preset", {
       hasPreset: Boolean(searchBarPresetSearchFlowContextQuery),
       presetSearchFlowContextQuery: searchBarPresetSearchFlowContextQuery,
       presetOccupancies: searchBarPresetOccupancies,
       presetChildrenAges: searchBarPresetChildrenAges,
-      presetTotalAdults: searchBarPresetTotalAdults,
-      presetOccupanciesBase64: searchBarPresetOccupanciesBase64
+      presetTotalAdults: searchBarPresetTotalAdults
     });
 
     const script = document.createElement("script");
     script.src = LITEAPI_SDK_URL;
 
     script.onload = () => {
-      console.log("[SEARCH BAR CUSTOM ELEMENT 2] sdk script onload before bare LiteAPI init");
+      console.log(
+        "[SEARCH BAR CUSTOM ELEMENT 2] sdk script onload before bare LiteAPI init"
+      );
 
       LiteAPI.init({
         domain: LITEAPI_DOMAIN
@@ -93,44 +97,10 @@ class SearchBarCustomElement2 extends HTMLElement {
               inputCheckout: dateFromLiteApiDateText(
                 searchBarPresetSearchFlowContextQuery.checkout
               ),
-
-              /**
-               * Candidate hydrate props:
-               * Bu alanların hepsini create aşamasında test ediyoruz.
-               * SDK hangi alanları gerçekten iç state'e yakıyorsa onSearchClick raw searchData'da göreceğiz.
-               */
-              query: searchBarPresetSearchFlowContextQuery.name,
-              placeId: searchBarPresetSearchFlowContextQuery.placeId,
-              place: {
-                place_id: searchBarPresetSearchFlowContextQuery.placeId,
-                description: searchBarPresetSearchFlowContextQuery.name
-              },
-              checkin: searchBarPresetSearchFlowContextQuery.checkin,
-              checkout: searchBarPresetSearchFlowContextQuery.checkout,
-              dates: {
-                start: dateFromLiteApiDateText(searchBarPresetSearchFlowContextQuery.checkin),
-                end: dateFromLiteApiDateText(searchBarPresetSearchFlowContextQuery.checkout)
-              },
-              inputDates: {
-                start: dateFromLiteApiDateText(searchBarPresetSearchFlowContextQuery.checkin),
-                end: dateFromLiteApiDateText(searchBarPresetSearchFlowContextQuery.checkout)
-              },
-
-              rooms: number(searchBarPresetSearchFlowContextQuery.rooms, 1),
-              adults: searchBarPresetTotalAdults || 2,
-              children: searchBarPresetChildrenAges,
-              childrenAges: searchBarPresetChildrenAges,
-
-              inputRooms: number(searchBarPresetSearchFlowContextQuery.rooms, 1),
-              inputAdults: searchBarPresetTotalAdults || 2,
-              inputChildren: searchBarPresetChildrenAges,
-              inputChildrenAges: searchBarPresetChildrenAges,
-              inputOccupancies: searchBarPresetOccupanciesBase64,
-              occupancies: searchBarPresetOccupanciesBase64,
-
               labelsOverride: {
                 searchAction: "Search",
-                placePlaceholderText: searchBarPresetSearchFlowContextQuery.name
+                placePlaceholderText:
+                  searchBarPresetSearchFlowContextQuery.name
               }
             }
           : {}),
@@ -140,7 +110,9 @@ class SearchBarCustomElement2 extends HTMLElement {
             searchData
           );
 
-          const decodedSdkOccupancies = decodeSdkOccupancies(searchData?.occupancies);
+          const decodedSdkOccupancies = decodeSdkOccupancies(
+            searchData?.occupancies
+          );
 
           console.log(
             "[SEARCH BAR CUSTOM ELEMENT 2] decodedSdkOccupancies from raw SDK data",
@@ -191,7 +163,9 @@ class SearchBarCustomElement2 extends HTMLElement {
 
           const searchFlowContextUrl = new URL(
             `hotels?${new URLSearchParams({
-              ...Object.fromEntries(new URLSearchParams(window.top.location.search)),
+              ...Object.fromEntries(
+                new URLSearchParams(window.top.location.search)
+              ),
               ...JSON.parse(
                 window.top.sessionStorage.getItem(
                   SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY
@@ -225,6 +199,13 @@ class SearchBarCustomElement2 extends HTMLElement {
       });
 
       LiteAPI.SearchBar.create(searchBarCreatePayload);
+
+      if (searchBarPresetSearchFlowContextQuery) {
+        void hydrateSearchBarDomAfterCreate({
+          searchBarPresetSearchFlowContextQuery,
+          searchBarPresetOccupancies
+        });
+      }
     };
 
     script.onerror = () => {
@@ -235,12 +216,862 @@ class SearchBarCustomElement2 extends HTMLElement {
   }
 }
 
+async function hydrateSearchBarDomAfterCreate({
+  searchBarPresetSearchFlowContextQuery,
+  searchBarPresetOccupancies
+}) {
+  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM hydrate start", {
+    searchBarPresetSearchFlowContextQuery,
+    searchBarPresetOccupancies
+  });
+
+  const searchBarRoot = await waitForSearchBarDomRoot();
+
+  if (!searchBarRoot) {
+    console.warn("[SEARCH BAR CUSTOM ELEMENT 2] DOM hydrate skipped", {
+      reason: "searchBarRootNotReady"
+    });
+    return;
+  }
+
+  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM snapshot after SDK render", {
+    snapshot: buildSearchBarDomSnapshot(searchBarRoot)
+  });
+
+  await hydrateDestinationByDom({
+    searchBarRoot,
+    searchBarPresetSearchFlowContextQuery
+  });
+
+  await hydrateOccupancyByDom({
+    searchBarRoot,
+    searchBarPresetOccupancies
+  });
+
+  await waitForMilliseconds(SEARCH_BAR_DOM_SETTLE_MS);
+
+  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM snapshot after DOM hydrate", {
+    snapshot: buildSearchBarDomSnapshot(searchBarRoot)
+  });
+}
+
+function waitForSearchBarDomRoot() {
+  const startedAt = Date.now();
+
+  return new Promise((resolve) => {
+    const resolveIfReady = () => {
+      const searchBarRoot = document.getElementById("search-bar");
+
+      if (
+        searchBarRoot &&
+        searchBarRoot.querySelector(
+          "input, textarea, button, select, [role='button'], [role='combobox'], [contenteditable='true']"
+        )
+      ) {
+        resolve(searchBarRoot);
+        return true;
+      }
+
+      if (Date.now() - startedAt >= SEARCH_BAR_DOM_READY_TIMEOUT_MS) {
+        resolve(searchBarRoot || null);
+        return true;
+      }
+
+      return false;
+    };
+
+    if (resolveIfReady()) {
+      return;
+    }
+
+    const mutationObserver = new MutationObserver(() => {
+      if (resolveIfReady()) {
+        mutationObserver.disconnect();
+      }
+    });
+
+    mutationObserver.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+
+    setTimeout(() => {
+      mutationObserver.disconnect();
+      resolve(document.getElementById("search-bar") || null);
+    }, SEARCH_BAR_DOM_READY_TIMEOUT_MS);
+  });
+}
+
+async function hydrateDestinationByDom({
+  searchBarRoot,
+  searchBarPresetSearchFlowContextQuery
+}) {
+  const destinationInput = findDestinationInput(searchBarRoot);
+
+  if (!destinationInput) {
+    console.warn("[SEARCH BAR CUSTOM ELEMENT 2] DOM destination skipped", {
+      reason: "destinationInputNotFound",
+      snapshot: buildSearchBarDomSnapshot(searchBarRoot)
+    });
+    return;
+  }
+
+  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM destination input found", {
+    tagName: destinationInput.tagName,
+    type: destinationInput.getAttribute("type"),
+    role: destinationInput.getAttribute("role"),
+    placeholder: destinationInput.getAttribute("placeholder"),
+    value: getElementValue(destinationInput)
+  });
+
+  clickElement(destinationInput);
+  focusElement(destinationInput);
+
+  setElementValue(
+    destinationInput,
+    searchBarPresetSearchFlowContextQuery.name
+  );
+
+  dispatchTextInputEvents(destinationInput);
+
+  await waitForMilliseconds(SEARCH_BAR_DESTINATION_SUGGESTION_TIMEOUT_MS);
+
+  const destinationSuggestionElement = findDestinationSuggestionElement(
+    searchBarRoot,
+    searchBarPresetSearchFlowContextQuery
+  );
+
+  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM destination suggestion lookup", {
+    hasDestinationSuggestionElement: Boolean(destinationSuggestionElement),
+    suggestionText: destinationSuggestionElement
+      ? getElementText(destinationSuggestionElement)
+      : "",
+    snapshot: buildSearchBarDomSnapshot(searchBarRoot)
+  });
+
+  if (!destinationSuggestionElement) {
+    return;
+  }
+
+  clickElement(destinationSuggestionElement);
+
+  await waitForMilliseconds(SEARCH_BAR_DOM_SETTLE_MS);
+
+  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM destination suggestion clicked", {
+    placeId: searchBarPresetSearchFlowContextQuery.placeId,
+    name: searchBarPresetSearchFlowContextQuery.name,
+    suggestionText: getElementText(destinationSuggestionElement)
+  });
+}
+
+async function hydrateOccupancyByDom({
+  searchBarRoot,
+  searchBarPresetOccupancies
+}) {
+  if (!Array.isArray(searchBarPresetOccupancies) || !searchBarPresetOccupancies.length) {
+    console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM occupancy skipped", {
+      reason: "emptyPresetOccupancies"
+    });
+    return;
+  }
+
+  const desiredRoomCount = searchBarPresetOccupancies.length;
+  const desiredAdultCount = searchBarPresetOccupancies.reduce(
+    (sum, occupancy) => sum + number(occupancy?.adults, 0),
+    0
+  );
+  const desiredChildrenAges = searchBarPresetOccupancies.flatMap(
+    (occupancy) => occupancy?.children || []
+  );
+  const desiredChildrenCount = desiredChildrenAges.length;
+
+  const occupancyTriggerElement = findOccupancyTriggerElement(searchBarRoot);
+
+  if (!occupancyTriggerElement) {
+    console.warn("[SEARCH BAR CUSTOM ELEMENT 2] DOM occupancy skipped", {
+      reason: "occupancyTriggerNotFound",
+      desiredRoomCount,
+      desiredAdultCount,
+      desiredChildrenCount,
+      desiredChildrenAges,
+      snapshot: buildSearchBarDomSnapshot(searchBarRoot)
+    });
+    return;
+  }
+
+  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM occupancy trigger found", {
+    triggerText: getElementText(occupancyTriggerElement),
+    desiredRoomCount,
+    desiredAdultCount,
+    desiredChildrenCount,
+    desiredChildrenAges
+  });
+
+  clickElement(occupancyTriggerElement);
+
+  await waitForMilliseconds(SEARCH_BAR_DOM_SETTLE_MS);
+
+  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM occupancy popup snapshot", {
+    snapshot: buildSearchBarDomSnapshot(searchBarRoot)
+  });
+
+  const roomIncrementClickCount = Math.max(0, desiredRoomCount - 1);
+  const assumedAdultCountAfterRoomClicks =
+    2 + Math.max(0, desiredRoomCount - 1);
+  const adultIncrementClickCount = Math.max(
+    0,
+    desiredAdultCount - assumedAdultCountAfterRoomClicks
+  );
+  const childrenIncrementClickCount = desiredChildrenCount;
+
+  clickIncrementButtonByLabel({
+    searchBarRoot,
+    labelWords: ["room", "rooms"],
+    clickCount: roomIncrementClickCount,
+    logLabel: "rooms"
+  });
+
+  await waitForMilliseconds(SEARCH_BAR_DOM_SETTLE_MS);
+
+  clickIncrementButtonByLabel({
+    searchBarRoot,
+    labelWords: ["adult", "adults"],
+    clickCount: adultIncrementClickCount,
+    logLabel: "adults"
+  });
+
+  await waitForMilliseconds(SEARCH_BAR_DOM_SETTLE_MS);
+
+  clickIncrementButtonByLabel({
+    searchBarRoot,
+    labelWords: ["child", "children"],
+    clickCount: childrenIncrementClickCount,
+    logLabel: "children"
+  });
+
+  await waitForMilliseconds(SEARCH_BAR_DOM_SETTLE_MS);
+
+  setChildrenAgesByDom({
+    searchBarRoot,
+    desiredChildrenAges
+  });
+
+  await waitForMilliseconds(SEARCH_BAR_DOM_SETTLE_MS);
+
+  const applyOccupancyElement = findApplyOccupancyElement(searchBarRoot);
+
+  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM occupancy apply lookup", {
+    hasApplyOccupancyElement: Boolean(applyOccupancyElement),
+    applyText: applyOccupancyElement ? getElementText(applyOccupancyElement) : ""
+  });
+
+  if (applyOccupancyElement) {
+    clickElement(applyOccupancyElement);
+  }
+
+  await waitForMilliseconds(SEARCH_BAR_DOM_SETTLE_MS);
+
+  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM occupancy finished", {
+    desiredRoomCount,
+    desiredAdultCount,
+    desiredChildrenCount,
+    desiredChildrenAges,
+    snapshot: buildSearchBarDomSnapshot(searchBarRoot)
+  });
+}
+
+function findDestinationInput(searchBarRoot) {
+  const candidates = getVisibleElements(
+    searchBarRoot,
+    "input, textarea, [role='combobox'], [contenteditable='true']"
+  );
+
+  const destinationCandidates = candidates.filter((candidate) => {
+    const elementText = [
+      getElementValue(candidate),
+      getElementText(candidate),
+      candidate.getAttribute("placeholder"),
+      candidate.getAttribute("aria-label"),
+      candidate.getAttribute("name"),
+      candidate.getAttribute("type")
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    return (
+      elementText.includes("destination") ||
+      elementText.includes("search") ||
+      elementText.includes("place") ||
+      elementText.includes("city") ||
+      elementText.includes("hotel") ||
+      elementText.includes("roma") ||
+      elementText.includes("paris")
+    );
+  });
+
+  return destinationCandidates[0] || candidates[0] || null;
+}
+
+function findDestinationSuggestionElement(
+  searchBarRoot,
+  searchBarPresetSearchFlowContextQuery
+) {
+  const normalizedSearchName = normalizeText(
+    searchBarPresetSearchFlowContextQuery?.name
+  ).toLowerCase();
+
+  if (!normalizedSearchName) {
+    return null;
+  }
+
+  const firstSearchToken = normalizedSearchName
+    .split(/[,\s]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3)[0];
+
+  const candidates = getVisibleElements(
+    searchBarRoot,
+    "[role='option'], [role='listitem'], li, button, div, span, a"
+  )
+    .filter((candidate) => {
+      const candidateText = getElementText(candidate).toLowerCase();
+
+      if (!candidateText) {
+        return false;
+      }
+
+      if (isSearchSubmitElement(candidate)) {
+        return false;
+      }
+
+      if (candidateText.length > 180) {
+        return false;
+      }
+
+      return (
+        candidateText.includes(normalizedSearchName) ||
+        (firstSearchToken && candidateText.includes(firstSearchToken))
+      );
+    })
+    .sort((leftCandidate, rightCandidate) => {
+      const leftRoleScore = getSuggestionRoleScore(leftCandidate);
+      const rightRoleScore = getSuggestionRoleScore(rightCandidate);
+
+      if (leftRoleScore !== rightRoleScore) {
+        return rightRoleScore - leftRoleScore;
+      }
+
+      return (
+        getElementText(leftCandidate).length -
+        getElementText(rightCandidate).length
+      );
+    });
+
+  return candidates[0] || null;
+}
+
+function getSuggestionRoleScore(element) {
+  const role = normalizeText(element.getAttribute("role")).toLowerCase();
+  const tagName = normalizeText(element.tagName).toLowerCase();
+
+  if (role === "option") {
+    return 4;
+  }
+
+  if (role === "listitem") {
+    return 3;
+  }
+
+  if (tagName === "li") {
+    return 2;
+  }
+
+  if (tagName === "button" || tagName === "a") {
+    return 1;
+  }
+
+  return 0;
+}
+
+function findOccupancyTriggerElement(searchBarRoot) {
+  const candidates = getVisibleElements(
+    searchBarRoot,
+    "button, input, [role='button'], [role='combobox'], div, span"
+  )
+    .filter((candidate) => {
+      const candidateText = [
+        getElementText(candidate),
+        getElementValue(candidate),
+        candidate.getAttribute("aria-label"),
+        candidate.getAttribute("placeholder")
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return (
+        candidateText.includes("adult") ||
+        candidateText.includes("guest") ||
+        candidateText.includes("room") ||
+        candidateText.includes("child")
+      );
+    })
+    .sort((leftCandidate, rightCandidate) => {
+      const leftClickableScore = getClickableElementScore(leftCandidate);
+      const rightClickableScore = getClickableElementScore(rightCandidate);
+
+      if (leftClickableScore !== rightClickableScore) {
+        return rightClickableScore - leftClickableScore;
+      }
+
+      return (
+        getElementText(leftCandidate).length -
+        getElementText(rightCandidate).length
+      );
+    });
+
+  return candidates[0] || null;
+}
+
+function clickIncrementButtonByLabel({
+  searchBarRoot,
+  labelWords,
+  clickCount,
+  logLabel
+}) {
+  if (clickCount <= 0) {
+    console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM increment skipped", {
+      logLabel,
+      clickCount,
+      reason: "noClicksRequired"
+    });
+    return;
+  }
+
+  for (let clickIndex = 0; clickIndex < clickCount; clickIndex += 1) {
+    const incrementButton = findIncrementButtonByLabel(
+      searchBarRoot,
+      labelWords
+    );
+
+    if (!incrementButton) {
+      console.warn("[SEARCH BAR CUSTOM ELEMENT 2] DOM increment failed", {
+        logLabel,
+        clickIndex,
+        clickCount,
+        reason: "incrementButtonNotFound",
+        snapshot: buildSearchBarDomSnapshot(searchBarRoot)
+      });
+      return;
+    }
+
+    clickElement(incrementButton);
+
+    console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM increment clicked", {
+      logLabel,
+      clickIndex: clickIndex + 1,
+      clickCount,
+      buttonText: getElementText(incrementButton),
+      buttonAriaLabel: incrementButton.getAttribute("aria-label")
+    });
+  }
+}
+
+function findIncrementButtonByLabel(searchBarRoot, labelWords) {
+  const buttons = getVisibleElements(
+    searchBarRoot,
+    "button, [role='button']"
+  ).filter(isIncrementButtonElement);
+
+  for (const button of buttons) {
+    if (hasAncestorText(button, labelWords, searchBarRoot)) {
+      return button;
+    }
+  }
+
+  return buttons[0] || null;
+}
+
+function isIncrementButtonElement(element) {
+  const elementText = getElementText(element).trim().toLowerCase();
+  const ariaLabel = normalizeText(element.getAttribute("aria-label")).toLowerCase();
+  const title = normalizeText(element.getAttribute("title")).toLowerCase();
+  const className = normalizeText(element.getAttribute("class")).toLowerCase();
+
+  return (
+    elementText === "+" ||
+    elementText.includes("+") ||
+    ariaLabel.includes("increase") ||
+    ariaLabel.includes("increment") ||
+    ariaLabel.includes("add") ||
+    ariaLabel.includes("plus") ||
+    title.includes("increase") ||
+    title.includes("increment") ||
+    title.includes("add") ||
+    title.includes("plus") ||
+    className.includes("plus") ||
+    className.includes("increase")
+  );
+}
+
+function setChildrenAgesByDom({ searchBarRoot, desiredChildrenAges }) {
+  if (!desiredChildrenAges.length) {
+    console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM child age skipped", {
+      reason: "noChildren"
+    });
+    return;
+  }
+
+  const visibleSelects = getVisibleElements(searchBarRoot, "select");
+
+  console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM child age select lookup", {
+    desiredChildrenAges,
+    visibleSelectsCount: visibleSelects.length,
+    selectSnapshots: visibleSelects.map((selectElement) => ({
+      value: selectElement.value,
+      options: Array.from(selectElement.options || []).map((option) => ({
+        value: option.value,
+        text: option.text
+      }))
+    }))
+  });
+
+  desiredChildrenAges.forEach((desiredChildAge, childAgeIndex) => {
+    const selectElement = visibleSelects[childAgeIndex];
+
+    if (!selectElement) {
+      console.warn("[SEARCH BAR CUSTOM ELEMENT 2] DOM child age skipped", {
+        childAgeIndex,
+        desiredChildAge,
+        reason: "selectNotFound"
+      });
+      return;
+    }
+
+    const desiredChildAgeText = String(desiredChildAge);
+    const matchingOption = Array.from(selectElement.options || []).find(
+      (option) =>
+        String(option.value) === desiredChildAgeText ||
+        normalizeText(option.text) === desiredChildAgeText
+    );
+
+    if (!matchingOption) {
+      console.warn("[SEARCH BAR CUSTOM ELEMENT 2] DOM child age skipped", {
+        childAgeIndex,
+        desiredChildAge,
+        reason: "matchingOptionNotFound"
+      });
+      return;
+    }
+
+    selectElement.value = matchingOption.value;
+    selectElement.dispatchEvent(
+      new Event("change", {
+        bubbles: true,
+        cancelable: true
+      })
+    );
+
+    console.log("[SEARCH BAR CUSTOM ELEMENT 2] DOM child age selected", {
+      childAgeIndex,
+      desiredChildAge,
+      selectedValue: selectElement.value
+    });
+  });
+}
+
+function findApplyOccupancyElement(searchBarRoot) {
+  const candidates = getVisibleElements(
+    searchBarRoot,
+    "button, [role='button'], a"
+  ).filter((candidate) => {
+    const candidateText = [
+      getElementText(candidate),
+      candidate.getAttribute("aria-label"),
+      candidate.getAttribute("title")
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    return (
+      candidateText.includes("apply") ||
+      candidateText.includes("done") ||
+      candidateText.includes("ok") ||
+      candidateText.includes("close") ||
+      candidateText.includes("confirm")
+    );
+  });
+
+  return candidates[0] || null;
+}
+
+function hasAncestorText(element, labelWords, stopElement) {
+  let currentElement = element;
+
+  for (let depth = 0; currentElement && depth < 7; depth += 1) {
+    const currentText = getElementText(currentElement).toLowerCase();
+
+    if (labelWords.some((labelWord) => currentText.includes(labelWord))) {
+      return true;
+    }
+
+    if (currentElement === stopElement) {
+      return false;
+    }
+
+    currentElement = currentElement.parentElement;
+  }
+
+  return false;
+}
+
+function buildSearchBarDomSnapshot(searchBarRoot) {
+  return {
+    inputs: getVisibleElements(
+      searchBarRoot,
+      "input, textarea, [role='combobox'], [contenteditable='true']"
+    )
+      .slice(0, 20)
+      .map((element, index) => ({
+        index,
+        tagName: element.tagName,
+        type: element.getAttribute("type"),
+        role: element.getAttribute("role"),
+        placeholder: element.getAttribute("placeholder"),
+        ariaLabel: element.getAttribute("aria-label"),
+        value: getElementValue(element),
+        text: trimLongText(getElementText(element), 120)
+      })),
+    buttons: getVisibleElements(searchBarRoot, "button, [role='button'], a")
+      .slice(0, 30)
+      .map((element, index) => ({
+        index,
+        tagName: element.tagName,
+        role: element.getAttribute("role"),
+        ariaLabel: element.getAttribute("aria-label"),
+        title: element.getAttribute("title"),
+        text: trimLongText(getElementText(element), 120),
+        className: trimLongText(element.getAttribute("class") || "", 120)
+      })),
+    selects: getVisibleElements(searchBarRoot, "select")
+      .slice(0, 15)
+      .map((element, index) => ({
+        index,
+        value: element.value,
+        optionsCount: element.options ? element.options.length : 0
+      })),
+    textCandidates: getVisibleElements(
+      searchBarRoot,
+      "[role='option'], [role='listitem'], li, div, span"
+    )
+      .map((element) => trimLongText(getElementText(element), 120))
+      .filter(Boolean)
+      .filter((text, index, allTexts) => allTexts.indexOf(text) === index)
+      .slice(0, 40)
+  };
+}
+
+function getVisibleElements(rootElement, selector) {
+  return Array.from(rootElement.querySelectorAll(selector)).filter(isVisibleElement);
+}
+
+function isVisibleElement(element) {
+  if (!element || !(element instanceof Element)) {
+    return false;
+  }
+
+  const elementRectangle = element.getBoundingClientRect();
+  const computedStyle = window.getComputedStyle(element);
+
+  return (
+    elementRectangle.width > 0 &&
+    elementRectangle.height > 0 &&
+    computedStyle.visibility !== "hidden" &&
+    computedStyle.display !== "none" &&
+    computedStyle.opacity !== "0"
+  );
+}
+
+function getClickableElementScore(element) {
+  const tagName = normalizeText(element.tagName).toLowerCase();
+  const role = normalizeText(element.getAttribute("role")).toLowerCase();
+
+  if (tagName === "button") {
+    return 4;
+  }
+
+  if (role === "button") {
+    return 3;
+  }
+
+  if (tagName === "input") {
+    return 2;
+  }
+
+  return 1;
+}
+
+function isSearchSubmitElement(element) {
+  const text = [
+    getElementText(element),
+    element.getAttribute("aria-label"),
+    element.getAttribute("title")
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return text.includes("search") && !text.includes("destination");
+}
+
+function getElementValue(element) {
+  if (!element) {
+    return "";
+  }
+
+  if ("value" in element) {
+    return String(element.value || "");
+  }
+
+  if (element.getAttribute("contenteditable") === "true") {
+    return String(element.textContent || "");
+  }
+
+  return "";
+}
+
+function setElementValue(element, value) {
+  const normalizedValue = String(value || "");
+
+  if ("value" in element) {
+    if (element instanceof HTMLInputElement) {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value"
+      )?.set;
+
+      if (valueSetter) {
+        valueSetter.call(element, normalizedValue);
+      } else {
+        element.value = normalizedValue;
+      }
+
+      return;
+    }
+
+    if (element instanceof HTMLTextAreaElement) {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        "value"
+      )?.set;
+
+      if (valueSetter) {
+        valueSetter.call(element, normalizedValue);
+      } else {
+        element.value = normalizedValue;
+      }
+
+      return;
+    }
+
+    element.value = normalizedValue;
+    return;
+  }
+
+  if (element.getAttribute("contenteditable") === "true") {
+    element.textContent = normalizedValue;
+  }
+}
+
+function dispatchTextInputEvents(element) {
+  element.dispatchEvent(
+    new InputEvent("input", {
+      bubbles: true,
+      cancelable: true,
+      inputType: "insertText",
+      data: getElementValue(element)
+    })
+  );
+
+  element.dispatchEvent(
+    new Event("change", {
+      bubbles: true,
+      cancelable: true
+    })
+  );
+
+  element.dispatchEvent(
+    new KeyboardEvent("keyup", {
+      bubbles: true,
+      cancelable: true,
+      key: "a"
+    })
+  );
+}
+
+function clickElement(element) {
+  element.dispatchEvent(
+    new MouseEvent("mousedown", {
+      bubbles: true,
+      cancelable: true,
+      view: window
+    })
+  );
+
+  element.dispatchEvent(
+    new MouseEvent("mouseup", {
+      bubbles: true,
+      cancelable: true,
+      view: window
+    })
+  );
+
+  element.dispatchEvent(
+    new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      view: window
+    })
+  );
+}
+
+function focusElement(element) {
+  if (typeof element.focus === "function") {
+    element.focus();
+  }
+
+  element.dispatchEvent(
+    new FocusEvent("focus", {
+      bubbles: true,
+      cancelable: true
+    })
+  );
+}
+
+function getElementText(element) {
+  return normalizeText(element?.innerText || element?.textContent || "");
+}
+
+function trimLongText(value, maxLength) {
+  const normalizedValue = normalizeText(value);
+
+  if (normalizedValue.length <= maxLength) {
+    return normalizedValue;
+  }
+
+  return `${normalizedValue.slice(0, maxLength)}...`;
+}
+
+function waitForMilliseconds(milliseconds) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+}
+
 function buildRuntimeSearchFlowContextQueryFromSdkSearchData(
   searchData,
   decodedSdkOccupancies
 ) {
-  const runtimeOccupancies = Array.isArray(decodedSdkOccupancies) &&
-    decodedSdkOccupancies.length
+  const runtimeOccupancies =
+    Array.isArray(decodedSdkOccupancies) && decodedSdkOccupancies.length
       ? decodedSdkOccupancies
       : buildOccupanciesFromSdkSearchData(searchData);
 
@@ -299,8 +1130,7 @@ function buildOccupanciesFromSearchFlowContextQuery(searchFlowContextQuery) {
 
     return {
       adults: number(adultTokens[index], 1),
-      children: childrenByRoomNumber.get(roomNumber) || [],
-      rooms: 1
+      children: childrenByRoomNumber.get(roomNumber) || []
     };
   });
 }
@@ -312,8 +1142,7 @@ function buildOccupanciesFromSdkSearchData(searchData) {
 
   return Array.from({ length: Math.max(1, roomsNumber) }, (_, index) => ({
     adults: index === 0 ? adultsNumber : 1,
-    children: index === 0 ? childrenAges : [],
-    rooms: 1
+    children: index === 0 ? childrenAges : []
   }));
 }
 
@@ -663,6 +1492,13 @@ function number(value, fallback) {
   return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
 }
 
+function normalizeText(value) {
+  return String(value ?? "").trim();
+}
+
 if (!customElements.get(SEARCH_BAR_CUSTOM_ELEMENT_TAG_NAME)) {
-  customElements.define(SEARCH_BAR_CUSTOM_ELEMENT_TAG_NAME, SearchBarCustomElement2);
+  customElements.define(
+    SEARCH_BAR_CUSTOM_ELEMENT_TAG_NAME,
+    SearchBarCustomElement2
+  );
 }
