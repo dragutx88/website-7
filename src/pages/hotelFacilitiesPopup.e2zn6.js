@@ -1,8 +1,4 @@
 import wixWindowFrontend from "wix-window-frontend";
-import {
-  safeGetPageElement,
-  setOptionalItemText
-} from "public/liteApiHelpers";
 
 $w.onReady(function () {
   const context = wixWindowFrontend.lightbox.getContext() || {};
@@ -10,19 +6,34 @@ $w.onReady(function () {
 });
 
 function bindHotelFacilitiesPopup(context) {
-  const repeater = safeGetPageElement("#hotelFacilitiesRepeater");
-  const facilities = Array.isArray(context?.facilities) ? context.facilities : [];
+  const facilities = Array.isArray(context?.facilities)
+    ? context.facilities
+        .map((facility) => String(facility || "").trim())
+        .filter(Boolean)
+    : [];
 
-  if (!repeater) {
+  $w("#hotelFacilitiesRepeater").onItemReady(($item, itemData) => {
+    const facilityText = String(itemData?.text || "").trim();
+
+    $item("#hotelFacilitiesText").text = facilityText;
+
+    if (facilityText) {
+      $item("#hotelFacilitiesText").expand();
+    } else {
+      $item("#hotelFacilitiesText").collapse();
+    }
+  });
+
+  if (!facilities.length) {
+    $w("#hotelFacilitiesRepeater").data = [];
+    $w("#hotelFacilitiesRepeater").collapse();
     return;
   }
 
-  repeater.onItemReady(($item, itemData) => {
-    setOptionalItemText($item, "#hotelFacilitiesText", itemData.text);
-  });
-
-  repeater.data = facilities.map((facility, index) => ({
+  $w("#hotelFacilitiesRepeater").data = facilities.map((facility, index) => ({
     _id: `facility-${index + 1}`,
-    text: String(facility || "")
+    text: facility
   }));
+
+  $w("#hotelFacilitiesRepeater").expand();
 }
