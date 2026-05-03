@@ -14,20 +14,32 @@ $w.onReady(function () {
     return;
   }
 
-  initSearchForm({ $w });
-
   session.setItem(
     SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY,
-    JSON.stringify({ ...wixLocationFrontend.query, language: "tr", currency: "TRY" })
+    JSON.stringify({
+      ...wixLocationFrontend.query,
+      ...JSON.parse(
+        session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
+      ),
+      language: "tr",
+      currency: "TRY"
+    })
   );
 
-  wixLocationFrontend.queryParams.add({
-    ...wixLocationFrontend.query,
-    language: "tr",
-    currency: "TRY"
-  });
+  wixLocationFrontend.queryParams.add(
+    JSON.parse(session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY))
+  );
+
+  const searchFlowContextQuery = {
+    ...JSON.parse(
+      session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
+    ),
+    ...wixLocationFrontend.query
+  };
 
   console.log("HOME session/query init", {
-    query: { ...wixLocationFrontend.query, language: "tr", currency: "TRY" }
+    searchFlowContextQuery
   });
+
+  initSearchForm({ $w });
 });
