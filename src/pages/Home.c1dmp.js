@@ -43,5 +43,11 @@ $w.onReady(function () {
     searchFlowContextQuery
   });
 
+  $w("#ozviaClubOffersButton").onClick(() => {
+    wixLocationFrontend.queryParams.add({
+      club: "ozvia"
+    });
+  });
+
   initSearchForm({ $w });
 });
