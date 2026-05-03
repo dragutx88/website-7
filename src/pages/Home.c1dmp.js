@@ -17,12 +17,10 @@ $w.onReady(function () {
   session.setItem(
     SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY,
     JSON.stringify({
-      ...wixLocationFrontend.query,
       ...JSON.parse(
         session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
       ),
-      language: "tr",
-      currency: "TRY"
+      ...wixLocationFrontend.query
     })
   );
 
