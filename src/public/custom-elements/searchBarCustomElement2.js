@@ -44,19 +44,30 @@ class SearchBarCustomElement2 extends HTMLElement {
         ? searchFlowContextValidationResult.searchFlowContextQuery
         : null;
 
+    const searchBarPresetOccupancies = searchBarPresetSearchFlowContextQuery
+      ? buildOccupanciesFromSearchFlowContextQuery(searchBarPresetSearchFlowContextQuery)
+      : [];
+
+    const searchBarPresetChildrenAges = searchBarPresetOccupancies.flatMap(
+      (occupancy) => occupancy.children || []
+    );
+
+    const searchBarPresetTotalAdults = searchBarPresetOccupancies.reduce(
+      (sum, occupancy) => sum + number(occupancy.adults, 0),
+      0
+    );
+
+    const searchBarPresetOccupanciesBase64 = searchBarPresetOccupancies.length
+      ? btoa(JSON.stringify(searchBarPresetOccupancies))
+      : "";
+
     console.log("[SEARCH BAR CUSTOM ELEMENT 2] create hydrate preset", {
       hasPreset: Boolean(searchBarPresetSearchFlowContextQuery),
-      presetSubset: searchBarPresetSearchFlowContextQuery
-        ? {
-            inputQuery: searchBarPresetSearchFlowContextQuery.name,
-            inputPlaceId: searchBarPresetSearchFlowContextQuery.placeId,
-            inputCheckin: searchBarPresetSearchFlowContextQuery.checkin,
-            inputCheckout: searchBarPresetSearchFlowContextQuery.checkout,
-            rooms: searchBarPresetSearchFlowContextQuery.rooms,
-            adults: searchBarPresetSearchFlowContextQuery.adults,
-            children: searchBarPresetSearchFlowContextQuery.children
-          }
-        : null
+      presetSearchFlowContextQuery: searchBarPresetSearchFlowContextQuery,
+      presetOccupancies: searchBarPresetOccupancies,
+      presetChildrenAges: searchBarPresetChildrenAges,
+      presetTotalAdults: searchBarPresetTotalAdults,
+      presetOccupanciesBase64: searchBarPresetOccupanciesBase64
     });
 
     const script = document.createElement("script");
@@ -66,12 +77,7 @@ class SearchBarCustomElement2 extends HTMLElement {
       console.log("[SEARCH BAR CUSTOM ELEMENT 2] sdk script onload before bare LiteAPI init");
 
       LiteAPI.init({
-        domain: LITEAPI_DOMAIN,
-        deepLinkParams: "language=tr&currency=TRY",
-        labelsOverride: {
-          searchAction: "Search",
-          placePlaceholderText: "Search for a destination"
-        }
+        domain: LITEAPI_DOMAIN
       });
 
       const searchBarCreatePayload = {
@@ -87,6 +93,41 @@ class SearchBarCustomElement2 extends HTMLElement {
               inputCheckout: dateFromLiteApiDateText(
                 searchBarPresetSearchFlowContextQuery.checkout
               ),
+
+              /**
+               * Candidate hydrate props:
+               * Bu alanların hepsini create aşamasında test ediyoruz.
+               * SDK hangi alanları gerçekten iç state'e yakıyorsa onSearchClick raw searchData'da göreceğiz.
+               */
+              query: searchBarPresetSearchFlowContextQuery.name,
+              placeId: searchBarPresetSearchFlowContextQuery.placeId,
+              place: {
+                place_id: searchBarPresetSearchFlowContextQuery.placeId,
+                description: searchBarPresetSearchFlowContextQuery.name
+              },
+              checkin: searchBarPresetSearchFlowContextQuery.checkin,
+              checkout: searchBarPresetSearchFlowContextQuery.checkout,
+              dates: {
+                start: dateFromLiteApiDateText(searchBarPresetSearchFlowContextQuery.checkin),
+                end: dateFromLiteApiDateText(searchBarPresetSearchFlowContextQuery.checkout)
+              },
+              inputDates: {
+                start: dateFromLiteApiDateText(searchBarPresetSearchFlowContextQuery.checkin),
+                end: dateFromLiteApiDateText(searchBarPresetSearchFlowContextQuery.checkout)
+              },
+
+              rooms: number(searchBarPresetSearchFlowContextQuery.rooms, 1),
+              adults: searchBarPresetTotalAdults || 2,
+              children: searchBarPresetChildrenAges,
+              childrenAges: searchBarPresetChildrenAges,
+
+              inputRooms: number(searchBarPresetSearchFlowContextQuery.rooms, 1),
+              inputAdults: searchBarPresetTotalAdults || 2,
+              inputChildren: searchBarPresetChildrenAges,
+              inputChildrenAges: searchBarPresetChildrenAges,
+              inputOccupancies: searchBarPresetOccupanciesBase64,
+              occupancies: searchBarPresetOccupanciesBase64,
+
               labelsOverride: {
                 searchAction: "Search",
                 placePlaceholderText: searchBarPresetSearchFlowContextQuery.name
@@ -99,8 +140,18 @@ class SearchBarCustomElement2 extends HTMLElement {
             searchData
           );
 
+          const decodedSdkOccupancies = decodeSdkOccupancies(searchData?.occupancies);
+
+          console.log(
+            "[SEARCH BAR CUSTOM ELEMENT 2] decodedSdkOccupancies from raw SDK data",
+            decodedSdkOccupancies
+          );
+
           const runtimeSearchFlowContextQuery =
-            buildRuntimeSearchFlowContextQueryFromSdkSearchData(searchData);
+            buildRuntimeSearchFlowContextQueryFromSdkSearchData(
+              searchData,
+              decodedSdkOccupancies
+            );
 
           console.log(
             "[SEARCH BAR CUSTOM ELEMENT 2] runtimeSearchFlowContextQuery from raw SDK data",
@@ -164,6 +215,12 @@ class SearchBarCustomElement2 extends HTMLElement {
 
       console.log("[SEARCH BAR CUSTOM ELEMENT 2] create payload", {
         ...searchBarCreatePayload,
+        inputCheckin: searchBarCreatePayload.inputCheckin
+          ? formatDateForLiteApi(searchBarCreatePayload.inputCheckin)
+          : undefined,
+        inputCheckout: searchBarCreatePayload.inputCheckout
+          ? formatDateForLiteApi(searchBarCreatePayload.inputCheckout)
+          : undefined,
         onSearchClick: "function"
       });
 
@@ -178,7 +235,15 @@ class SearchBarCustomElement2 extends HTMLElement {
   }
 }
 
-function buildRuntimeSearchFlowContextQueryFromSdkSearchData(searchData) {
+function buildRuntimeSearchFlowContextQueryFromSdkSearchData(
+  searchData,
+  decodedSdkOccupancies
+) {
+  const runtimeOccupancies = Array.isArray(decodedSdkOccupancies) &&
+    decodedSdkOccupancies.length
+      ? decodedSdkOccupancies
+      : buildOccupanciesFromSdkSearchData(searchData);
+
   return {
     mode: "destination",
     placeId: String(searchData?.place?.place_id || "").trim(),
@@ -190,55 +255,117 @@ function buildRuntimeSearchFlowContextQueryFromSdkSearchData(searchData) {
     aiSearch: "",
     checkin: dateText(searchData?.checkin || searchData?.dates?.start),
     checkout: dateText(searchData?.checkout || searchData?.dates?.end),
-    rooms: String(searchData?.rooms || "").trim(),
-    adults: String(searchData?.adults || "").trim(),
-    children: buildChildrenQueryFromSdkSearchData(searchData),
+    rooms: String(runtimeOccupancies.length || number(searchData?.rooms, 1)),
+    adults: runtimeOccupancies
+      .map((occupancy) => String(number(occupancy?.adults, 1)))
+      .join(","),
+    children: runtimeOccupancies
+      .flatMap((occupancy, occupancyIndex) =>
+        (occupancy?.children || []).map(
+          (age) => `${occupancyIndex + 1}_${number(age, 0)}`
+        )
+      )
+      .join(","),
     sorting: "",
     language: "tr",
     currency: "TRY"
   };
 }
 
-function buildChildrenQueryFromSdkSearchData(searchData) {
-  const children = searchData?.children;
+function buildOccupanciesFromSearchFlowContextQuery(searchFlowContextQuery) {
+  const roomsNumber = number(searchFlowContextQuery?.rooms, 1);
+  const adultTokens = String(searchFlowContextQuery?.adults || "")
+    .split(",")
+    .map((adultToken) => number(adultToken, 1));
 
+  const childrenByRoomNumber = new Map();
+
+  String(searchFlowContextQuery?.children || "")
+    .split(",")
+    .map((childToken) => String(childToken || "").trim())
+    .filter(Boolean)
+    .forEach((childToken) => {
+      const [roomNumberText, ageText] = childToken.split("_");
+      const roomNumber = number(roomNumberText, 1);
+      const age = number(ageText, 0);
+      const currentChildrenAges = childrenByRoomNumber.get(roomNumber) || [];
+
+      currentChildrenAges.push(age);
+      childrenByRoomNumber.set(roomNumber, currentChildrenAges);
+    });
+
+  return Array.from({ length: Math.max(1, roomsNumber) }, (_, index) => {
+    const roomNumber = index + 1;
+
+    return {
+      adults: number(adultTokens[index], 1),
+      children: childrenByRoomNumber.get(roomNumber) || [],
+      rooms: 1
+    };
+  });
+}
+
+function buildOccupanciesFromSdkSearchData(searchData) {
+  const roomsNumber = number(searchData?.rooms, 1);
+  const adultsNumber = number(searchData?.adults, 2);
+  const childrenAges = normalizeSdkChildrenAges(searchData?.children);
+
+  return Array.from({ length: Math.max(1, roomsNumber) }, (_, index) => ({
+    adults: index === 0 ? adultsNumber : 1,
+    children: index === 0 ? childrenAges : [],
+    rooms: 1
+  }));
+}
+
+function normalizeSdkChildrenAges(children) {
   if (Array.isArray(children)) {
     return children
       .map((age) => number(age, null))
-      .filter((age) => Number.isFinite(age))
-      .map((age) => `1_${age}`)
-      .join(",");
+      .filter((age) => Number.isFinite(age));
   }
 
   if (typeof children === "string") {
-    const normalizedChildren = children.trim();
-
-    if (!normalizedChildren) {
-      return "";
-    }
-
-    return normalizedChildren
+    return children
       .split(",")
       .map((childToken) => String(childToken || "").trim())
       .filter(Boolean)
       .map((childToken) => {
         if (childToken.includes("_")) {
-          const [roomNumber, age] = childToken.split("_");
-          return `${number(roomNumber, 1)}_${number(age, 0)}`;
+          return number(childToken.split("_")[1], null);
         }
 
-        return `1_${number(childToken, 0)}`;
+        return number(childToken, null);
       })
-      .join(",");
+      .filter((age) => Number.isFinite(age));
   }
 
   const childrenCount = number(children, 0);
 
-  if (!childrenCount) {
-    return "";
+  return Array.from({ length: Math.max(0, childrenCount) }, () => 0);
+}
+
+function decodeSdkOccupancies(occupancies) {
+  const occupanciesText = String(occupancies || "").trim();
+
+  if (!occupanciesText) {
+    return [];
   }
 
-  return Array.from({ length: Math.max(0, childrenCount) }, () => "1_0").join(",");
+  try {
+    const decodedOccupancies = JSON.parse(atob(occupanciesText));
+
+    return Array.isArray(decodedOccupancies) ? decodedOccupancies : [];
+  } catch (error) {
+    console.warn(
+      "[SEARCH BAR CUSTOM ELEMENT 2] failed to decode SDK occupancies",
+      {
+        occupancies,
+        error
+      }
+    );
+
+    return [];
+  }
 }
 
 function validateSearchFlowContextQuery(searchFlowContextQuery) {
