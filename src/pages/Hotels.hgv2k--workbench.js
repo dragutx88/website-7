@@ -28,12 +28,10 @@ async function initializeHotelsPage() {
   session.setItem(
     SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY,
     JSON.stringify({
-      ...wixLocationFrontend.query,
       ...JSON.parse(
         session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
       ),
-      language: "tr",
-      currency: "TRY"
+      ...wixLocationFrontend.query
     })
   );
 
@@ -103,9 +101,7 @@ async function initializeHotelsPage() {
       ...wixLocationFrontend.query,
       ...JSON.parse(
         session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
-      ),
-      language: "tr",
-      currency: "TRY"
+      )
     })}`);
   }
 }
@@ -309,13 +305,11 @@ function openHotelDetailsPage(itemData) {
   console.log("HOTELS openHotelDetailsPage", runtimeSearchFlowContextQuery);
 
   wixLocationFrontend.to(`/hotel?${new URLSearchParams({
-    ...wixLocationFrontend.query,
     ...JSON.parse(
       session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
     ),
-    ...runtimeSearchFlowContextQuery,
-    language: "tr",
-    currency: "TRY"
+    ...wixLocationFrontend.query,
+    ...runtimeSearchFlowContextQuery
   })}`);
 }
 
