@@ -1615,10 +1615,3 @@ function normalizePositiveIntegerOrNull(value) {
 
   return normalizedInteger;
 }
-
-function getXmlTagText(xmlText, tagName) {
-  const tagPattern = new RegExp(`<${tagName}>([^<]*)</${tagName}>`, "i");
-  const tagMatch = tagPattern.exec(xmlText);
-
-  return tagMatch ? normalizeText(tagMatch[1]) : "";
-}
