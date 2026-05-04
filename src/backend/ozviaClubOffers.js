@@ -3,11 +3,29 @@ import { secrets } from "wix-secrets-backend.v2";
 import { buildLiteApiError, liteApiRequest, parseJson } from "./liteApiClient";
 
 const LITE_API_BASE_URL = "https://api.liteapi.travel/v3.0";
+const XOTELO_API_BASE_URL = "https://data.xotelo.com/api";
+
 const MARKUP_RATE_SECRET_NAME = "MARKUP_RATE";
 const DEFAULT_CURRENCY = "TRY";
 const DEFAULT_LANGUAGE = "tr";
 const DEFAULT_GUEST_NATIONALITY = "TR";
+
+const OZVIA_CLUB_GATE_MODES = Object.freeze({
+  SSP: "ssp",
+  XOTELO: "xotelo"
+});
+
+const OZVIA_CLUB_GATE_MODE = OZVIA_CLUB_GATE_MODES.XOTELO;
+
 const OZVIA_CLUB_MIN_GAP_RATIO = 0.5;
+
+const XOTELO_DEFAULT_CURRENCY = "USD";
+const XOTELO_DESTINATION_HOTEL_LIST_LIMIT = 100;
+const XOTELO_RATES_CONCURRENCY = 5;
+const XOTELO_RATES_MATCHED_HOTEL_LIMIT = 30;
+const XOTELO_MIN_NAME_MATCH_SCORE = 0.86;
+const XOTELO_MIN_MATCH_CONFIDENCE = 0.86;
+const XOTELO_AMBIGUOUS_MATCH_DELTA = 0.02;
 
 const MILLISECONDS_PER_DAY = 1000 * 60 * 60 * 24;
 
@@ -23,6 +41,51 @@ export async function getOzviaClubOffersHandler(searchFlowContextQuery) {
 
   const normalizedMarkupRate = await getMarkupRate();
 
+  if (OZVIA_CLUB_GATE_MODE === OZVIA_CLUB_GATE_MODES.XOTELO) {
+    const [getHotelsRatesJson, xoteloDestinationHotelListResult] =
+      await Promise.all([
+        getLiteApiHotelsRatesJson(getHotelsRatesRequest),
+        getXoteloDestinationHotelList({
+          destinationName:
+            validatedHotelsRatesSearchFlowContextQuery.destinationName
+        })
+      ]);
+
+    const xoteloGateContext = await buildXoteloGateContext({
+      getHotelsRatesResponse: getHotelsRatesJson,
+      xoteloDestinationHotelListResult,
+      validatedHotelsRatesSearchFlowContextQuery
+    });
+
+    return {
+      normalizedHotelsRates: normalizeOzviaClubOffers(
+        getHotelsRatesJson,
+        validatedHotelsRatesSearchFlowContextQuery,
+        normalizedMarkupRate,
+        xoteloGateContext
+      )
+    };
+  }
+
+  const getHotelsRatesJson = await getLiteApiHotelsRatesJson(
+    getHotelsRatesRequest
+  );
+
+  return {
+    normalizedHotelsRates: normalizeOzviaClubOffers(
+      getHotelsRatesJson,
+      validatedHotelsRatesSearchFlowContextQuery,
+      normalizedMarkupRate,
+      {
+        gateMode: OZVIA_CLUB_GATE_MODES.SSP,
+        xoteloMarketRateByHotelId: {},
+        xoteloMarketSummary: null
+      }
+    )
+  };
+}
+
+async function getLiteApiHotelsRatesJson(getHotelsRatesRequest) {
   const getHotelsRatesResponse = await liteApiRequest(
     `${LITE_API_BASE_URL}/hotels/rates`,
     {
@@ -40,13 +103,7 @@ export async function getOzviaClubOffersHandler(searchFlowContextQuery) {
     );
   }
 
-  return {
-    normalizedHotelsRates: normalizeOzviaClubOffers(
-      getHotelsRatesJson,
-      validatedHotelsRatesSearchFlowContextQuery,
-      normalizedMarkupRate
-    )
-  };
+  return getHotelsRatesJson;
 }
 
 async function getMarkupRate() {
@@ -66,6 +123,7 @@ async function getMarkupRate() {
 function validateHotelsRatesSearchFlowContextQuery(searchFlowContextQuery) {
   const normalizedMode = normalizeText(searchFlowContextQuery?.mode);
   const normalizedPlaceId = normalizeText(searchFlowContextQuery?.placeId);
+  const normalizedDestinationName = normalizeText(searchFlowContextQuery?.name);
   const normalizedAiSearch =
     normalizeText(searchFlowContextQuery?.aiSearch) ||
     normalizeText(searchFlowContextQuery?.message) ||
@@ -79,8 +137,10 @@ function validateHotelsRatesSearchFlowContextQuery(searchFlowContextQuery) {
     "checkout"
   );
   const normalizedCurrency =
-    normalizeText(searchFlowContextQuery?.currency).toUpperCase() ||
-    DEFAULT_CURRENCY;
+    OZVIA_CLUB_GATE_MODE === OZVIA_CLUB_GATE_MODES.XOTELO
+      ? XOTELO_DEFAULT_CURRENCY
+      : normalizeText(searchFlowContextQuery?.currency).toUpperCase() ||
+        DEFAULT_CURRENCY;
   const normalizedLanguage =
     normalizeText(searchFlowContextQuery?.language).toLowerCase() ||
     DEFAULT_LANGUAGE;
@@ -98,6 +158,13 @@ function validateHotelsRatesSearchFlowContextQuery(searchFlowContextQuery) {
 
   if (normalizedMode === "vibe" && !normalizedAiSearch) {
     throw new Error("aiSearch is required for vibe mode.");
+  }
+
+  if (
+    OZVIA_CLUB_GATE_MODE === OZVIA_CLUB_GATE_MODES.XOTELO &&
+    !normalizedDestinationName
+  ) {
+    throw new Error("name is required for Xotelo Ozvia Club gate.");
   }
 
   if (getDateUtcTime(normalizedCheckout) <= getDateUtcTime(normalizedCheckin)) {
@@ -122,6 +189,7 @@ function validateHotelsRatesSearchFlowContextQuery(searchFlowContextQuery) {
   return {
     mode: normalizedMode,
     placeId: normalizedPlaceId,
+    destinationName: normalizedDestinationName,
     aiSearch: normalizedAiSearch,
     checkin: normalizedCheckin,
     checkout: normalizedCheckout,
@@ -267,10 +335,443 @@ function buildHotelsRatesRequestOccupancies(
   return getHotelsRatesOccupancies;
 }
 
+async function buildXoteloGateContext({
+  getHotelsRatesResponse,
+  xoteloDestinationHotelListResult,
+  validatedHotelsRatesSearchFlowContextQuery
+}) {
+  const liteApiHotelMatchCandidates = buildLiteApiHotelMatchCandidates(
+    getHotelsRatesResponse
+  );
+
+  const xoteloMatchedHotels = matchLiteApiHotelsWithXoteloHotels({
+    liteApiHotelMatchCandidates,
+    xoteloDestinationHotelList:
+      xoteloDestinationHotelListResult.xoteloDestinationHotelList
+  });
+
+  const xoteloRatesResult = await getXoteloRatesForMatchedHotels({
+    matchedHotels: xoteloMatchedHotels.matchedHotels,
+    validatedHotelsRatesSearchFlowContextQuery
+  });
+
+  const xoteloMarketSummary = {
+    xoteloLocationKey: xoteloDestinationHotelListResult.xoteloLocationKey,
+    xoteloDestinationHotelListCount:
+      xoteloDestinationHotelListResult.xoteloDestinationHotelList.length,
+    liteApiHotelMatchCandidateCount: liteApiHotelMatchCandidates.length,
+    xoteloMatchedHotelCount: xoteloMatchedHotels.matchedHotels.length,
+    xoteloAmbiguousHotelMatchCount:
+      xoteloMatchedHotels.ambiguousHotelMatchCount,
+    xoteloUnmatchedLiteApiHotelCount:
+      xoteloMatchedHotels.unmatchedLiteApiHotelCount,
+    xoteloRatesRequestedCount: xoteloRatesResult.xoteloRatesRequestedCount,
+    xoteloRatesReturnedCount: xoteloRatesResult.xoteloRatesReturnedCount,
+    xoteloRatesFailedCount: xoteloRatesResult.xoteloRatesFailedCount,
+    xoteloRatesEmptyCount: xoteloRatesResult.xoteloRatesEmptyCount,
+    xoteloRatesSkippedByLimitCount:
+      xoteloRatesResult.xoteloRatesSkippedByLimitCount
+  };
+
+  console.log("OZVIA_CLUB_OFFERS xoteloGateContext summary", {
+    ...xoteloMarketSummary
+  });
+
+  return {
+    gateMode: OZVIA_CLUB_GATE_MODES.XOTELO,
+    xoteloMarketRateByHotelId: xoteloRatesResult.xoteloMarketRateByHotelId,
+    xoteloMarketSummary
+  };
+}
+
+function buildLiteApiHotelMatchCandidates(getHotelsRatesResponse) {
+  const getHotelsRatesData = Array.isArray(getHotelsRatesResponse?.data)
+    ? getHotelsRatesResponse.data
+    : [];
+
+  const getHotelsRatesHotels = Array.isArray(getHotelsRatesResponse?.hotels)
+    ? getHotelsRatesResponse.hotels
+    : [];
+
+  const liteApiHotelMatchCandidates = [];
+
+  for (const dataItem of getHotelsRatesData) {
+    const hotelId = normalizeText(dataItem?.hotelId);
+
+    if (!hotelId) {
+      continue;
+    }
+
+    const hotel =
+      getHotelsRatesHotels.find(
+        (hotelItem) => normalizeText(hotelItem?.id) === hotelId
+      ) || null;
+
+    if (!hotel) {
+      continue;
+    }
+
+    const hotelName = normalizeText(hotel?.name);
+    const hotelAddress = normalizeText(hotel?.address);
+
+    if (!hotelName) {
+      continue;
+    }
+
+    liteApiHotelMatchCandidates.push({
+      hotelId,
+      hotelName,
+      hotelAddress,
+      compressedHotelName: compressBusinessKeyText(hotelName),
+      compressedHotelAddress: compressBusinessKeyText(hotelAddress)
+    });
+  }
+
+  return liteApiHotelMatchCandidates;
+}
+
+async function getXoteloDestinationHotelList({ destinationName }) {
+  const xoteloSearchJson = await getXoteloJson("/search", {
+    query: destinationName,
+    location_type: "geo"
+  });
+
+  const xoteloSearchItems = getXoteloResultList(xoteloSearchJson, "search");
+  const xoteloLocationKey = normalizeText(
+    xoteloSearchItems?.[0]?.location_key || xoteloSearchItems?.[0]?.key
+  );
+
+  if (!xoteloLocationKey) {
+    throw new Error("Xotelo location_key could not be resolved.");
+  }
+
+  const xoteloListJson = await getXoteloJson("/list", {
+    location_key: xoteloLocationKey,
+    limit: String(XOTELO_DESTINATION_HOTEL_LIST_LIMIT)
+  });
+
+  const xoteloDestinationHotelList = getXoteloResultList(
+    xoteloListJson,
+    "list"
+  );
+
+  return {
+    xoteloLocationKey,
+    xoteloDestinationHotelList
+  };
+}
+
+async function getXoteloJson(path, queryParams) {
+  const url = `${XOTELO_API_BASE_URL}${path}?${new URLSearchParams(
+    queryParams
+  )}`;
+
+  const response = await fetch(url, {
+    method: "GET"
+  });
+
+  const responseText = await response.text();
+
+  let responseJson = null;
+
+  try {
+    responseJson = JSON.parse(responseText);
+  } catch {
+    throw new Error(`Xotelo response is not valid JSON for ${path}.`);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Xotelo request failed for ${path}.`);
+  }
+
+  return responseJson;
+}
+
+function getXoteloResultList(xoteloJson, sourceName) {
+  const xoteloResultList = xoteloJson?.result?.list;
+
+  if (!Array.isArray(xoteloResultList)) {
+    throw new Error(`Xotelo ${sourceName} result.list must be an array.`);
+  }
+
+  return xoteloResultList;
+}
+
+function matchLiteApiHotelsWithXoteloHotels({
+  liteApiHotelMatchCandidates,
+  xoteloDestinationHotelList
+}) {
+  const xoteloHotelCandidates = xoteloDestinationHotelList
+    .map((xoteloHotelItem) => {
+      const xoteloHotelKey = normalizeText(
+        xoteloHotelItem?.key || xoteloHotelItem?.hotel_key
+      );
+      const xoteloHotelName = normalizeText(xoteloHotelItem?.name);
+      const xoteloHotelAddress =
+        normalizeText(xoteloHotelItem?.street_address) ||
+        normalizeText(xoteloHotelItem?.address) ||
+        normalizeText(xoteloHotelItem?.place_name);
+
+      return {
+        xoteloHotelKey,
+        xoteloHotelName,
+        xoteloHotelAddress,
+        compressedXoteloHotelName: compressBusinessKeyText(xoteloHotelName),
+        compressedXoteloHotelAddress:
+          compressBusinessKeyText(xoteloHotelAddress)
+      };
+    })
+    .filter(
+      (xoteloHotelCandidate) =>
+        xoteloHotelCandidate.xoteloHotelKey &&
+        xoteloHotelCandidate.xoteloHotelName
+    );
+
+  const matchedHotels = [];
+  let ambiguousHotelMatchCount = 0;
+  let unmatchedLiteApiHotelCount = 0;
+
+  for (const liteApiHotelCandidate of liteApiHotelMatchCandidates) {
+    const scoredXoteloCandidates = xoteloHotelCandidates
+      .map((xoteloHotelCandidate) => {
+        const nameScore = calculateBusinessTextMatchScore(
+          liteApiHotelCandidate.compressedHotelName,
+          xoteloHotelCandidate.compressedXoteloHotelName
+        );
+
+        const addressScore =
+          liteApiHotelCandidate.compressedHotelAddress &&
+          xoteloHotelCandidate.compressedXoteloHotelAddress
+            ? calculateBusinessTextMatchScore(
+                liteApiHotelCandidate.compressedHotelAddress,
+                xoteloHotelCandidate.compressedXoteloHotelAddress
+              )
+            : null;
+
+        const matchConfidence =
+          addressScore === null
+            ? nameScore
+            : Number((nameScore * 0.75 + addressScore * 0.25).toFixed(4));
+
+        return {
+          ...xoteloHotelCandidate,
+          nameScore,
+          addressScore,
+          matchConfidence
+        };
+      })
+      .filter(
+        (xoteloHotelCandidate) =>
+          xoteloHotelCandidate.nameScore >= XOTELO_MIN_NAME_MATCH_SCORE &&
+          xoteloHotelCandidate.matchConfidence >= XOTELO_MIN_MATCH_CONFIDENCE
+      )
+      .sort(
+        (firstCandidate, secondCandidate) =>
+          secondCandidate.matchConfidence - firstCandidate.matchConfidence
+      );
+
+    if (!scoredXoteloCandidates.length) {
+      unmatchedLiteApiHotelCount += 1;
+      continue;
+    }
+
+    const bestXoteloCandidate = scoredXoteloCandidates[0];
+    const secondXoteloCandidate = scoredXoteloCandidates[1] || null;
+
+    if (
+      secondXoteloCandidate &&
+      bestXoteloCandidate.matchConfidence -
+        secondXoteloCandidate.matchConfidence <=
+        XOTELO_AMBIGUOUS_MATCH_DELTA
+    ) {
+      ambiguousHotelMatchCount += 1;
+      continue;
+    }
+
+    matchedHotels.push({
+      liteApiHotelId: liteApiHotelCandidate.hotelId,
+      liteApiHotelName: liteApiHotelCandidate.hotelName,
+      liteApiHotelAddress: liteApiHotelCandidate.hotelAddress,
+      xoteloHotelKey: bestXoteloCandidate.xoteloHotelKey,
+      xoteloHotelName: bestXoteloCandidate.xoteloHotelName,
+      xoteloHotelAddress: bestXoteloCandidate.xoteloHotelAddress,
+      xoteloNameScore: bestXoteloCandidate.nameScore,
+      xoteloAddressScore: bestXoteloCandidate.addressScore,
+      xoteloMatchConfidence: bestXoteloCandidate.matchConfidence
+    });
+  }
+
+  return {
+    matchedHotels,
+    ambiguousHotelMatchCount,
+    unmatchedLiteApiHotelCount
+  };
+}
+
+async function getXoteloRatesForMatchedHotels({
+  matchedHotels,
+  validatedHotelsRatesSearchFlowContextQuery
+}) {
+  const xoteloMarketRateByHotelId = {};
+  const normalizedNightCount = calculateNightCount(
+    validatedHotelsRatesSearchFlowContextQuery.checkin,
+    validatedHotelsRatesSearchFlowContextQuery.checkout
+  );
+  const totalAdultCount = calculateTotalAdultCount(
+    validatedHotelsRatesSearchFlowContextQuery.roomAdultCounts
+  );
+
+  const matchedHotelsWithinLimit = matchedHotels.slice(
+    0,
+    XOTELO_RATES_MATCHED_HOTEL_LIMIT
+  );
+
+  let xoteloRatesReturnedCount = 0;
+  let xoteloRatesFailedCount = 0;
+  let xoteloRatesEmptyCount = 0;
+
+  for (
+    let matchedHotelsIndex = 0;
+    matchedHotelsIndex < matchedHotelsWithinLimit.length;
+    matchedHotelsIndex += XOTELO_RATES_CONCURRENCY
+  ) {
+    const matchedHotelsBatch = matchedHotelsWithinLimit.slice(
+      matchedHotelsIndex,
+      matchedHotelsIndex + XOTELO_RATES_CONCURRENCY
+    );
+
+    const xoteloRatesBatchResults = await Promise.all(
+      matchedHotelsBatch.map(async (matchedHotel) => {
+        try {
+          const xoteloRatesResult = await getXoteloRatesForHotel({
+            hotelKey: matchedHotel.xoteloHotelKey,
+            checkin: validatedHotelsRatesSearchFlowContextQuery.checkin,
+            checkout: validatedHotelsRatesSearchFlowContextQuery.checkout,
+            rooms: validatedHotelsRatesSearchFlowContextQuery.rooms,
+            adults: totalAdultCount,
+            currency: XOTELO_DEFAULT_CURRENCY
+          });
+
+          return {
+            ok: true,
+            matchedHotel,
+            xoteloRatesResult
+          };
+        } catch (error) {
+          return {
+            ok: false,
+            matchedHotel,
+            error
+          };
+        }
+      })
+    );
+
+    for (const xoteloRatesBatchResult of xoteloRatesBatchResults) {
+      if (!xoteloRatesBatchResult.ok) {
+        xoteloRatesFailedCount += 1;
+        continue;
+      }
+
+      const lowestRate = xoteloRatesBatchResult.xoteloRatesResult.lowestRate;
+
+      if (!lowestRate) {
+        xoteloRatesEmptyCount += 1;
+        continue;
+      }
+
+      const xoteloLowestTotal =
+        lowestRate.xoteloLowestPerNight *
+        normalizedNightCount *
+        validatedHotelsRatesSearchFlowContextQuery.rooms;
+
+      xoteloMarketRateByHotelId[
+        xoteloRatesBatchResult.matchedHotel.liteApiHotelId
+      ] = {
+        xoteloHotelKey:
+          xoteloRatesBatchResult.matchedHotel.xoteloHotelKey,
+        xoteloHotelName:
+          xoteloRatesBatchResult.matchedHotel.xoteloHotelName,
+        xoteloHotelAddress:
+          xoteloRatesBatchResult.matchedHotel.xoteloHotelAddress,
+        xoteloLowestPerNight: lowestRate.xoteloLowestPerNight,
+        xoteloLowestTotal,
+        xoteloLowestSource: lowestRate.xoteloLowestSource,
+        xoteloCurrency: XOTELO_DEFAULT_CURRENCY,
+        xoteloMatchConfidence:
+          xoteloRatesBatchResult.matchedHotel.xoteloMatchConfidence
+      };
+
+      xoteloRatesReturnedCount += 1;
+    }
+  }
+
+  return {
+    xoteloMarketRateByHotelId,
+    xoteloRatesRequestedCount: matchedHotelsWithinLimit.length,
+    xoteloRatesReturnedCount,
+    xoteloRatesFailedCount,
+    xoteloRatesEmptyCount,
+    xoteloRatesSkippedByLimitCount: Math.max(
+      0,
+      matchedHotels.length - matchedHotelsWithinLimit.length
+    )
+  };
+}
+
+async function getXoteloRatesForHotel({
+  hotelKey,
+  checkin,
+  checkout,
+  rooms,
+  adults,
+  currency
+}) {
+  const xoteloRatesJson = await getXoteloJson("/rates", {
+    hotel_key: hotelKey,
+    chk_in: checkin,
+    chk_out: checkout,
+    rooms: String(rooms),
+    adults: String(adults),
+    currency
+  });
+
+  const xoteloRates = Array.isArray(xoteloRatesJson?.result?.rates)
+    ? xoteloRatesJson.result.rates
+    : [];
+
+  const normalizedRates = xoteloRates
+    .map((xoteloRateItem) => {
+      const xoteloLowestPerNight = normalizeNumberOrNull(
+        xoteloRateItem?.rate
+      );
+
+      return {
+        xoteloLowestPerNight,
+        xoteloLowestSource:
+          normalizeText(xoteloRateItem?.name) ||
+          normalizeText(xoteloRateItem?.code)
+      };
+    })
+    .filter((xoteloRateItem) =>
+      Number.isFinite(xoteloRateItem.xoteloLowestPerNight)
+    )
+    .sort(
+      (firstRate, secondRate) =>
+        firstRate.xoteloLowestPerNight - secondRate.xoteloLowestPerNight
+    );
+
+  return {
+    lowestRate: normalizedRates[0] || null,
+    ratesCount: normalizedRates.length
+  };
+}
+
 function normalizeOzviaClubOffers(
   getHotelsRatesResponse,
   validatedHotelsRatesSearchFlowContextQuery,
-  normalizedMarkupRate
+  normalizedMarkupRate,
+  ozviaClubGateContext
 ) {
   if (!Array.isArray(getHotelsRatesResponse?.data)) {
     throw new Error("Hotel rates response data must be an array.");
@@ -280,6 +781,7 @@ function normalizeOzviaClubOffers(
 
   if (!getHotelsRatesData.length) {
     console.log("OZVIA_CLUB_OFFERS normalizeOzviaClubOffers empty result", {
+      ozviaClubGateMode: ozviaClubGateContext.gateMode,
       getHotelsRatesDataCount: getHotelsRatesData.length,
       hasGetHotelsRatesHotelsArray: Array.isArray(getHotelsRatesResponse?.hotels)
     });
@@ -306,6 +808,8 @@ function normalizeOzviaClubOffers(
   let skippedMissingCurrentPriceCurrencyCount = 0;
   let skippedMissingOccupancyNumberCount = 0;
   let skippedMissingSuggestedSellingPriceCount = 0;
+  let missingSuggestedSellingPriceForDisplayCount = 0;
+  let skippedMissingXoteloMarketRateCount = 0;
   let skippedBelowOzviaClubGapThresholdCount = 0;
   let refundableTagRFNCount = 0;
   let refundableTagNRFNCount = 0;
@@ -364,44 +868,57 @@ function normalizeOzviaClubOffers(
         ?.suggestedSellingPrice?.[0]?.amount
     );
 
-    if (!Number.isFinite(hotelOffersBeforeMinCurrentPrice)) {
+    const gateResult = evaluateOzviaClubOfferGate({
+      ozviaClubGateContext,
+      hotelId: dataItemHotelId,
+      rawRateTotalAmount: hotelOffersMinCurrentPrice,
+      rawSuggestedSellingPriceAmount: hotelOffersBeforeMinCurrentPrice
+    });
+
+    if (gateResult.skipReason === "missingSuggestedSellingPrice") {
       skippedMissingSuggestedSellingPriceCount += 1;
       continue;
     }
 
-    const ozviaClubGapRatio =
-      hotelOffersMinCurrentPrice > 0
-        ? (hotelOffersBeforeMinCurrentPrice - hotelOffersMinCurrentPrice) /
-          hotelOffersMinCurrentPrice
-        : null;
+    if (gateResult.skipReason === "missingXoteloMarketRate") {
+      skippedMissingXoteloMarketRateCount += 1;
+      continue;
+    }
 
-    if (Number.isFinite(ozviaClubGapRatio)) {
+    if (Number.isFinite(gateResult.ozviaClubGapRatio)) {
       inspectedOzviaClubGapRatioCount += 1;
-      totalOzviaClubGapRatio += ozviaClubGapRatio;
+      totalOzviaClubGapRatio += gateResult.ozviaClubGapRatio;
 
       minOzviaClubGapRatio =
         minOzviaClubGapRatio === null
-          ? ozviaClubGapRatio
-          : Math.min(minOzviaClubGapRatio, ozviaClubGapRatio);
+          ? gateResult.ozviaClubGapRatio
+          : Math.min(minOzviaClubGapRatio, gateResult.ozviaClubGapRatio);
 
       maxOzviaClubGapRatio =
         maxOzviaClubGapRatio === null
-          ? ozviaClubGapRatio
-          : Math.max(maxOzviaClubGapRatio, ozviaClubGapRatio);
+          ? gateResult.ozviaClubGapRatio
+          : Math.max(maxOzviaClubGapRatio, gateResult.ozviaClubGapRatio);
 
       ozviaClubGapRatioSamples.push({
         hotelId: dataItemHotelId,
         hotelName: getHotelsRatesHotelName,
+        ozviaClubGateMode: ozviaClubGateContext.gateMode,
         rawRateTotalAmount: hotelOffersMinCurrentPrice,
-        rawSuggestedSellingPriceAmount: hotelOffersBeforeMinCurrentPrice,
-        ozviaClubGapRatio: Number(ozviaClubGapRatio.toFixed(4)),
-        ozviaClubGapPercent: Number((ozviaClubGapRatio * 100).toFixed(2))
+        rawBenchmarkAmount: gateResult.rawBenchmarkAmount,
+        benchmarkSource: gateResult.benchmarkSource,
+        ozviaClubGapRatio: Number(gateResult.ozviaClubGapRatio.toFixed(4)),
+        ozviaClubGapPercent: Number(
+          (gateResult.ozviaClubGapRatio * 100).toFixed(2)
+        ),
+        xoteloLowestPerNight: gateResult.xoteloLowestPerNight,
+        xoteloLowestSource: gateResult.xoteloLowestSource,
+        xoteloMatchConfidence: gateResult.xoteloMatchConfidence
       });
     }
 
     if (
-      !Number.isFinite(ozviaClubGapRatio) ||
-      ozviaClubGapRatio < OZVIA_CLUB_MIN_GAP_RATIO
+      !Number.isFinite(gateResult.ozviaClubGapRatio) ||
+      gateResult.ozviaClubGapRatio < OZVIA_CLUB_MIN_GAP_RATIO
     ) {
       skippedBelowOzviaClubGapThresholdCount += 1;
       continue;
@@ -460,10 +977,15 @@ function normalizeOzviaClubOffers(
       normalizedMarkupRate
     );
 
-    const beforeCurrentPrice = applyMarkupRate(
-      hotelOffersBeforeMinCurrentPrice,
-      normalizedMarkupRate
-    );
+    const beforeCurrentPrice = Number.isFinite(
+      hotelOffersBeforeMinCurrentPrice
+    )
+      ? applyMarkupRate(hotelOffersBeforeMinCurrentPrice, normalizedMarkupRate)
+      : null;
+
+    if (!Number.isFinite(hotelOffersBeforeMinCurrentPrice)) {
+      missingSuggestedSellingPriceForDisplayCount += 1;
+    }
 
     const currentPriceText = formatCurrencyText(
       currentPrice,
@@ -506,7 +1028,14 @@ function normalizeOzviaClubOffers(
       beforeCurrentPriceText,
       currentPriceText,
       currentPriceNoteText,
-      hotelRoomOfferBoardName
+      hotelRoomOfferBoardName,
+
+      ozviaClubGateMode: ozviaClubGateContext.gateMode,
+      ozviaClubGapRatio: gateResult.ozviaClubGapRatio,
+      ozviaClubGapPercent: Number(
+        (gateResult.ozviaClubGapRatio * 100).toFixed(2)
+      ),
+      benchmarkSource: gateResult.benchmarkSource
     });
   }
 
@@ -523,6 +1052,7 @@ function normalizeOzviaClubOffers(
     .slice(0, 5);
 
   console.log("OZVIA_CLUB_OFFERS normalizeOzviaClubOffers summary", {
+    ozviaClubGateMode: ozviaClubGateContext.gateMode,
     getHotelsRatesDataCount: getHotelsRatesData.length,
     getHotelsRatesHotelsCount: getHotelsRatesHotels.length,
     normalizedHotelsRatesCount: normalizedHotelsRates.length,
@@ -541,12 +1071,15 @@ function normalizeOzviaClubOffers(
         ? null
         : Number(averageOzviaClubGapRatio.toFixed(4)),
     topOzviaClubGapRatioSamples,
+    xoteloMarketSummary: ozviaClubGateContext.xoteloMarketSummary,
     skippedMissingHotelIdCount,
     skippedMissingMatchingHotelCount,
     skippedMissingHotelNameCount,
     skippedMissingRateCount,
     skippedMissingCurrentPriceAmountCount,
     skippedMissingSuggestedSellingPriceCount,
+    missingSuggestedSellingPriceForDisplayCount,
+    skippedMissingXoteloMarketRateCount,
     skippedBelowOzviaClubGapThresholdCount,
     skippedMissingCurrentPriceCurrencyCount,
     skippedMissingOccupancyNumberCount,
@@ -556,6 +1089,63 @@ function normalizeOzviaClubOffers(
   });
 
   return normalizedHotelsRates;
+}
+
+function evaluateOzviaClubOfferGate({
+  ozviaClubGateContext,
+  hotelId,
+  rawRateTotalAmount,
+  rawSuggestedSellingPriceAmount
+}) {
+  if (ozviaClubGateContext.gateMode === OZVIA_CLUB_GATE_MODES.XOTELO) {
+    const xoteloMarketRate =
+      ozviaClubGateContext.xoteloMarketRateByHotelId?.[hotelId] || null;
+
+    if (
+      !xoteloMarketRate ||
+      !Number.isFinite(xoteloMarketRate.xoteloLowestTotal)
+    ) {
+      return {
+        skipReason: "missingXoteloMarketRate",
+        ozviaClubGapRatio: null
+      };
+    }
+
+    return {
+      skipReason: "",
+      rawBenchmarkAmount: xoteloMarketRate.xoteloLowestTotal,
+      benchmarkSource: "xotelo",
+      ozviaClubGapRatio:
+        rawRateTotalAmount > 0
+          ? (xoteloMarketRate.xoteloLowestTotal - rawRateTotalAmount) /
+            rawRateTotalAmount
+          : null,
+      xoteloLowestPerNight: xoteloMarketRate.xoteloLowestPerNight,
+      xoteloLowestSource: xoteloMarketRate.xoteloLowestSource,
+      xoteloMatchConfidence: xoteloMarketRate.xoteloMatchConfidence
+    };
+  }
+
+  if (!Number.isFinite(rawSuggestedSellingPriceAmount)) {
+    return {
+      skipReason: "missingSuggestedSellingPrice",
+      ozviaClubGapRatio: null
+    };
+  }
+
+  return {
+    skipReason: "",
+    rawBenchmarkAmount: rawSuggestedSellingPriceAmount,
+    benchmarkSource: "ssp",
+    ozviaClubGapRatio:
+      rawRateTotalAmount > 0
+        ? (rawSuggestedSellingPriceAmount - rawRateTotalAmount) /
+          rawRateTotalAmount
+        : null,
+    xoteloLowestPerNight: null,
+    xoteloLowestSource: "",
+    xoteloMatchConfidence: null
+  };
 }
 
 function buildCurrentPriceNoteText(
@@ -650,6 +1240,20 @@ function calculateNightCount(checkin, checkout) {
   );
 }
 
+function calculateTotalAdultCount(roomAdultCounts) {
+  if (!Array.isArray(roomAdultCounts)) {
+    return 1;
+  }
+
+  const totalAdultCount = roomAdultCounts.reduce(
+    (total, roomAdultCount) =>
+      Number.isFinite(roomAdultCount) ? total + roomAdultCount : total,
+    0
+  );
+
+  return totalAdultCount > 0 ? totalAdultCount : 1;
+}
+
 function getDateUtcTime(value) {
   const [normalizedDateYear, normalizedDateMonth, normalizedDateDay] =
     normalizeText(value).split("-").map(Number);
@@ -658,6 +1262,53 @@ function getDateUtcTime(value) {
     normalizedDateYear,
     normalizedDateMonth - 1,
     normalizedDateDay
+  );
+}
+
+function compressBusinessKeyText(value) {
+  return normalizeText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function calculateBusinessTextMatchScore(firstValue, secondValue) {
+  const firstTokens = getUniqueTokens(firstValue);
+  const secondTokens = getUniqueTokens(secondValue);
+
+  if (!firstTokens.length || !secondTokens.length) {
+    return 0;
+  }
+
+  if (firstValue === secondValue) {
+    return 1;
+  }
+
+  const secondTokenSet = new Set(secondTokens);
+  const commonTokenCount = firstTokens.filter((token) =>
+    secondTokenSet.has(token)
+  ).length;
+
+  const containmentScore =
+    commonTokenCount / Math.min(firstTokens.length, secondTokens.length);
+  const coverageScore =
+    commonTokenCount / Math.max(firstTokens.length, secondTokens.length);
+
+  return Number((containmentScore * 0.7 + coverageScore * 0.3).toFixed(4));
+}
+
+function getUniqueTokens(value) {
+  return Array.from(
+    new Set(
+      normalizeText(value)
+        .split(" ")
+        .map((token) => normalizeText(token))
+        .filter(Boolean)
+    )
   );
 }
 
