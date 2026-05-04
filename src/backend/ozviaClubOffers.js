@@ -4,6 +4,7 @@ import { buildLiteApiError, liteApiRequest, parseJson } from "./liteApiClient";
 
 const LITE_API_BASE_URL = "https://api.liteapi.travel/v3.0";
 const XOTELO_API_BASE_URL = "https://data.xotelo.com/api";
+const TCMB_EXCHANGE_RATES_URL = "https://www.tcmb.gov.tr/kurlar/today.xml";
 
 const MARKUP_RATE_SECRET_NAME = "MARKUP_RATE";
 const DEFAULT_CURRENCY = "TRY";
@@ -27,7 +28,11 @@ const XOTELO_MIN_NAME_MATCH_SCORE = 0.86;
 const XOTELO_MIN_MATCH_CONFIDENCE = 0.86;
 const XOTELO_AMBIGUOUS_MATCH_DELTA = 0.02;
 
+const TCMB_TRY_CURRENCY = "TRY";
+const TCMB_FX_RATE_FIELD = "ForexSelling";
 const MILLISECONDS_PER_DAY = 1000 * 60 * 60 * 24;
+
+let tcmbExchangeRatesPromise = null;
 
 const getSecretValue = elevate(secrets.getSecretValue);
 
@@ -137,10 +142,8 @@ function validateHotelsRatesSearchFlowContextQuery(searchFlowContextQuery) {
     "checkout"
   );
   const normalizedCurrency =
-    OZVIA_CLUB_GATE_MODE === OZVIA_CLUB_GATE_MODES.XOTELO
-      ? XOTELO_DEFAULT_CURRENCY
-      : normalizeText(searchFlowContextQuery?.currency).toUpperCase() ||
-        DEFAULT_CURRENCY;
+    normalizeText(searchFlowContextQuery?.currency).toUpperCase() ||
+    DEFAULT_CURRENCY;
   const normalizedLanguage =
     normalizeText(searchFlowContextQuery?.language).toLowerCase() ||
     DEFAULT_LANGUAGE;
@@ -340,6 +343,11 @@ async function buildXoteloGateContext({
   xoteloDestinationHotelListResult,
   validatedHotelsRatesSearchFlowContextQuery
 }) {
+  const tcmbCurrencyConversionContext = await getTcmbCurrencyConversionContext({
+    sourceCurrency: XOTELO_DEFAULT_CURRENCY,
+    targetCurrency: validatedHotelsRatesSearchFlowContextQuery.currency
+  });
+
   const liteApiHotelMatchCandidates = buildLiteApiHotelMatchCandidates(
     getHotelsRatesResponse
   );
@@ -352,7 +360,8 @@ async function buildXoteloGateContext({
 
   const xoteloRatesResult = await getXoteloRatesForMatchedHotels({
     matchedHotels: xoteloMatchedHotels.matchedHotels,
-    validatedHotelsRatesSearchFlowContextQuery
+    validatedHotelsRatesSearchFlowContextQuery,
+    tcmbCurrencyConversionContext
   });
 
   const xoteloMarketSummary = {
@@ -370,7 +379,11 @@ async function buildXoteloGateContext({
     xoteloRatesFailedCount: xoteloRatesResult.xoteloRatesFailedCount,
     xoteloRatesEmptyCount: xoteloRatesResult.xoteloRatesEmptyCount,
     xoteloRatesSkippedByLimitCount:
-      xoteloRatesResult.xoteloRatesSkippedByLimitCount
+      xoteloRatesResult.xoteloRatesSkippedByLimitCount,
+    fxSource: tcmbCurrencyConversionContext.fxSource,
+    fxBaseCurrency: tcmbCurrencyConversionContext.sourceCurrency,
+    fxTargetCurrency: tcmbCurrencyConversionContext.targetCurrency,
+    fxRate: tcmbCurrencyConversionContext.fxRate
   };
 
   console.log("OZVIA_CLUB_OFFERS xoteloGateContext summary", {
@@ -610,7 +623,8 @@ function matchLiteApiHotelsWithXoteloHotels({
 
 async function getXoteloRatesForMatchedHotels({
   matchedHotels,
-  validatedHotelsRatesSearchFlowContextQuery
+  validatedHotelsRatesSearchFlowContextQuery,
+  tcmbCurrencyConversionContext
 }) {
   const xoteloMarketRateByHotelId = {};
   const normalizedNightCount = calculateNightCount(
@@ -685,6 +699,18 @@ async function getXoteloRatesForMatchedHotels({
         normalizedNightCount *
         validatedHotelsRatesSearchFlowContextQuery.rooms;
 
+      const xoteloLowestTotalInLiteApiCurrency = convertCurrencyAmount({
+        amount: xoteloLowestTotal,
+        sourceCurrency: XOTELO_DEFAULT_CURRENCY,
+        targetCurrency: validatedHotelsRatesSearchFlowContextQuery.currency,
+        tcmbCurrencyConversionContext
+      });
+
+      if (!Number.isFinite(xoteloLowestTotalInLiteApiCurrency)) {
+        xoteloRatesFailedCount += 1;
+        continue;
+      }
+
       xoteloMarketRateByHotelId[
         xoteloRatesBatchResult.matchedHotel.liteApiHotelId
       ] = {
@@ -696,8 +722,12 @@ async function getXoteloRatesForMatchedHotels({
           xoteloRatesBatchResult.matchedHotel.xoteloHotelAddress,
         xoteloLowestPerNight: lowestRate.xoteloLowestPerNight,
         xoteloLowestTotal,
+        xoteloLowestTotalInLiteApiCurrency,
         xoteloLowestSource: lowestRate.xoteloLowestSource,
         xoteloCurrency: XOTELO_DEFAULT_CURRENCY,
+        liteApiCurrency: validatedHotelsRatesSearchFlowContextQuery.currency,
+        fxSource: tcmbCurrencyConversionContext.fxSource,
+        fxRate: tcmbCurrencyConversionContext.fxRate,
         xoteloMatchConfidence:
           xoteloRatesBatchResult.matchedHotel.xoteloMatchConfidence
       };
@@ -767,6 +797,185 @@ async function getXoteloRatesForHotel({
   };
 }
 
+async function getTcmbCurrencyConversionContext({
+  sourceCurrency,
+  targetCurrency
+}) {
+  const normalizedSourceCurrency = normalizeText(sourceCurrency).toUpperCase();
+  const normalizedTargetCurrency = normalizeText(targetCurrency).toUpperCase();
+
+  if (!normalizedSourceCurrency || !normalizedTargetCurrency) {
+    throw new Error("Currency conversion source and target are required.");
+  }
+
+  if (normalizedSourceCurrency === normalizedTargetCurrency) {
+    return {
+      fxSource: "identity",
+      sourceCurrency: normalizedSourceCurrency,
+      targetCurrency: normalizedTargetCurrency,
+      fxRate: 1,
+      exchangeRatesByCurrencyToTry: {
+        [normalizedSourceCurrency]:
+          normalizedSourceCurrency === TCMB_TRY_CURRENCY ? 1 : null,
+        [normalizedTargetCurrency]:
+          normalizedTargetCurrency === TCMB_TRY_CURRENCY ? 1 : null
+      }
+    };
+  }
+
+  const exchangeRatesByCurrencyToTry = await getTcmbExchangeRatesByCurrency();
+
+  const fxRate = calculateCurrencyConversionRate({
+    sourceCurrency: normalizedSourceCurrency,
+    targetCurrency: normalizedTargetCurrency,
+    exchangeRatesByCurrencyToTry
+  });
+
+  if (!Number.isFinite(fxRate)) {
+    throw new Error(
+      `TCMB conversion rate could not be calculated for ${normalizedSourceCurrency}/${normalizedTargetCurrency}.`
+    );
+  }
+
+  return {
+    fxSource: "TCMB",
+    sourceCurrency: normalizedSourceCurrency,
+    targetCurrency: normalizedTargetCurrency,
+    fxRate,
+    exchangeRatesByCurrencyToTry
+  };
+}
+
+async function getTcmbExchangeRatesByCurrency() {
+  if (!tcmbExchangeRatesPromise) {
+    tcmbExchangeRatesPromise = fetchTcmbExchangeRatesByCurrency();
+  }
+
+  return tcmbExchangeRatesPromise;
+}
+
+async function fetchTcmbExchangeRatesByCurrency() {
+  const response = await fetch(TCMB_EXCHANGE_RATES_URL, {
+    method: "GET"
+  });
+
+  const responseText = await response.text();
+
+  if (!response.ok) {
+    throw new Error("TCMB exchange rates request failed.");
+  }
+
+  const exchangeRatesByCurrencyToTry = {
+    TRY: 1
+  };
+
+  const currencyBlockPattern =
+    /<Currency\b[^>]*CurrencyCode="([^"]+)"[^>]*>([\s\S]*?)<\/Currency>/g;
+
+  let currencyBlockMatch = currencyBlockPattern.exec(responseText);
+
+  while (currencyBlockMatch) {
+    const currencyCode = normalizeText(currencyBlockMatch[1]).toUpperCase();
+    const currencyBlock = currencyBlockMatch[2];
+    const unit = normalizePositiveNumberOrNull(
+      getXmlTagText(currencyBlock, "Unit")
+    ) || 1;
+    const fxRateValue = normalizePositiveNumberOrNull(
+      getXmlTagText(currencyBlock, TCMB_FX_RATE_FIELD)
+    );
+
+    if (currencyCode && Number.isFinite(fxRateValue) && unit > 0) {
+      exchangeRatesByCurrencyToTry[currencyCode] = fxRateValue / unit;
+    }
+
+    currencyBlockMatch = currencyBlockPattern.exec(responseText);
+  }
+
+  if (!Number.isFinite(exchangeRatesByCurrencyToTry.USD)) {
+    throw new Error("TCMB USD exchange rate could not be parsed.");
+  }
+
+  console.log("OZVIA_CLUB_OFFERS tcmbExchangeRates summary", {
+    fxSource: "TCMB",
+    fxRateField: TCMB_FX_RATE_FIELD,
+    supportedCurrencyCount: Object.keys(exchangeRatesByCurrencyToTry).length,
+    usdToTryRate: exchangeRatesByCurrencyToTry.USD
+  });
+
+  return exchangeRatesByCurrencyToTry;
+}
+
+function getXmlTagText(xmlText, tagName) {
+  const tagPattern = new RegExp(`<${tagName}>([^<]*)</${tagName}>`, "i");
+  const tagMatch = tagPattern.exec(xmlText);
+
+  return tagMatch ? normalizeText(tagMatch[1]) : "";
+}
+
+function calculateCurrencyConversionRate({
+  sourceCurrency,
+  targetCurrency,
+  exchangeRatesByCurrencyToTry
+}) {
+  const normalizedSourceCurrency = normalizeText(sourceCurrency).toUpperCase();
+  const normalizedTargetCurrency = normalizeText(targetCurrency).toUpperCase();
+
+  if (normalizedSourceCurrency === normalizedTargetCurrency) {
+    return 1;
+  }
+
+  const sourceCurrencyToTryRate =
+    normalizedSourceCurrency === TCMB_TRY_CURRENCY
+      ? 1
+      : exchangeRatesByCurrencyToTry[normalizedSourceCurrency];
+
+  const targetCurrencyToTryRate =
+    normalizedTargetCurrency === TCMB_TRY_CURRENCY
+      ? 1
+      : exchangeRatesByCurrencyToTry[normalizedTargetCurrency];
+
+  if (
+    !Number.isFinite(sourceCurrencyToTryRate) ||
+    sourceCurrencyToTryRate <= 0 ||
+    !Number.isFinite(targetCurrencyToTryRate) ||
+    targetCurrencyToTryRate <= 0
+  ) {
+    return null;
+  }
+
+  return sourceCurrencyToTryRate / targetCurrencyToTryRate;
+}
+
+function convertCurrencyAmount({
+  amount,
+  sourceCurrency,
+  targetCurrency,
+  tcmbCurrencyConversionContext
+}) {
+  const normalizedAmount = normalizeNumberOrNull(amount);
+  const normalizedSourceCurrency = normalizeText(sourceCurrency).toUpperCase();
+  const normalizedTargetCurrency = normalizeText(targetCurrency).toUpperCase();
+
+  if (!Number.isFinite(normalizedAmount)) {
+    return null;
+  }
+
+  if (normalizedSourceCurrency === normalizedTargetCurrency) {
+    return normalizedAmount;
+  }
+
+  if (
+    !tcmbCurrencyConversionContext ||
+    tcmbCurrencyConversionContext.sourceCurrency !== normalizedSourceCurrency ||
+    tcmbCurrencyConversionContext.targetCurrency !== normalizedTargetCurrency ||
+    !Number.isFinite(tcmbCurrencyConversionContext.fxRate)
+  ) {
+    return null;
+  }
+
+  return normalizedAmount * tcmbCurrencyConversionContext.fxRate;
+}
+
 function normalizeOzviaClubOffers(
   getHotelsRatesResponse,
   validatedHotelsRatesSearchFlowContextQuery,
@@ -804,7 +1013,7 @@ function normalizeOzviaClubOffers(
   let skippedMissingMatchingHotelCount = 0;
   let skippedMissingHotelNameCount = 0;
   let skippedMissingRateCount = 0;
-  let skippedMissingCurrentPriceAmountCount = 0;
+  let skippedMissingRetailRateTotalAmountCount = 0;
   let skippedMissingCurrentPriceCurrencyCount = 0;
   let skippedMissingOccupancyNumberCount = 0;
   let skippedMissingSuggestedSellingPriceCount = 0;
@@ -854,16 +1063,16 @@ function normalizeOzviaClubOffers(
       continue;
     }
 
-    const hotelOffersMinCurrentPrice = normalizeNumberOrNull(
+    const retailRateTotalAmount = normalizeNumberOrNull(
       dataItem?.roomTypes?.[0]?.rates?.[0]?.retailRate?.total?.[0]?.amount
     );
 
-    if (!Number.isFinite(hotelOffersMinCurrentPrice)) {
-      skippedMissingCurrentPriceAmountCount += 1;
+    if (!Number.isFinite(retailRateTotalAmount)) {
+      skippedMissingRetailRateTotalAmountCount += 1;
       continue;
     }
 
-    const hotelOffersBeforeMinCurrentPrice = normalizeNumberOrNull(
+    const suggestedSellingPriceAmount = normalizeNumberOrNull(
       dataItem?.roomTypes?.[0]?.rates?.[0]?.retailRate
         ?.suggestedSellingPrice?.[0]?.amount
     );
@@ -871,8 +1080,8 @@ function normalizeOzviaClubOffers(
     const gateResult = evaluateOzviaClubOfferGate({
       ozviaClubGateContext,
       hotelId: dataItemHotelId,
-      rawRateTotalAmount: hotelOffersMinCurrentPrice,
-      rawSuggestedSellingPriceAmount: hotelOffersBeforeMinCurrentPrice
+      retailRateTotalAmount,
+      suggestedSellingPriceAmount
     });
 
     if (gateResult.skipReason === "missingSuggestedSellingPrice") {
@@ -903,8 +1112,8 @@ function normalizeOzviaClubOffers(
         hotelId: dataItemHotelId,
         hotelName: getHotelsRatesHotelName,
         ozviaClubGateMode: ozviaClubGateContext.gateMode,
-        rawRateTotalAmount: hotelOffersMinCurrentPrice,
-        rawBenchmarkAmount: gateResult.rawBenchmarkAmount,
+        retailRateTotalAmount,
+        benchmarkAmount: gateResult.benchmarkAmount,
         benchmarkSource: gateResult.benchmarkSource,
         ozviaClubGapRatio: Number(gateResult.ozviaClubGapRatio.toFixed(4)),
         ozviaClubGapPercent: Number(
@@ -912,7 +1121,8 @@ function normalizeOzviaClubOffers(
         ),
         xoteloLowestPerNight: gateResult.xoteloLowestPerNight,
         xoteloLowestSource: gateResult.xoteloLowestSource,
-        xoteloMatchConfidence: gateResult.xoteloMatchConfidence
+        xoteloMatchConfidence: gateResult.xoteloMatchConfidence,
+        fxRate: gateResult.fxRate
       });
     }
 
@@ -973,17 +1183,15 @@ function normalizeOzviaClubOffers(
       : null;
 
     const currentPrice = applyMarkupRate(
-      hotelOffersMinCurrentPrice,
+      retailRateTotalAmount,
       normalizedMarkupRate
     );
 
-    const beforeCurrentPrice = Number.isFinite(
-      hotelOffersBeforeMinCurrentPrice
-    )
-      ? applyMarkupRate(hotelOffersBeforeMinCurrentPrice, normalizedMarkupRate)
+    const beforeCurrentPrice = Number.isFinite(suggestedSellingPriceAmount)
+      ? applyMarkupRate(suggestedSellingPriceAmount, normalizedMarkupRate)
       : null;
 
-    if (!Number.isFinite(hotelOffersBeforeMinCurrentPrice)) {
+    if (!Number.isFinite(suggestedSellingPriceAmount)) {
       missingSuggestedSellingPriceForDisplayCount += 1;
     }
 
@@ -1076,7 +1284,7 @@ function normalizeOzviaClubOffers(
     skippedMissingMatchingHotelCount,
     skippedMissingHotelNameCount,
     skippedMissingRateCount,
-    skippedMissingCurrentPriceAmountCount,
+    skippedMissingRetailRateTotalAmountCount,
     skippedMissingSuggestedSellingPriceCount,
     missingSuggestedSellingPriceForDisplayCount,
     skippedMissingXoteloMarketRateCount,
@@ -1094,8 +1302,8 @@ function normalizeOzviaClubOffers(
 function evaluateOzviaClubOfferGate({
   ozviaClubGateContext,
   hotelId,
-  rawRateTotalAmount,
-  rawSuggestedSellingPriceAmount
+  retailRateTotalAmount,
+  suggestedSellingPriceAmount
 }) {
   if (ozviaClubGateContext.gateMode === OZVIA_CLUB_GATE_MODES.XOTELO) {
     const xoteloMarketRate =
@@ -1103,7 +1311,7 @@ function evaluateOzviaClubOfferGate({
 
     if (
       !xoteloMarketRate ||
-      !Number.isFinite(xoteloMarketRate.xoteloLowestTotal)
+      !Number.isFinite(xoteloMarketRate.xoteloLowestTotalInLiteApiCurrency)
     ) {
       return {
         skipReason: "missingXoteloMarketRate",
@@ -1113,20 +1321,22 @@ function evaluateOzviaClubOfferGate({
 
     return {
       skipReason: "",
-      rawBenchmarkAmount: xoteloMarketRate.xoteloLowestTotal,
+      benchmarkAmount: xoteloMarketRate.xoteloLowestTotalInLiteApiCurrency,
       benchmarkSource: "xotelo",
       ozviaClubGapRatio:
-        rawRateTotalAmount > 0
-          ? (xoteloMarketRate.xoteloLowestTotal - rawRateTotalAmount) /
-            rawRateTotalAmount
+        retailRateTotalAmount > 0
+          ? (xoteloMarketRate.xoteloLowestTotalInLiteApiCurrency -
+              retailRateTotalAmount) /
+            retailRateTotalAmount
           : null,
       xoteloLowestPerNight: xoteloMarketRate.xoteloLowestPerNight,
       xoteloLowestSource: xoteloMarketRate.xoteloLowestSource,
-      xoteloMatchConfidence: xoteloMarketRate.xoteloMatchConfidence
+      xoteloMatchConfidence: xoteloMarketRate.xoteloMatchConfidence,
+      fxRate: xoteloMarketRate.fxRate
     };
   }
 
-  if (!Number.isFinite(rawSuggestedSellingPriceAmount)) {
+  if (!Number.isFinite(suggestedSellingPriceAmount)) {
     return {
       skipReason: "missingSuggestedSellingPrice",
       ozviaClubGapRatio: null
@@ -1135,16 +1345,17 @@ function evaluateOzviaClubOfferGate({
 
   return {
     skipReason: "",
-    rawBenchmarkAmount: rawSuggestedSellingPriceAmount,
+    benchmarkAmount: suggestedSellingPriceAmount,
     benchmarkSource: "ssp",
     ozviaClubGapRatio:
-      rawRateTotalAmount > 0
-        ? (rawSuggestedSellingPriceAmount - rawRateTotalAmount) /
-          rawRateTotalAmount
+      retailRateTotalAmount > 0
+        ? (suggestedSellingPriceAmount - retailRateTotalAmount) /
+          retailRateTotalAmount
         : null,
     xoteloLowestPerNight: null,
     xoteloLowestSource: "",
-    xoteloMatchConfidence: null
+    xoteloMatchConfidence: null,
+    fxRate: null
   };
 }
 
@@ -1325,6 +1536,16 @@ function normalizeNumberOrNull(value) {
 
   const normalizedNumber = Number(normalizedText);
   return Number.isFinite(normalizedNumber) ? normalizedNumber : null;
+}
+
+function normalizePositiveNumberOrNull(value) {
+  const normalizedNumber = normalizeNumberOrNull(value);
+
+  if (!Number.isFinite(normalizedNumber) || normalizedNumber <= 0) {
+    return null;
+  }
+
+  return normalizedNumber;
 }
 
 function normalizeIntegerOrNull(value) {
