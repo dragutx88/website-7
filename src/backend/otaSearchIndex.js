@@ -71,9 +71,11 @@ export async function resolveOtaSearchMinCurrentPriceIndex({
 
     console.log("OTA_SEARCH hotel name discovery samples", {
       hotelNameSearchMatchedSampleRows:
-        parsedOtaSearchPropertyTokenCandidateRows.hotelNameSearchMatchedSampleRows,
+        parsedOtaSearchPropertyTokenCandidateRows
+          .hotelNameSearchMatchedSampleRows,
       hotelNameSearchMissingSampleRows:
-        parsedOtaSearchPropertyTokenCandidateRows.hotelNameSearchMissingSampleRows
+        parsedOtaSearchPropertyTokenCandidateRows
+          .hotelNameSearchMissingSampleRows
     });
 
     const fetchedOtaSearchPropertyDetailsResponses =
@@ -309,16 +311,7 @@ function buildOtaSearchHotelNameRequestQuery({
   liteApiRateMatchingRow,
   validatedHotelsRatesSearchFlowContextQuery
 }) {
-  return [
-    liteApiRateMatchingRow?.hotelName,
-    liteApiRateMatchingRow?.hotelAddress,
-    liteApiRateMatchingRow?.rateName,
-    validatedHotelsRatesSearchFlowContextQuery?.displayName,
-    validatedHotelsRatesSearchFlowContextQuery?.aiSearch
-  ]
-    .map((value) => normalizeText(value))
-    .filter(Boolean)
-    .join(" ");
+  return normalizeText(liteApiRateMatchingRow?.hotelName);
 }
 
 function buildOtaSearchPropertyDetailsRequest({
@@ -362,16 +355,7 @@ function buildOtaSearchPropertyDetailsRequestQuery({
   otaSearchPropertyTokenCandidateRow,
   validatedHotelsRatesSearchFlowContextQuery
 }) {
-  return [
-    otaSearchPropertyTokenCandidateRow?.hotelName,
-    otaSearchPropertyTokenCandidateRow?.hotelAddress,
-    otaSearchPropertyTokenCandidateRow?.rateName,
-    validatedHotelsRatesSearchFlowContextQuery?.displayName,
-    validatedHotelsRatesSearchFlowContextQuery?.aiSearch
-  ]
-    .map((value) => normalizeText(value))
-    .filter(Boolean)
-    .join(" ");
+  return normalizeText(otaSearchPropertyTokenCandidateRow?.hotelName);
 }
 
 async function fetchOtaSearchHotelNameResponse({
@@ -509,7 +493,9 @@ function parseOtaSearchPropertyTokenCandidateRows({
       hotelNameSearchResponseItem?.liteApiRateMatchingRow || null;
 
     if (!hotelNameSearchResponseItem?.ok) {
-      if (hotelNameSearchMissingSampleRows.length < HOTEL_RATE_MATCH_SAMPLE_LIMIT) {
+      if (
+        hotelNameSearchMissingSampleRows.length < HOTEL_RATE_MATCH_SAMPLE_LIMIT
+      ) {
         hotelNameSearchMissingSampleRows.push({
           liteApiHotelName: liteApiRateMatchingRow?.hotelName || null,
           liteApiHotelAddress: liteApiRateMatchingRow?.hotelAddress || null,
