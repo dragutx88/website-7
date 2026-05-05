@@ -36,6 +36,61 @@ export async function resolveOtaSearchMinCurrentPriceIndex({
         validatedHotelsRatesSearchFlowContextQuery
       });
 
+    const otaSearchDisplayNameResponseShapeSummary =
+      buildOtaSearchDisplayNameResponseShapeSummary({
+        fetchedOtaSearchDisplayNameResponse,
+        parsedOtaSearchDisplayNameResponse
+      });
+
+    console.log("OTA_SEARCH parseOtaSearchDisplayNameResponse shape summary", {
+      otaSearchTopLevelKeys:
+        otaSearchDisplayNameResponseShapeSummary.otaSearchTopLevelKeys,
+      otaSearchPropertyCount:
+        otaSearchDisplayNameResponseShapeSummary.otaSearchPropertyCount,
+      firstOtaSearchPropertyKeys:
+        otaSearchDisplayNameResponseShapeSummary.firstOtaSearchPropertyKeys,
+      firstOtaSearchPriceSourceKeys:
+        otaSearchDisplayNameResponseShapeSummary.firstOtaSearchPriceSourceKeys,
+      firstOtaSearchRoomKeys:
+        otaSearchDisplayNameResponseShapeSummary.firstOtaSearchRoomKeys,
+      firstOtaSearchPropertyPriceSourceCount:
+        otaSearchDisplayNameResponseShapeSummary.firstOtaSearchPropertyPriceSourceCount,
+      firstOtaSearchPriceSourceRoomCount:
+        otaSearchDisplayNameResponseShapeSummary.firstOtaSearchPriceSourceRoomCount,
+      firstOtaSearchPropertyHasName:
+        otaSearchDisplayNameResponseShapeSummary.firstOtaSearchPropertyHasName,
+      firstOtaSearchPropertyHasAddress:
+        otaSearchDisplayNameResponseShapeSummary.firstOtaSearchPropertyHasAddress,
+      firstOtaSearchPropertyHasTotalPrice:
+        otaSearchDisplayNameResponseShapeSummary.firstOtaSearchPropertyHasTotalPrice,
+      firstOtaSearchPropertyHasRatePerNight:
+        otaSearchDisplayNameResponseShapeSummary.firstOtaSearchPropertyHasRatePerNight,
+      firstOtaSearchPropertyHasPricesArray:
+        otaSearchDisplayNameResponseShapeSummary.firstOtaSearchPropertyHasPricesArray,
+      firstOtaSearchPropertyHasOffersArray:
+        otaSearchDisplayNameResponseShapeSummary.firstOtaSearchPropertyHasOffersArray,
+      parsedOtaSearchDisplayNameResponseCount:
+        parsedOtaSearchDisplayNameResponse.length,
+      parsedOtaSearchHotelNameCount:
+        otaSearchDisplayNameResponseShapeSummary.parsedOtaSearchHotelNameCount,
+      parsedOtaSearchHotelAddressCount:
+        otaSearchDisplayNameResponseShapeSummary.parsedOtaSearchHotelAddressCount,
+      parsedOtaSearchRoomNameCount:
+        otaSearchDisplayNameResponseShapeSummary.parsedOtaSearchRoomNameCount,
+      parsedOtaSearchMinCurrentPriceCount:
+        otaSearchDisplayNameResponseShapeSummary.parsedOtaSearchMinCurrentPriceCount,
+      parsedOtaSearchCurrencyCount:
+        otaSearchDisplayNameResponseShapeSummary.parsedOtaSearchCurrencyCount,
+      parsedOtaSearchTaxesAndFeesCount:
+        otaSearchDisplayNameResponseShapeSummary.parsedOtaSearchTaxesAndFeesCount,
+      parsedOtaSearchBoardNameCount:
+        otaSearchDisplayNameResponseShapeSummary.parsedOtaSearchBoardNameCount,
+      parsedOtaSearchBoardTypeCount:
+        otaSearchDisplayNameResponseShapeSummary.parsedOtaSearchBoardTypeCount,
+      parsedOtaSearchRefundableTagCount:
+        otaSearchDisplayNameResponseShapeSummary.parsedOtaSearchRefundableTagCount
+    });
+
     const builtOtaSearchMinCurrentPriceIndex =
       buildOtaSearchMinCurrentPriceIndex({
         getHotelsRatesJson,
@@ -340,6 +395,114 @@ function buildParsedOtaSearchDisplayNameResponseRow({
       normalizeText(otaSearchPriceSource?.refundableTag).toUpperCase() ||
       normalizeText(otaSearchPriceSource?.refundable_tag).toUpperCase() ||
       null
+  };
+}
+
+function buildOtaSearchDisplayNameResponseShapeSummary({
+  fetchedOtaSearchDisplayNameResponse,
+  parsedOtaSearchDisplayNameResponse
+}) {
+  const otaSearchProperties = [
+    ...normalizeArray(fetchedOtaSearchDisplayNameResponse?.properties),
+    ...normalizeArray(fetchedOtaSearchDisplayNameResponse?.hotels),
+    ...normalizeArray(fetchedOtaSearchDisplayNameResponse?.results)
+  ];
+
+  const firstOtaSearchProperty = otaSearchProperties[0] || null;
+
+  const firstOtaSearchPropertyPriceSources = firstOtaSearchProperty
+    ? [
+        ...normalizeArray(firstOtaSearchProperty?.featured_offers),
+        ...normalizeArray(firstOtaSearchProperty?.all_offers),
+        ...normalizeArray(firstOtaSearchProperty?.offers),
+        ...normalizeArray(firstOtaSearchProperty?.prices),
+        ...normalizeArray(firstOtaSearchProperty?.featured_prices)
+      ]
+    : [];
+
+  const firstOtaSearchPriceSource =
+    firstOtaSearchPropertyPriceSources[0] || null;
+
+  const firstOtaSearchPriceSourceRooms = firstOtaSearchPriceSource
+    ? [
+        ...normalizeArray(firstOtaSearchPriceSource?.rooms),
+        ...normalizeArray(firstOtaSearchPriceSource?.room_options),
+        ...normalizeArray(firstOtaSearchPriceSource?.roomTypes)
+      ]
+    : [];
+
+  const firstOtaSearchRoom = firstOtaSearchPriceSourceRooms[0] || null;
+
+  return {
+    otaSearchTopLevelKeys: Object.keys(
+      fetchedOtaSearchDisplayNameResponse || {}
+    ).slice(0, 40),
+    otaSearchPropertyCount: otaSearchProperties.length,
+    firstOtaSearchPropertyKeys: firstOtaSearchProperty
+      ? Object.keys(firstOtaSearchProperty).slice(0, 40)
+      : [],
+    firstOtaSearchPriceSourceKeys: firstOtaSearchPriceSource
+      ? Object.keys(firstOtaSearchPriceSource).slice(0, 40)
+      : [],
+    firstOtaSearchRoomKeys: firstOtaSearchRoom
+      ? Object.keys(firstOtaSearchRoom).slice(0, 40)
+      : [],
+    firstOtaSearchPropertyPriceSourceCount:
+      firstOtaSearchPropertyPriceSources.length,
+    firstOtaSearchPriceSourceRoomCount:
+      firstOtaSearchPriceSourceRooms.length,
+    firstOtaSearchPropertyHasName: Boolean(
+      normalizeText(firstOtaSearchProperty?.name) ||
+        normalizeText(firstOtaSearchProperty?.title) ||
+        normalizeText(firstOtaSearchProperty?.hotel_name)
+    ),
+    firstOtaSearchPropertyHasAddress: Boolean(
+      normalizeText(firstOtaSearchProperty?.address) ||
+        normalizeText(firstOtaSearchProperty?.formatted_address) ||
+        normalizeText(firstOtaSearchProperty?.formattedAddress) ||
+        normalizeText(firstOtaSearchProperty?.location)
+    ),
+    firstOtaSearchPropertyHasTotalPrice: Boolean(
+      firstOtaSearchProperty?.total_price
+    ),
+    firstOtaSearchPropertyHasRatePerNight: Boolean(
+      firstOtaSearchProperty?.rate_per_night ||
+        firstOtaSearchProperty?.ratePerNight
+    ),
+    firstOtaSearchPropertyHasPricesArray: Array.isArray(
+      firstOtaSearchProperty?.prices
+    ),
+    firstOtaSearchPropertyHasOffersArray:
+      Array.isArray(firstOtaSearchProperty?.featured_offers) ||
+      Array.isArray(firstOtaSearchProperty?.all_offers) ||
+      Array.isArray(firstOtaSearchProperty?.offers),
+    parsedOtaSearchHotelNameCount:
+      parsedOtaSearchDisplayNameResponse.filter((row) => row?.hotelName)
+        .length,
+    parsedOtaSearchHotelAddressCount:
+      parsedOtaSearchDisplayNameResponse.filter((row) => row?.hotelAddress)
+        .length,
+    parsedOtaSearchRoomNameCount:
+      parsedOtaSearchDisplayNameResponse.filter((row) => row?.roomName).length,
+    parsedOtaSearchMinCurrentPriceCount:
+      parsedOtaSearchDisplayNameResponse.filter((row) =>
+        Number.isFinite(normalizeNumberOrNull(row?.otaSearchMinCurrentPrice))
+      ).length,
+    parsedOtaSearchCurrencyCount:
+      parsedOtaSearchDisplayNameResponse.filter((row) => row?.currency).length,
+    parsedOtaSearchTaxesAndFeesCount:
+      parsedOtaSearchDisplayNameResponse.filter(
+        (row) => row?.otaSearchMinCurrentPriceTaxesAndFees
+      ).length,
+    parsedOtaSearchBoardNameCount:
+      parsedOtaSearchDisplayNameResponse.filter((row) => row?.boardName)
+        .length,
+    parsedOtaSearchBoardTypeCount:
+      parsedOtaSearchDisplayNameResponse.filter((row) => row?.boardType)
+        .length,
+    parsedOtaSearchRefundableTagCount:
+      parsedOtaSearchDisplayNameResponse.filter((row) => row?.refundableTag)
+        .length
   };
 }
 
