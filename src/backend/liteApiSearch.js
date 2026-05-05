@@ -1,9 +1,21 @@
 import { elevate } from "wix-auth";
 import { secrets } from "wix-secrets-backend.v2";
 import { buildLiteApiError, liteApiRequest, parseJson } from "./liteApiClient";
+import { resolveOtaSearchMinCurrentPriceIndex } from "./otaSearchIndex";
 
 const LITE_API_BASE_URL = "https://api.liteapi.travel/v3.0";
+
 const MARKUP_RATE_SECRET_NAME = "MARKUP_RATE";
+const MARKUP_MARGIN_RATIO_SECRET_NAME = "MARKUP_MARGIN_RATIO";
+
+const DEFAULT_MARKUP_RATE = 1.05;
+const BEFORE_CURRENT_PRICE_MARGIN_RATE = 1.10;
+
+const ITEM_GREEN_POINT_EARNING_RATE_AND_POINT_PRICE_THRESHOLD = 10000;
+const ITEM_POINT_PER_THRESHOLD = 500;
+const ITEM_GREEN_POINT_EARNING_RATE_PER_THRESHOLD = 0.20;
+const ITEM_GREEN_POINT_EARNING_RATE_MAX = 1;
+
 const DEFAULT_CURRENCY = "TRY";
 const DEFAULT_LANGUAGE = "tr";
 const DEFAULT_GUEST_NATIONALITY = "TR";
@@ -20,7 +32,8 @@ export async function getHotelsRatesHandler(searchFlowContextQuery) {
     validatedHotelsRatesSearchFlowContextQuery
   );
 
-  const normalizedMarkupRate = await getMarkupRate();
+  const [normalizedMarkupRate, normalizedMarkupMarginRatio] =
+    await Promise.all([getMarkupRate(), getMarkupMarginRatio()]);
 
   const getHotelsRatesResponse = await liteApiRequest(
     `${LITE_API_BASE_URL}/hotels/rates`,
@@ -36,11 +49,19 @@ export async function getHotelsRatesHandler(searchFlowContextQuery) {
     throw buildLiteApiError(getHotelsRatesJson, "Hotel rates request failed.");
   }
 
+  const otaSearchMinCurrentPriceIndex =
+    await resolveOtaSearchMinCurrentPriceIndex({
+      getHotelsRatesJson,
+      validatedHotelsRatesSearchFlowContextQuery
+    });
+
   return {
     normalizedHotelsRates: normalizeHotelsRates(
       getHotelsRatesJson,
       validatedHotelsRatesSearchFlowContextQuery,
-      normalizedMarkupRate
+      normalizedMarkupRate,
+      normalizedMarkupMarginRatio,
+      otaSearchMinCurrentPriceIndex
     )
   };
 }
@@ -59,9 +80,32 @@ async function getMarkupRate() {
   return normalizedMarkupRate;
 }
 
+async function getMarkupMarginRatio() {
+  const markupMarginRatioSecretValue = await getSecretValue(
+    MARKUP_MARGIN_RATIO_SECRET_NAME
+  );
+
+  const normalizedMarkupMarginRatio = normalizeNumberOrNull(
+    markupMarginRatioSecretValue?.value
+  );
+
+  if (
+    !Number.isFinite(normalizedMarkupMarginRatio) ||
+    normalizedMarkupMarginRatio < 0 ||
+    normalizedMarkupMarginRatio >= 1
+  ) {
+    throw new Error(
+      "MARKUP_MARGIN_RATIO secret must be a numeric ratio between 0 and 1."
+    );
+  }
+
+  return normalizedMarkupMarginRatio;
+}
+
 function validateHotelsRatesSearchFlowContextQuery(searchFlowContextQuery) {
   const normalizedMode = normalizeText(searchFlowContextQuery?.mode);
   const normalizedPlaceId = normalizeText(searchFlowContextQuery?.placeId);
+  const normalizedDisplayName = normalizeText(searchFlowContextQuery?.name);
   const normalizedAiSearch =
     normalizeText(searchFlowContextQuery?.aiSearch) ||
     normalizeText(searchFlowContextQuery?.message) ||
@@ -92,6 +136,10 @@ function validateHotelsRatesSearchFlowContextQuery(searchFlowContextQuery) {
     throw new Error("placeId is required for destination mode.");
   }
 
+  if (normalizedMode === "destination" && !normalizedDisplayName) {
+    throw new Error("name is required for destination mode.");
+  }
+
   if (normalizedMode === "vibe" && !normalizedAiSearch) {
     throw new Error("aiSearch is required for vibe mode.");
   }
@@ -118,6 +166,10 @@ function validateHotelsRatesSearchFlowContextQuery(searchFlowContextQuery) {
   return {
     mode: normalizedMode,
     placeId: normalizedPlaceId,
+    displayName:
+      normalizedMode === "destination"
+        ? normalizedDisplayName
+        : normalizedAiSearch,
     aiSearch: normalizedAiSearch,
     checkin: normalizedCheckin,
     checkout: normalizedCheckout,
@@ -266,7 +318,9 @@ function buildHotelsRatesRequestOccupancies(
 function normalizeHotelsRates(
   getHotelsRatesResponse,
   validatedHotelsRatesSearchFlowContextQuery,
-  normalizedMarkupRate
+  normalizedMarkupRate,
+  normalizedMarkupMarginRatio,
+  otaSearchMinCurrentPriceIndex
 ) {
   if (!Array.isArray(getHotelsRatesResponse?.data)) {
     throw new Error("Hotel rates response data must be an array.");
@@ -304,6 +358,16 @@ function normalizeHotelsRates(
   let refundableTagRFNCount = 0;
   let refundableTagNRFNCount = 0;
   let refundableTagOtherCount = 0;
+  let otaSearchMinCurrentPriceFoundCount = 0;
+  let otaSearchMinCurrentPriceMissingCount = 0;
+  let otaSearchMinCurrentPriceUsedCount = 0;
+  let otaSearchMinCurrentPriceRejectedCount = 0;
+  let currentPriceOtaSearchPathCount = 0;
+  let currentPriceHotelOffersPathCount = 0;
+  let beforeCurrentPriceOtaSearchPathCount = 0;
+  let beforeCurrentPriceHotelOffersPathCount = 0;
+  let itemGreenPointEarningRateAndPointAppliedCount = 0;
+  let itemGreenPointEarningRateAndPointSkippedCount = 0;
 
   const normalizedHotelsRates = [];
 
@@ -400,15 +464,72 @@ function normalizeHotelsRates(
         : "incl."
       : null;
 
-    const currentPrice = applyMarkupRate(
-      hotelOffersMinCurrentPrice,
-      normalizedMarkupRate
+    const otaSearchMinCurrentPrice = normalizeNumberOrNull(
+      otaSearchMinCurrentPriceIndex?.[dataItemHotelId]
     );
 
-    const beforeCurrentPrice = applyMarkupRate(
+    if (Number.isFinite(otaSearchMinCurrentPrice)) {
+      otaSearchMinCurrentPriceFoundCount += 1;
+    } else {
+      otaSearchMinCurrentPriceMissingCount += 1;
+    }
+
+    const resolvedCurrentPrice = resolveCurrentPrice({
+      hotelOffersMinCurrentPrice,
+      otaSearchMinCurrentPrice,
+      normalizedMarkupRate,
+      normalizedMarkupMarginRatio
+    });
+
+    const currentPrice = resolvedCurrentPrice.currentPrice;
+
+    if (resolvedCurrentPrice.shouldUseOtaSearchMinCurrentPrice) {
+      otaSearchMinCurrentPriceUsedCount += 1;
+      currentPriceOtaSearchPathCount += 1;
+    } else {
+      currentPriceHotelOffersPathCount += 1;
+
+      if (Number.isFinite(otaSearchMinCurrentPrice)) {
+        otaSearchMinCurrentPriceRejectedCount += 1;
+      }
+    }
+
+    const resolvedBeforeCurrentPrice = resolveBeforeCurrentPrice({
+      currentPrice,
       hotelOffersBeforeMinCurrentPrice,
-      normalizedMarkupRate
-    );
+      normalizedMarkupRate,
+      shouldUseOtaSearchMinCurrentPrice:
+        resolvedCurrentPrice.shouldUseOtaSearchMinCurrentPrice
+    });
+
+    const beforeCurrentPrice = resolvedBeforeCurrentPrice.beforeCurrentPrice;
+
+    if (resolvedBeforeCurrentPrice.shouldUseOtaSearchMinCurrentPrice) {
+      beforeCurrentPriceOtaSearchPathCount += 1;
+    } else {
+      beforeCurrentPriceHotelOffersPathCount += 1;
+    }
+
+    const resolvedItemGreenPointEarningRateAndPoint =
+      resolveItemGreenPointEarningRateAndPoint({
+        currentPrice,
+        hotelOffersMinCurrentPrice,
+        normalizedMarkupMarginRatio
+      });
+
+    const itemPoint =
+      resolvedItemGreenPointEarningRateAndPoint.itemPoint;
+    const itemGreenPointEarningRate =
+      resolvedItemGreenPointEarningRateAndPoint.itemGreenPointEarningRate;
+
+    if (
+      Number.isFinite(itemPoint) &&
+      Number.isFinite(itemGreenPointEarningRate)
+    ) {
+      itemGreenPointEarningRateAndPointAppliedCount += 1;
+    } else {
+      itemGreenPointEarningRateAndPointSkippedCount += 1;
+    }
 
     const currentPriceText = formatCurrencyText(
       currentPrice,
@@ -451,6 +572,8 @@ function normalizeHotelsRates(
       beforeCurrentPriceText,
       currentPriceText,
       currentPriceNoteText,
+      itemPoint,
+      itemGreenPointEarningRate,
       hotelRoomOfferBoardName
     });
   }
@@ -466,12 +589,139 @@ function normalizeHotelsRates(
     skippedMissingCurrentPriceAmountCount,
     skippedMissingCurrentPriceCurrencyCount,
     skippedMissingOccupancyNumberCount,
+    otaSearchMinCurrentPriceFoundCount,
+    otaSearchMinCurrentPriceMissingCount,
+    otaSearchMinCurrentPriceUsedCount,
+    otaSearchMinCurrentPriceRejectedCount,
+    currentPriceOtaSearchPathCount,
+    currentPriceHotelOffersPathCount,
+    beforeCurrentPriceOtaSearchPathCount,
+    beforeCurrentPriceHotelOffersPathCount,
+    itemGreenPointEarningRateAndPointAppliedCount,
+    itemGreenPointEarningRateAndPointSkippedCount,
     refundableTagRFNCount,
     refundableTagNRFNCount,
     refundableTagOtherCount
   });
 
   return normalizedHotelsRates;
+}
+
+function resolveCurrentPrice({
+  hotelOffersMinCurrentPrice,
+  otaSearchMinCurrentPrice,
+  normalizedMarkupRate,
+  normalizedMarkupMarginRatio
+}) {
+  const markupMarginRatio = calculateMarkupMarginRatio(
+    otaSearchMinCurrentPrice,
+    hotelOffersMinCurrentPrice
+  );
+
+  const shouldUseOtaSearchMinCurrentPrice =
+    Number.isFinite(markupMarginRatio) &&
+    Number.isFinite(normalizedMarkupMarginRatio) &&
+    markupMarginRatio >= normalizedMarkupMarginRatio;
+
+  return {
+    markupMarginRatio,
+    shouldUseOtaSearchMinCurrentPrice,
+    currentPrice: shouldUseOtaSearchMinCurrentPrice
+      ? applyMarkupRate(otaSearchMinCurrentPrice, DEFAULT_MARKUP_RATE)
+      : applyMarkupRate(hotelOffersMinCurrentPrice, normalizedMarkupRate)
+  };
+}
+
+function resolveBeforeCurrentPrice({
+  currentPrice,
+  hotelOffersBeforeMinCurrentPrice,
+  normalizedMarkupRate,
+  shouldUseOtaSearchMinCurrentPrice
+}) {
+  if (shouldUseOtaSearchMinCurrentPrice) {
+    return {
+      shouldUseOtaSearchMinCurrentPrice,
+      beforeCurrentPrice: applyMarkupRate(
+        currentPrice,
+        BEFORE_CURRENT_PRICE_MARGIN_RATE
+      )
+    };
+  }
+
+  return {
+    shouldUseOtaSearchMinCurrentPrice,
+    beforeCurrentPrice: applyMarkupRate(
+      hotelOffersBeforeMinCurrentPrice,
+      normalizedMarkupRate
+    )
+  };
+}
+
+function resolveItemGreenPointEarningRateAndPoint({
+  currentPrice,
+  hotelOffersMinCurrentPrice,
+  normalizedMarkupMarginRatio
+}) {
+  const markupMarginRatio = calculateMarkupMarginRatio(
+    currentPrice,
+    hotelOffersMinCurrentPrice
+  );
+
+  const shouldApplyItemGreenPointEarningRateAndPoint =
+    Number.isFinite(markupMarginRatio) &&
+    Number.isFinite(normalizedMarkupMarginRatio) &&
+    markupMarginRatio >= normalizedMarkupMarginRatio;
+
+  const normalizedCurrentPrice = normalizeNumberOrNull(currentPrice);
+
+  const itemGreenPointEarningRateAndPointThresholdCount =
+    shouldApplyItemGreenPointEarningRateAndPoint &&
+    Number.isFinite(normalizedCurrentPrice)
+      ? Math.max(
+          0,
+          Math.floor(
+            normalizedCurrentPrice /
+              ITEM_GREEN_POINT_EARNING_RATE_AND_POINT_PRICE_THRESHOLD
+          )
+        )
+      : 0;
+
+  if (itemGreenPointEarningRateAndPointThresholdCount <= 0) {
+    return {
+      markupMarginRatio,
+      shouldApplyItemGreenPointEarningRateAndPoint,
+      itemPoint: null,
+      itemGreenPointEarningRate: null
+    };
+  }
+
+  return {
+    markupMarginRatio,
+    shouldApplyItemGreenPointEarningRateAndPoint,
+    itemPoint:
+      itemGreenPointEarningRateAndPointThresholdCount *
+      ITEM_POINT_PER_THRESHOLD,
+    itemGreenPointEarningRate: Math.min(
+      ITEM_GREEN_POINT_EARNING_RATE_MAX,
+      itemGreenPointEarningRateAndPointThresholdCount *
+        ITEM_GREEN_POINT_EARNING_RATE_PER_THRESHOLD
+    )
+  };
+}
+
+function calculateMarkupMarginRatio(price, basePrice) {
+  const normalizedPrice = normalizeNumberOrNull(price);
+  const normalizedBasePrice = normalizeNumberOrNull(basePrice);
+
+  if (
+    !Number.isFinite(normalizedPrice) ||
+    !Number.isFinite(normalizedBasePrice) ||
+    normalizedPrice <= 0
+  ) {
+    return null;
+  }
+
+  return (normalizedPrice - normalizedBasePrice) / normalizedPrice;
 }
 
 function buildCurrentPriceNoteText(
