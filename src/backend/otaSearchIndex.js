@@ -8,8 +8,8 @@ const SERPAPI_API_KEY_SECRET_NAME = "SERPAPI_API_KEY";
 const SERPAPI_ENGINE = "google_hotels";
 const DEFAULT_SERPAPI_COUNTRY_CODE = "tr";
 const DEFAULT_SERPAPI_LANGUAGE = "en";
+const SERPAPI_SORT_BY_LOWEST_PRICE = "3";
 
-const SERPAPI_SEARCH_MAX_PAGE_COUNT = 20;
 const HOTEL_RATE_MATCH_SAMPLE_LIMIT = 12;
 
 const getSecretValue = elevate(secrets.getSecretValue);
@@ -28,32 +28,31 @@ export async function resolveOtaSearchMinCurrentPriceIndex({
       getHotelsRatesJson
     });
 
-    const otaSearchDisplayNameRequest = buildOtaSearchDisplayNameRequest(
-      validatedHotelsRatesSearchFlowContextQuery
-    );
-
-    const fetchedOtaSearchDisplayNameResponses =
-      await fetchOtaSearchDisplayNameResponses({
+    const fetchedOtaSearchHotelNameResponses =
+      await fetchOtaSearchHotelNameResponses({
         serpApiKey,
-        otaSearchDisplayNameRequest,
-        liteApiRateMatchingRows
+        liteApiRateMatchingRows,
+        validatedHotelsRatesSearchFlowContextQuery
       });
 
     const parsedOtaSearchPropertyTokenCandidateRows =
       parseOtaSearchPropertyTokenCandidateRows({
-        fetchedOtaSearchDisplayNameResponses,
+        fetchedOtaSearchHotelNameResponses,
         liteApiRateMatchingRows
       });
 
-    console.log("OTA_SEARCH property token discovery summary", {
+    console.log("OTA_SEARCH hotel name discovery summary", {
       serpApiLanguage: DEFAULT_SERPAPI_LANGUAGE,
-      serpApiSearchMaxPageCount: SERPAPI_SEARCH_MAX_PAGE_COUNT,
-      serpApiSearchPageCount:
-        fetchedOtaSearchDisplayNameResponses.serpApiSearchPageCount,
+      serpApiSortBy: SERPAPI_SORT_BY_LOWEST_PRICE,
+      liteApiRateMatchingRowCount: liteApiRateMatchingRows.length,
+      hotelNameSearchRequestCount:
+        fetchedOtaSearchHotelNameResponses.hotelNameSearchRequestCount,
+      hotelNameSearchSuccessCount:
+        fetchedOtaSearchHotelNameResponses.hotelNameSearchSuccessCount,
+      hotelNameSearchFailedCount:
+        fetchedOtaSearchHotelNameResponses.hotelNameSearchFailedCount,
       serpApiSearchPropertyCount:
         parsedOtaSearchPropertyTokenCandidateRows.serpApiSearchPropertyCount,
-      liteApiHotelCount:
-        parsedOtaSearchPropertyTokenCandidateRows.liteApiHotelCount,
       propertyTokenCandidateCount:
         parsedOtaSearchPropertyTokenCandidateRows
           .otaSearchPropertyTokenCandidateRows.length,
@@ -67,16 +66,14 @@ export async function resolveOtaSearchMinCurrentPriceIndex({
           .propertyTokenHotelNameRejectedCount,
       serpApiSearchPropertyNameMissingCount:
         parsedOtaSearchPropertyTokenCandidateRows
-          .serpApiSearchPropertyNameMissingCount,
-      propertyTokenDiscoveryCompletedByAllLiteApiHotelsFound:
-        fetchedOtaSearchDisplayNameResponses
-          .propertyTokenDiscoveryCompletedByAllLiteApiHotelsFound,
-      propertyTokenDiscoveryCompletedByMissingNextPageToken:
-        fetchedOtaSearchDisplayNameResponses
-          .propertyTokenDiscoveryCompletedByMissingNextPageToken,
-      propertyTokenDiscoveryCompletedByMaxPageCount:
-        fetchedOtaSearchDisplayNameResponses
-          .propertyTokenDiscoveryCompletedByMaxPageCount
+          .serpApiSearchPropertyNameMissingCount
+    });
+
+    console.log("OTA_SEARCH hotel name discovery samples", {
+      hotelNameSearchMatchedSampleRows:
+        parsedOtaSearchPropertyTokenCandidateRows.hotelNameSearchMatchedSampleRows,
+      hotelNameSearchMissingSampleRows:
+        parsedOtaSearchPropertyTokenCandidateRows.hotelNameSearchMissingSampleRows
     });
 
     const fetchedOtaSearchPropertyDetailsResponses =
@@ -224,36 +221,104 @@ async function getSerpApiKey() {
   return normalizedSerpApiKey;
 }
 
-function buildOtaSearchDisplayNameRequest(
+async function fetchOtaSearchHotelNameResponses({
+  serpApiKey,
+  liteApiRateMatchingRows,
   validatedHotelsRatesSearchFlowContextQuery
-) {
-  const otaSearchDisplayNameRequest = {
+}) {
+  const hotelNameSearchResponseItems = await Promise.all(
+    liteApiRateMatchingRows.map(async (liteApiRateMatchingRow) => {
+      const otaSearchHotelNameRequest = buildOtaSearchHotelNameRequest({
+        liteApiRateMatchingRow,
+        validatedHotelsRatesSearchFlowContextQuery
+      });
+
+      try {
+        const fetchedOtaSearchHotelNameResponse =
+          await fetchOtaSearchHotelNameResponse({
+            serpApiKey,
+            otaSearchHotelNameRequest
+          });
+
+        return {
+          ok: true,
+          liteApiRateMatchingRow,
+          otaSearchHotelNameRequest,
+          fetchedOtaSearchHotelNameResponse
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          liteApiRateMatchingRow,
+          otaSearchHotelNameRequest,
+          errorMessage: error?.message || String(error)
+        };
+      }
+    })
+  );
+
+  return {
+    hotelNameSearchResponseItems,
+    hotelNameSearchRequestCount: hotelNameSearchResponseItems.length,
+    hotelNameSearchSuccessCount: hotelNameSearchResponseItems.filter(
+      (hotelNameSearchResponseItem) => hotelNameSearchResponseItem?.ok
+    ).length,
+    hotelNameSearchFailedCount: hotelNameSearchResponseItems.filter(
+      (hotelNameSearchResponseItem) => !hotelNameSearchResponseItem?.ok
+    ).length
+  };
+}
+
+function buildOtaSearchHotelNameRequest({
+  liteApiRateMatchingRow,
+  validatedHotelsRatesSearchFlowContextQuery
+}) {
+  const otaSearchHotelNameRequest = {
     engine: SERPAPI_ENGINE,
-    q: validatedHotelsRatesSearchFlowContextQuery.displayName,
+    q: buildOtaSearchHotelNameRequestQuery({
+      liteApiRateMatchingRow,
+      validatedHotelsRatesSearchFlowContextQuery
+    }),
     check_in_date: validatedHotelsRatesSearchFlowContextQuery.checkin,
     check_out_date: validatedHotelsRatesSearchFlowContextQuery.checkout,
     currency: validatedHotelsRatesSearchFlowContextQuery.currency,
     hl: DEFAULT_SERPAPI_LANGUAGE,
     gl: DEFAULT_SERPAPI_COUNTRY_CODE,
-    adults: calculateOtaSearchDisplayNameRequestAdultCount(
+    adults: calculateOtaSearchRequestAdultCount(
       validatedHotelsRatesSearchFlowContextQuery
     ),
-    children: calculateOtaSearchDisplayNameRequestChildCount(
+    children: calculateOtaSearchRequestChildCount(
       validatedHotelsRatesSearchFlowContextQuery
-    )
+    ),
+    sort_by: SERPAPI_SORT_BY_LOWEST_PRICE
   };
 
-  const otaSearchDisplayNameRequestChildrenAges =
-    buildOtaSearchDisplayNameRequestChildrenAges(
-      validatedHotelsRatesSearchFlowContextQuery
-    );
+  const otaSearchRequestChildrenAges = buildOtaSearchRequestChildrenAges(
+    validatedHotelsRatesSearchFlowContextQuery
+  );
 
-  if (otaSearchDisplayNameRequestChildrenAges.length) {
-    otaSearchDisplayNameRequest.children_ages =
-      otaSearchDisplayNameRequestChildrenAges.join(",");
+  if (otaSearchRequestChildrenAges.length) {
+    otaSearchHotelNameRequest.children_ages =
+      otaSearchRequestChildrenAges.join(",");
   }
 
-  return otaSearchDisplayNameRequest;
+  return otaSearchHotelNameRequest;
+}
+
+function buildOtaSearchHotelNameRequestQuery({
+  liteApiRateMatchingRow,
+  validatedHotelsRatesSearchFlowContextQuery
+}) {
+  return [
+    liteApiRateMatchingRow?.hotelName,
+    liteApiRateMatchingRow?.hotelAddress,
+    liteApiRateMatchingRow?.rateName,
+    validatedHotelsRatesSearchFlowContextQuery?.displayName,
+    validatedHotelsRatesSearchFlowContextQuery?.aiSearch
+  ]
+    .map((value) => normalizeText(value))
+    .filter(Boolean)
+    .join(" ");
 }
 
 function buildOtaSearchPropertyDetailsRequest({
@@ -262,144 +327,60 @@ function buildOtaSearchPropertyDetailsRequest({
 }) {
   const otaSearchPropertyDetailsRequest = {
     engine: SERPAPI_ENGINE,
-    q: validatedHotelsRatesSearchFlowContextQuery.displayName,
+    q: buildOtaSearchPropertyDetailsRequestQuery({
+      otaSearchPropertyTokenCandidateRow,
+      validatedHotelsRatesSearchFlowContextQuery
+    }),
     property_token: otaSearchPropertyTokenCandidateRow.propertyToken,
     check_in_date: validatedHotelsRatesSearchFlowContextQuery.checkin,
     check_out_date: validatedHotelsRatesSearchFlowContextQuery.checkout,
     currency: validatedHotelsRatesSearchFlowContextQuery.currency,
     hl: DEFAULT_SERPAPI_LANGUAGE,
     gl: DEFAULT_SERPAPI_COUNTRY_CODE,
-    adults: calculateOtaSearchDisplayNameRequestAdultCount(
+    adults: calculateOtaSearchRequestAdultCount(
       validatedHotelsRatesSearchFlowContextQuery
     ),
-    children: calculateOtaSearchDisplayNameRequestChildCount(
+    children: calculateOtaSearchRequestChildCount(
       validatedHotelsRatesSearchFlowContextQuery
-    )
+    ),
+    sort_by: SERPAPI_SORT_BY_LOWEST_PRICE
   };
 
-  const otaSearchPropertyDetailsRequestChildrenAges =
-    buildOtaSearchDisplayNameRequestChildrenAges(
-      validatedHotelsRatesSearchFlowContextQuery
-    );
+  const otaSearchRequestChildrenAges = buildOtaSearchRequestChildrenAges(
+    validatedHotelsRatesSearchFlowContextQuery
+  );
 
-  if (otaSearchPropertyDetailsRequestChildrenAges.length) {
+  if (otaSearchRequestChildrenAges.length) {
     otaSearchPropertyDetailsRequest.children_ages =
-      otaSearchPropertyDetailsRequestChildrenAges.join(",");
+      otaSearchRequestChildrenAges.join(",");
   }
 
   return otaSearchPropertyDetailsRequest;
 }
 
-async function fetchOtaSearchDisplayNameResponses({
-  serpApiKey,
-  otaSearchDisplayNameRequest,
-  liteApiRateMatchingRows
+function buildOtaSearchPropertyDetailsRequestQuery({
+  otaSearchPropertyTokenCandidateRow,
+  validatedHotelsRatesSearchFlowContextQuery
 }) {
-  const fetchedOtaSearchDisplayNameResponseItems = [];
-
-  const liteApiHotelNameComparableSet = new Set(
-    liteApiRateMatchingRows
-      .map((liteApiRateMatchingRow) =>
-        normalizeComparableText(liteApiRateMatchingRow?.hotelName)
-      )
-      .filter(Boolean)
-  );
-
-  const discoveredHotelNameComparableSet = new Set();
-
-  let nextPageToken = null;
-  let propertyTokenDiscoveryCompletedByAllLiteApiHotelsFound = false;
-  let propertyTokenDiscoveryCompletedByMissingNextPageToken = false;
-  let propertyTokenDiscoveryCompletedByMaxPageCount = false;
-
-  for (
-    let pageNumber = 1;
-    pageNumber <= SERPAPI_SEARCH_MAX_PAGE_COUNT;
-    pageNumber += 1
-  ) {
-    const pagedOtaSearchDisplayNameRequest = {
-      ...otaSearchDisplayNameRequest
-    };
-
-    if (nextPageToken) {
-      pagedOtaSearchDisplayNameRequest.next_page_token = nextPageToken;
-    }
-
-    const fetchedOtaSearchDisplayNameResponse =
-      await fetchOtaSearchDisplayNameResponse({
-        serpApiKey,
-        otaSearchDisplayNameRequest: pagedOtaSearchDisplayNameRequest
-      });
-
-    fetchedOtaSearchDisplayNameResponseItems.push({
-      pageNumber,
-      fetchedOtaSearchDisplayNameResponse
-    });
-
-    const serpApiSearchProperties = getOtaSearchDisplayNameResponseProperties(
-      fetchedOtaSearchDisplayNameResponse
-    );
-
-    for (const serpApiSearchProperty of serpApiSearchProperties) {
-      const hotelName =
-        normalizeText(serpApiSearchProperty?.name) ||
-        normalizeText(serpApiSearchProperty?.title) ||
-        normalizeText(serpApiSearchProperty?.hotel_name) ||
-        null;
-
-      const hotelNameComparable = normalizeComparableText(hotelName);
-      const propertyToken =
-        normalizeText(serpApiSearchProperty?.property_token) ||
-        normalizeText(serpApiSearchProperty?.propertyToken) ||
-        null;
-
-      if (
-        hotelNameComparable &&
-        propertyToken &&
-        liteApiHotelNameComparableSet.has(hotelNameComparable)
-      ) {
-        discoveredHotelNameComparableSet.add(hotelNameComparable);
-      }
-    }
-
-    if (
-      liteApiHotelNameComparableSet.size > 0 &&
-      discoveredHotelNameComparableSet.size >= liteApiHotelNameComparableSet.size
-    ) {
-      propertyTokenDiscoveryCompletedByAllLiteApiHotelsFound = true;
-      break;
-    }
-
-    nextPageToken = resolveOtaSearchNextPageToken(
-      fetchedOtaSearchDisplayNameResponse
-    );
-
-    if (!nextPageToken) {
-      propertyTokenDiscoveryCompletedByMissingNextPageToken = true;
-      break;
-    }
-
-    if (pageNumber === SERPAPI_SEARCH_MAX_PAGE_COUNT) {
-      propertyTokenDiscoveryCompletedByMaxPageCount = true;
-    }
-  }
-
-  return {
-    fetchedOtaSearchDisplayNameResponseItems,
-    serpApiSearchPageCount: fetchedOtaSearchDisplayNameResponseItems.length,
-    propertyTokenDiscoveryCompletedByAllLiteApiHotelsFound,
-    propertyTokenDiscoveryCompletedByMissingNextPageToken,
-    propertyTokenDiscoveryCompletedByMaxPageCount
-  };
+  return [
+    otaSearchPropertyTokenCandidateRow?.hotelName,
+    otaSearchPropertyTokenCandidateRow?.hotelAddress,
+    otaSearchPropertyTokenCandidateRow?.rateName,
+    validatedHotelsRatesSearchFlowContextQuery?.displayName,
+    validatedHotelsRatesSearchFlowContextQuery?.aiSearch
+  ]
+    .map((value) => normalizeText(value))
+    .filter(Boolean)
+    .join(" ");
 }
 
-async function fetchOtaSearchDisplayNameResponse({
+async function fetchOtaSearchHotelNameResponse({
   serpApiKey,
-  otaSearchDisplayNameRequest
+  otaSearchHotelNameRequest
 }) {
   return fetchOtaSearchJsonResponse({
     serpApiKey,
-    otaSearchRequest: otaSearchDisplayNameRequest
+    otaSearchRequest: otaSearchHotelNameRequest
   });
 }
 
@@ -500,7 +481,7 @@ async function fetchOtaSearchJsonResponse({ serpApiKey, otaSearchRequest }) {
 }
 
 function parseOtaSearchPropertyTokenCandidateRows({
-  fetchedOtaSearchDisplayNameResponses,
+  fetchedOtaSearchHotelNameResponses,
   liteApiRateMatchingRows
 }) {
   const liteApiHotelNameComparableSet = new Set(
@@ -514,18 +495,41 @@ function parseOtaSearchPropertyTokenCandidateRows({
   const otaSearchPropertyTokenCandidateRows = [];
   const seenPropertyTokenSet = new Set();
 
+  const hotelNameSearchMatchedSampleRows = [];
+  const hotelNameSearchMissingSampleRows = [];
+
   let serpApiSearchPropertyCount = 0;
   let propertyTokenMissingCount = 0;
   let propertyTokenHotelNameMatchedCount = 0;
   let propertyTokenHotelNameRejectedCount = 0;
   let serpApiSearchPropertyNameMissingCount = 0;
 
-  for (const fetchedOtaSearchDisplayNameResponseItem of fetchedOtaSearchDisplayNameResponses.fetchedOtaSearchDisplayNameResponseItems) {
-    const serpApiSearchProperties = getOtaSearchDisplayNameResponseProperties(
-      fetchedOtaSearchDisplayNameResponseItem.fetchedOtaSearchDisplayNameResponse
+  for (const hotelNameSearchResponseItem of fetchedOtaSearchHotelNameResponses.hotelNameSearchResponseItems) {
+    const liteApiRateMatchingRow =
+      hotelNameSearchResponseItem?.liteApiRateMatchingRow || null;
+
+    if (!hotelNameSearchResponseItem?.ok) {
+      if (hotelNameSearchMissingSampleRows.length < HOTEL_RATE_MATCH_SAMPLE_LIMIT) {
+        hotelNameSearchMissingSampleRows.push({
+          liteApiHotelName: liteApiRateMatchingRow?.hotelName || null,
+          liteApiHotelAddress: liteApiRateMatchingRow?.hotelAddress || null,
+          liteApiRateName: liteApiRateMatchingRow?.rateName || null,
+          otaSearchRequestQuery:
+            hotelNameSearchResponseItem?.otaSearchHotelNameRequest?.q || null,
+          errorMessage: hotelNameSearchResponseItem?.errorMessage || null
+        });
+      }
+
+      continue;
+    }
+
+    const serpApiSearchProperties = getOtaSearchResponseProperties(
+      hotelNameSearchResponseItem.fetchedOtaSearchHotelNameResponse
     );
 
     serpApiSearchPropertyCount += serpApiSearchProperties.length;
+
+    let matchedCandidateForThisLiteApiRow = null;
 
     for (
       let searchRank = 0;
@@ -557,62 +561,104 @@ function parseOtaSearchPropertyTokenCandidateRows({
         continue;
       }
 
-      if (!liteApiHotelNameComparableSet.has(hotelNameComparable)) {
+      const liteApiHotelNameComparable = normalizeComparableText(
+        liteApiRateMatchingRow?.hotelName
+      );
+
+      if (
+        !liteApiHotelNameComparable ||
+        hotelNameComparable !== liteApiHotelNameComparable ||
+        !liteApiHotelNameComparableSet.has(hotelNameComparable)
+      ) {
         propertyTokenHotelNameRejectedCount += 1;
         continue;
       }
 
       if (seenPropertyTokenSet.has(propertyToken)) {
+        matchedCandidateForThisLiteApiRow = {
+          propertyToken,
+          hotelName,
+          hotelAddress: liteApiRateMatchingRow?.hotelAddress || null,
+          rateName: liteApiRateMatchingRow?.rateName || null,
+          hotelNameComparable,
+          searchRank
+        };
+
         continue;
       }
 
       seenPropertyTokenSet.add(propertyToken);
       propertyTokenHotelNameMatchedCount += 1;
 
-      otaSearchPropertyTokenCandidateRows.push({
+      const otaSearchPropertyTokenCandidateRow = {
         propertyToken,
+        hotelId: liteApiRateMatchingRow?.hotelId || null,
         hotelName,
+        hotelAddress: liteApiRateMatchingRow?.hotelAddress || null,
+        rateName: liteApiRateMatchingRow?.rateName || null,
         hotelNameComparable,
         gpsCoordinates: serpApiSearchProperty?.gps_coordinates || null,
-        pageNumber: fetchedOtaSearchDisplayNameResponseItem.pageNumber,
-        searchRank
+        searchRank,
+        otaSearchRequestQuery:
+          hotelNameSearchResponseItem?.otaSearchHotelNameRequest?.q || null
+      };
+
+      matchedCandidateForThisLiteApiRow = otaSearchPropertyTokenCandidateRow;
+      otaSearchPropertyTokenCandidateRows.push(
+        otaSearchPropertyTokenCandidateRow
+      );
+    }
+
+    if (
+      matchedCandidateForThisLiteApiRow &&
+      hotelNameSearchMatchedSampleRows.length < HOTEL_RATE_MATCH_SAMPLE_LIMIT
+    ) {
+      hotelNameSearchMatchedSampleRows.push({
+        liteApiHotelName: liteApiRateMatchingRow?.hotelName || null,
+        liteApiHotelAddress: liteApiRateMatchingRow?.hotelAddress || null,
+        liteApiRateName: liteApiRateMatchingRow?.rateName || null,
+        otaSearchRequestQuery:
+          hotelNameSearchResponseItem?.otaSearchHotelNameRequest?.q || null,
+        propertyToken: matchedCandidateForThisLiteApiRow.propertyToken,
+        otaSearchHotelName: matchedCandidateForThisLiteApiRow.hotelName,
+        otaSearchHotelNameComparable:
+          matchedCandidateForThisLiteApiRow.hotelNameComparable
+      });
+    }
+
+    if (
+      !matchedCandidateForThisLiteApiRow &&
+      hotelNameSearchMissingSampleRows.length < HOTEL_RATE_MATCH_SAMPLE_LIMIT
+    ) {
+      hotelNameSearchMissingSampleRows.push({
+        liteApiHotelName: liteApiRateMatchingRow?.hotelName || null,
+        liteApiHotelAddress: liteApiRateMatchingRow?.hotelAddress || null,
+        liteApiRateName: liteApiRateMatchingRow?.rateName || null,
+        otaSearchRequestQuery:
+          hotelNameSearchResponseItem?.otaSearchHotelNameRequest?.q || null,
+        serpApiSearchPropertyCount: serpApiSearchProperties.length
       });
     }
   }
 
   return {
     otaSearchPropertyTokenCandidateRows,
-    liteApiHotelCount: liteApiHotelNameComparableSet.size,
     serpApiSearchPropertyCount,
     propertyTokenMissingCount,
     propertyTokenHotelNameMatchedCount,
     propertyTokenHotelNameRejectedCount,
-    serpApiSearchPropertyNameMissingCount
+    serpApiSearchPropertyNameMissingCount,
+    hotelNameSearchMatchedSampleRows,
+    hotelNameSearchMissingSampleRows
   };
 }
 
-function getOtaSearchDisplayNameResponseProperties(
-  fetchedOtaSearchDisplayNameResponse
-) {
+function getOtaSearchResponseProperties(fetchedOtaSearchResponse) {
   return [
-    ...normalizeArray(fetchedOtaSearchDisplayNameResponse?.properties),
-    ...normalizeArray(fetchedOtaSearchDisplayNameResponse?.hotels),
-    ...normalizeArray(fetchedOtaSearchDisplayNameResponse?.results)
+    ...normalizeArray(fetchedOtaSearchResponse?.properties),
+    ...normalizeArray(fetchedOtaSearchResponse?.hotels),
+    ...normalizeArray(fetchedOtaSearchResponse?.results)
   ];
-}
-
-function resolveOtaSearchNextPageToken(fetchedOtaSearchDisplayNameResponse) {
-  return (
-    normalizeText(
-      fetchedOtaSearchDisplayNameResponse?.serpapi_pagination
-        ?.next_page_token
-    ) ||
-    normalizeText(
-      fetchedOtaSearchDisplayNameResponse?.pagination?.next_page_token
-    ) ||
-    normalizeText(fetchedOtaSearchDisplayNameResponse?.next_page_token) ||
-    null
-  );
 }
 
 function parseOtaSearchPropertyDetailsRateRows({
@@ -665,6 +711,8 @@ function parseOtaSearchPropertyDetailsRateRows({
       normalizeText(otaSearchPropertyDetails?.address) ||
       normalizeText(otaSearchPropertyDetails?.formatted_address) ||
       normalizeText(otaSearchPropertyDetails?.formattedAddress) ||
+      fetchedOtaSearchPropertyDetailsResponse
+        .otaSearchPropertyTokenCandidateRow?.hotelAddress ||
       null;
 
     if (hotelAddress) {
@@ -1488,7 +1536,7 @@ function resolveOtaSearchBeforeTaxesFeesPrice(values) {
   return Math.min(...normalizedOtaSearchBeforeTaxesFeesPriceCandidates);
 }
 
-function calculateOtaSearchDisplayNameRequestAdultCount(
+function calculateOtaSearchRequestAdultCount(
   validatedHotelsRatesSearchFlowContextQuery
 ) {
   return validatedHotelsRatesSearchFlowContextQuery.roomAdultCounts.reduce(
@@ -1497,26 +1545,26 @@ function calculateOtaSearchDisplayNameRequestAdultCount(
   );
 }
 
-function calculateOtaSearchDisplayNameRequestChildCount(
+function calculateOtaSearchRequestChildCount(
   validatedHotelsRatesSearchFlowContextQuery
 ) {
-  return buildOtaSearchDisplayNameRequestChildrenAges(
+  return buildOtaSearchRequestChildrenAges(
     validatedHotelsRatesSearchFlowContextQuery
   ).length;
 }
 
-function buildOtaSearchDisplayNameRequestChildrenAges(
+function buildOtaSearchRequestChildrenAges(
   validatedHotelsRatesSearchFlowContextQuery
 ) {
-  const otaSearchDisplayNameRequestChildrenAges = [];
+  const otaSearchRequestChildrenAges = [];
 
   validatedHotelsRatesSearchFlowContextQuery.roomChildrenAgesByRoomNumber.forEach(
     (roomChildrenAges) => {
-      otaSearchDisplayNameRequestChildrenAges.push(...roomChildrenAges);
+      otaSearchRequestChildrenAges.push(...roomChildrenAges);
     }
   );
 
-  return otaSearchDisplayNameRequestChildrenAges;
+  return otaSearchRequestChildrenAges;
 }
 
 function normalizeArray(value) {
