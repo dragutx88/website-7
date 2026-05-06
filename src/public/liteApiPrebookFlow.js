@@ -300,12 +300,12 @@ async function handleWixCartRoomRateFlow(purchaseSelection) {
   });
 
   wixLocationFrontend.to(`${CART_PAGE_PATH}?${new URLSearchParams({
-    ...wixLocationFrontend.query,
     ...JSON.parse(
       session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
     ),
+    ...wixLocationFrontend.query,
     ...runtimeSearchFlowContextQuery
-  }).toString()}`);
+  })}`);
 }
 
 async function handlePaymentSdkRoomRateFlow(purchaseSelection) {
@@ -350,12 +350,12 @@ async function handlePaymentSdkRoomRateFlow(purchaseSelection) {
   };
 
   wixLocationFrontend.to(`${CHECKOUT_PAGE_PATH}?${new URLSearchParams({
-    ...wixLocationFrontend.query,
     ...JSON.parse(
       session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
     ),
+    ...wixLocationFrontend.query,
     ...runtimeSearchFlowContextQuery
-  }).toString()}`);
+  })}`);
 }
 
 async function removePrebookItemsIfCartExists() {
