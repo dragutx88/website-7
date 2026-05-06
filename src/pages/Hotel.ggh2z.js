@@ -1,8 +1,8 @@
 import wixLocationFrontend from "wix-location-frontend";
 import wixWindowFrontend from "wix-window-frontend";
 import { session } from "wix-storage-frontend";
-import { getHotelMappedRoomOffers } from "backend/liteApi.web";
-import { handleOfferSelection } from "public/liteApiPrebookFlow";
+import { getHotelMappedRoomRates } from "backend/liteApi.web";
+import { handleRoomRateSelection } from "public/liteApiPrebookFlow";
 
 const SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY =
   "searchFlowContextQueryStringify";
@@ -11,7 +11,7 @@ const ROOM_DETAILS_LIGHTBOX = "roomDetailsPopup";
 const HOTEL_POLICIES_LIGHTBOX = "hotelPoliciesPopup";
 const HOTEL_FACILITIES_LIGHTBOX = "hotelFacilitiesPopup";
 
-const FALLBACK_IMAGE_URL =
+const HOTEL_IMAGE_PLACEHOLDER_URL =
   "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1200&q=80";
 
 let searchFlowContextQuery = {};
@@ -25,8 +25,8 @@ $w.onReady(async function () {
     return;
   }
 
-  $w("#mappedRoomOffersRepeater").onItemReady(($item, itemData) => {
-    bindMappedRoomOfferItem($item, itemData);
+  $w("#hotelRoomRatesRepeater").onItemReady(($item, itemData) => {
+    bindHotelRoomRateItem($item, itemData);
   });
 
   await initializeHotelPage();
@@ -57,31 +57,34 @@ async function initializeHotelPage() {
   console.log("HOTEL PAGE initialize searchFlowContextQuery", searchFlowContextQuery);
 
   try {
-    hotelPageState = await getHotelMappedRoomOffers(searchFlowContextQuery);
+    hotelPageState = await getHotelMappedRoomRates(searchFlowContextQuery);
 
-    console.log("HOTEL PAGE getHotelMappedRoomOffers summary", {
-      hasNormalizedHotelDetails: Boolean(hotelPageState?.normalizedHotelDetails),
-      mappedRoomOffersCount: Array.isArray(
-        hotelPageState?.normalizedHotelMappedRoomOffers?.mappedRoomOffers
-      )
-        ? hotelPageState.normalizedHotelMappedRoomOffers.mappedRoomOffers.length
-        : 0,
+    const normalizedHotelMappedRoomRates =
+      getNormalizedHotelMappedRoomRatesOrThrow();
+
+    if (!Array.isArray(normalizedHotelMappedRoomRates.rooms)) {
+      throw new Error("normalizedHotelMappedRoomRates.rooms must be an array.");
+    }
+
+    if (!normalizedHotelMappedRoomRates.rooms.length) {
+      throw new Error("normalizedHotelMappedRoomRates.rooms must not be empty.");
+    }
+
+    console.log("HOTEL PAGE getHotelMappedRoomRates summary", {
+      hasNormalizedHotelMappedRoomRates: Boolean(normalizedHotelMappedRoomRates),
+      hotelRoomsCount: normalizedHotelMappedRoomRates.rooms.length,
+      roomRatesCount: countRoomRates(normalizedHotelMappedRoomRates.rooms),
       hasMinCurrentPrice: Number.isFinite(
-        hotelPageState?.normalizedHotelMappedRoomOffers?.minCurrentPrice
-      )
+        normalizedHotelMappedRoomRates?.minCurrentPrice
+      ),
+      ratesExpiresInSeconds:
+        normalizedHotelMappedRoomRates?.ratesExpiresInSeconds ?? null
     });
 
-    bindHotelHero(
-      hotelPageState?.normalizedHotelDetails || null,
-      hotelPageState?.normalizedHotelMappedRoomOffers || null
-    );
-
-    bindHotelDescriptionSections(hotelPageState?.normalizedHotelDetails || null);
-    bindHotelPopupButtons(hotelPageState?.normalizedHotelDetails || null);
-
-    bindMappedRoomOffersRepeater(
-      hotelPageState?.normalizedHotelMappedRoomOffers?.mappedRoomOffers || []
-    );
+    bindHotelHero(normalizedHotelMappedRoomRates);
+    bindHotelDescriptionSections(normalizedHotelMappedRoomRates);
+    bindHotelPopupButtons(normalizedHotelMappedRoomRates);
+    bindHotelRoomRatesRepeater(normalizedHotelMappedRoomRates.rooms);
   } catch (initializeHotelPageError) {
     console.error("HOTEL PAGE initialization failed", {
       name: initializeHotelPageError?.name,
@@ -94,24 +97,40 @@ async function initializeHotelPage() {
       ...JSON.parse(
         session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
       )
-    })}`);
+    }).toString()}`);
   }
 }
 
-function bindHotelHero(normalizedHotelDetails, normalizedHotelMappedRoomOffers) {
-  const hotelMainImage =
-    normalizeText(normalizedHotelDetails?.hotelMainImage) || FALLBACK_IMAGE_URL;
+function getNormalizedHotelMappedRoomRatesOrThrow() {
+  const normalizedHotelMappedRoomRates =
+    hotelPageState?.normalizedHotelMappedRoomRates;
 
-  const hotelName = normalizeText(normalizedHotelDetails?.hotelName) || "Hotel";
+  if (
+    !normalizedHotelMappedRoomRates ||
+    typeof normalizedHotelMappedRoomRates !== "object"
+  ) {
+    throw new Error("normalizedHotelMappedRoomRates is required.");
+  }
+
+  return normalizedHotelMappedRoomRates;
+}
+
+function bindHotelHero(normalizedHotelMappedRoomRates) {
+  const hotelMainImage =
+    normalizeText(normalizedHotelMappedRoomRates?.hotelMainImage) ||
+    HOTEL_IMAGE_PLACEHOLDER_URL;
+
+  const hotelName =
+    normalizeText(normalizedHotelMappedRoomRates?.hotelName) || "Hotel";
   $w("#hotelNameText").text = hotelName;
   $w("#hotelNameText").expand();
 
   $w("#hotelAddressText").text = normalizeText(
-    normalizedHotelDetails?.hotelAddress
+    normalizedHotelMappedRoomRates?.hotelAddress
   );
   $w("#hotelAddressText").expand();
 
-  const hotelStarRating = normalizedHotelDetails?.hotelStarRating;
+  const hotelStarRating = normalizedHotelMappedRoomRates?.hotelStarRating;
 
   if (
     hotelStarRating !== null &&
@@ -124,7 +143,9 @@ function bindHotelHero(normalizedHotelDetails, normalizedHotelMappedRoomOffers) 
     $w("#hotelStarRatingDisplay").collapse();
   }
 
-  const hotelRatingText = normalizeText(normalizedHotelDetails?.hotelRatingText);
+  const hotelRatingText = normalizeText(
+    normalizedHotelMappedRoomRates?.hotelRatingText
+  );
 
   if (hotelRatingText) {
     $w("#hotelRatingText").text = hotelRatingText;
@@ -135,7 +156,7 @@ function bindHotelHero(normalizedHotelDetails, normalizedHotelMappedRoomOffers) 
   }
 
   const hotelReviewCountText = normalizeText(
-    normalizedHotelDetails?.hotelReviewCountText
+    normalizedHotelMappedRoomRates?.hotelReviewCountText
   );
 
   if (hotelReviewCountText) {
@@ -146,17 +167,17 @@ function bindHotelHero(normalizedHotelDetails, normalizedHotelMappedRoomOffers) 
     $w("#hotelReviewCountText").collapse();
   }
 
-  bindMapElements(normalizedHotelDetails?.hotelMapUrl);
+  bindMapElements(normalizedHotelMappedRoomRates?.hotelMapUrl);
 
   bindHeroGallery(
-    Array.isArray(normalizedHotelDetails?.hotelImageUrls) &&
-      normalizedHotelDetails.hotelImageUrls.length
-      ? normalizedHotelDetails.hotelImageUrls
+    Array.isArray(normalizedHotelMappedRoomRates?.hotelImageUrls) &&
+      normalizedHotelMappedRoomRates.hotelImageUrls.length
+      ? normalizedHotelMappedRoomRates.hotelImageUrls
       : [hotelMainImage]
   );
 
   const minCurrentPriceText = normalizeText(
-    normalizedHotelMappedRoomOffers?.minCurrentPriceText
+    normalizedHotelMappedRoomRates?.minCurrentPriceText
   );
 
   if (minCurrentPriceText) {
@@ -174,9 +195,9 @@ function bindHotelHero(normalizedHotelDetails, normalizedHotelMappedRoomOffers) 
   }
 }
 
-function bindHotelDescriptionSections(normalizedHotelDetails) {
+function bindHotelDescriptionSections(normalizedHotelMappedRoomRates) {
   const hotelDescription = normalizeText(
-    normalizedHotelDetails?.hotelDescription
+    normalizedHotelMappedRoomRates?.hotelDescription
   );
 
   if (hotelDescription) {
@@ -190,7 +211,7 @@ function bindHotelDescriptionSections(normalizedHotelDetails) {
   }
 
   const hotelImportantInformation = normalizeText(
-    normalizedHotelDetails?.hotelImportantInformation
+    normalizedHotelMappedRoomRates?.hotelImportantInformation
   );
 
   if (hotelImportantInformation) {
@@ -204,7 +225,7 @@ function bindHotelDescriptionSections(normalizedHotelDetails) {
   }
 
   const hotelCheckinCheckoutTimesText = buildHotelCheckinCheckoutTimesText(
-    normalizedHotelDetails?.hotelCheckinCheckoutTimes
+    normalizedHotelMappedRoomRates?.hotelCheckinCheckoutTimes
   );
 
   if (hotelCheckinCheckoutTimesText) {
@@ -258,9 +279,11 @@ function buildHotelCheckinCheckoutTimesText(hotelCheckinCheckoutTimes) {
   return lines.join("\n");
 }
 
-function bindHotelPopupButtons(normalizedHotelDetails) {
-  const hotelFacilities = Array.isArray(normalizedHotelDetails?.hotelFacilities)
-    ? normalizedHotelDetails.hotelFacilities
+function bindHotelPopupButtons(normalizedHotelMappedRoomRates) {
+  const hotelFacilities = Array.isArray(
+    normalizedHotelMappedRoomRates?.hotelFacilities
+  )
+    ? normalizedHotelMappedRoomRates.hotelFacilities
     : [];
 
   if (hotelFacilities.length > 0) {
@@ -274,8 +297,10 @@ function bindHotelPopupButtons(normalizedHotelDetails) {
     $w("#hotelFacilitiesPopupButton").collapse();
   }
 
-  const hotelPolicies = Array.isArray(normalizedHotelDetails?.hotelPolicies)
-    ? normalizedHotelDetails.hotelPolicies
+  const hotelPolicies = Array.isArray(
+    normalizedHotelMappedRoomRates?.hotelPolicies
+  )
+    ? normalizedHotelMappedRoomRates.hotelPolicies
     : [];
 
   if (hotelPolicies.length > 0) {
@@ -290,39 +315,41 @@ function bindHotelPopupButtons(normalizedHotelDetails) {
   }
 }
 
-function bindMappedRoomOffersRepeater(mappedRoomOffers) {
-  const hotelId = normalizeText(hotelPageState?.normalizedHotelDetails?.hotelId);
+function bindHotelRoomRatesRepeater(hotelRooms) {
+  const normalizedHotelMappedRoomRates =
+    getNormalizedHotelMappedRoomRatesOrThrow();
 
-  const mappedRoomOffersRepeaterData = (Array.isArray(mappedRoomOffers)
-    ? mappedRoomOffers
+  const hotelId = normalizeText(normalizedHotelMappedRoomRates?.hotelId);
+
+  const hotelRoomRatesRepeaterData = (Array.isArray(hotelRooms)
+    ? hotelRooms
     : []
-  ).map((mappedRoomOfferItem, mappedRoomOfferIndex) => ({
-    ...mappedRoomOfferItem,
-    _id: buildRepeaterId(`room-${mappedRoomOfferIndex + 1}-${hotelId || "hotel"}`)
+  ).map((roomItem, roomIndex) => ({
+    ...roomItem,
+    _id: buildRepeaterId(
+      `room-${roomItem?.mappedRoomId || roomItem?.roomId || roomIndex + 1}-${
+        hotelId || "hotel"
+      }`
+    )
   }));
 
-  $w("#mappedRoomOffersRepeater").data = mappedRoomOffersRepeaterData;
+  $w("#hotelRoomRatesRepeater").data = hotelRoomRatesRepeaterData;
 }
 
-function bindMappedRoomOfferItem($item, itemData) {
-  const room =
-    itemData?.room && typeof itemData.room === "object" ? itemData.room : null;
+function bindHotelRoomRateItem($item, room) {
+  const normalizedHotelMappedRoomRates =
+    getNormalizedHotelMappedRoomRatesOrThrow();
 
-  const roomOffers = Array.isArray(itemData?.roomOffers)
-    ? itemData.roomOffers
-    : [];
+  const roomRateSlots = buildRoomRateSlots(room);
 
-  const roomName =
-    normalizeText(room?.roomName) ||
-    normalizeText(roomOffers?.[0]?.roomOfferName) ||
-    "Room";
+  const roomName = normalizeText(room?.roomName) || "Room";
 
   const roomMainImage =
     normalizeText(room?.roomMainImage) ||
-    normalizeText(hotelPageState?.normalizedHotelDetails?.hotelMainImage) ||
-    FALLBACK_IMAGE_URL;
+    normalizeText(normalizedHotelMappedRoomRates?.hotelMainImage) ||
+    HOTEL_IMAGE_PLACEHOLDER_URL;
 
-  $item("#roomMainImage").src = roomMainImage || FALLBACK_IMAGE_URL;
+  $item("#roomMainImage").src = roomMainImage || HOTEL_IMAGE_PLACEHOLDER_URL;
   $item("#roomMainImage").expand();
 
   $item("#roomNameText").text = roomName;
@@ -370,15 +397,25 @@ function bindMappedRoomOfferItem($item, itemData) {
 
   bindRoomDetailsButton($item, room);
 
-  for (let roomOfferSlotIndex = 0; roomOfferSlotIndex < 4; roomOfferSlotIndex += 1) {
-    bindRoomOfferSlot(
+  for (let roomRateSlotIndex = 0; roomRateSlotIndex < 4; roomRateSlotIndex += 1) {
+    bindRoomRateSlot(
       $item,
-      roomOfferSlotIndex + 1,
-      roomOffers[roomOfferSlotIndex] || null,
-      itemData,
+      roomRateSlotIndex + 1,
+      roomRateSlots[roomRateSlotIndex] || null,
       room
     );
   }
+}
+
+function buildRoomRateSlots(room) {
+  const roomTypes = Array.isArray(room?.roomTypes) ? room.roomTypes : [];
+
+  return roomTypes.flatMap((roomType) =>
+    (Array.isArray(roomType?.rates) ? roomType.rates : []).map((rate) => ({
+      roomType,
+      rate
+    }))
+  );
 }
 
 function bindRoomDetailsButton($item, room) {
@@ -431,85 +468,66 @@ function buildRoomDetailsPopupData(room) {
   };
 }
 
-function bindRoomOfferSlot($item, slotNumber, roomOffer, mappedRoomOfferItem, room) {
-  const offerId = normalizeText(roomOffer?.offerId);
-  const roomOfferName = normalizeText(roomOffer?.roomOfferName);
-  const roomOfferBoardName = normalizeText(roomOffer?.roomOfferBoardName);
-  const currentPriceText = normalizeText(roomOffer?.currentPriceText);
-  const beforeCurrentPriceText = normalizeText(roomOffer?.beforeCurrentPriceText);
-  const currentPriceNoteText = normalizeText(roomOffer?.currentPriceNoteText);
+function bindRoomRateSlot($item, slotNumber, roomRateSlot, room) {
+  const roomType =
+    roomRateSlot?.roomType && typeof roomRateSlot.roomType === "object"
+      ? roomRateSlot.roomType
+      : null;
 
-  const isBindableRoomOffer = Boolean(
-    roomOffer &&
-      typeof roomOffer === "object" &&
+  const rate =
+    roomRateSlot?.rate && typeof roomRateSlot.rate === "object"
+      ? roomRateSlot.rate
+      : null;
+
+  const offerId = normalizeText(rate?.offerId);
+  const mappedRoomId = normalizeText(rate?.mappedRoomId);
+  const rateName = normalizeText(rate?.rateName);
+  const rateBoardName = normalizeText(rate?.rateBoardName);
+  const currentPrice = normalizeNumberOrNull(rate?.currentPrice);
+  const currentPriceCurrency = normalizeText(rate?.currentPriceCurrency);
+  const currentPriceText = normalizeText(rate?.currentPriceText);
+  const beforeCurrentPriceText = normalizeText(rate?.beforeCurrentPriceText);
+  const currentPriceNoteText = normalizeText(rate?.currentPriceNoteText);
+
+  const isBindableRoomRate = Boolean(
+    rate &&
       offerId &&
+      mappedRoomId &&
+      Number.isFinite(currentPrice) &&
+      currentPriceCurrency &&
       currentPriceText
   );
 
-  if (!isBindableRoomOffer) {
-    if (slotNumber === 1) {
-      $item("#roomOfferRowSlot1").collapse();
-      return;
-    }
-
-    if (slotNumber === 2) {
-      $item("#roomOfferRowSlot2").collapse();
-      return;
-    }
-
-    if (slotNumber === 3) {
-      $item("#roomOfferRowSlot3").collapse();
-      return;
-    }
-
-    if (slotNumber === 4) {
-      $item("#roomOfferRowSlot4").collapse();
-      return;
-    }
-
+  if (!isBindableRoomRate) {
+    $item(`#roomRateRowSlot${slotNumber}`).collapse();
     return;
   }
 
-  if (slotNumber === 1) {
-    $item("#roomOfferRowSlot1").expand();
-  }
+  $item(`#roomRateRowSlot${slotNumber}`).expand();
 
-  if (slotNumber === 2) {
-    $item("#roomOfferRowSlot2").expand();
-  }
-
-  if (slotNumber === 3) {
-    $item("#roomOfferRowSlot3").expand();
-  }
-
-  if (slotNumber === 4) {
-    $item("#roomOfferRowSlot4").expand();
-  }
-
-  if (roomOfferName) {
-    $item(`#roomOfferNameText${slotNumber}`).text = roomOfferName;
-    $item(`#roomOfferNameText${slotNumber}`).expand();
+  if (rateName) {
+    $item(`#roomRateNameText${slotNumber}`).text = rateName;
+    $item(`#roomRateNameText${slotNumber}`).expand();
   } else {
-    $item(`#roomOfferNameText${slotNumber}`).text = "";
-    $item(`#roomOfferNameText${slotNumber}`).collapse();
+    $item(`#roomRateNameText${slotNumber}`).text = "";
+    $item(`#roomRateNameText${slotNumber}`).collapse();
   }
 
-  if (roomOfferBoardName) {
-    $item(`#roomOfferBoardNameText${slotNumber}`).text = roomOfferBoardName;
-    $item(`#roomOfferBoardNameText${slotNumber}`).expand();
+  if (rateBoardName) {
+    $item(`#roomRateBoardNameText${slotNumber}`).text = rateBoardName;
+    $item(`#roomRateBoardNameText${slotNumber}`).expand();
   } else {
-    $item(`#roomOfferBoardNameText${slotNumber}`).text = "";
-    $item(`#roomOfferBoardNameText${slotNumber}`).collapse();
+    $item(`#roomRateBoardNameText${slotNumber}`).text = "";
+    $item(`#roomRateBoardNameText${slotNumber}`).collapse();
   }
 
   $item(`#currentPriceText${slotNumber}`).text = currentPriceText;
   $item(`#currentPriceText${slotNumber}`).expand();
 
-  $item(`#roomOfferPerNightText${slotNumber}`).expand();
+  $item(`#currentPricePerNightText${slotNumber}`).expand();
 
   if (beforeCurrentPriceText) {
-    $item(`#beforeCurrentPriceText${slotNumber}`).text =
-      beforeCurrentPriceText;
+    $item(`#beforeCurrentPriceText${slotNumber}`).text = beforeCurrentPriceText;
     $item(`#beforeCurrentPriceText${slotNumber}`).expand();
   } else {
     $item(`#beforeCurrentPriceText${slotNumber}`).text = "";
@@ -517,27 +535,26 @@ function bindRoomOfferSlot($item, slotNumber, roomOffer, mappedRoomOfferItem, ro
   }
 
   if (currentPriceNoteText) {
-    $item(`#currentPriceNoteText${slotNumber}`).text =
-      currentPriceNoteText;
+    $item(`#currentPriceNoteText${slotNumber}`).text = currentPriceNoteText;
     $item(`#currentPriceNoteText${slotNumber}`).expand();
   } else {
     $item(`#currentPriceNoteText${slotNumber}`).text = "";
     $item(`#currentPriceNoteText${slotNumber}`).collapse();
   }
 
-  $item(`#roomOfferSelectionButton${slotNumber}`).expand();
+  $item(`#roomRateSelectionButton${slotNumber}`).expand();
 
-  $item(`#roomOfferSelectionButton${slotNumber}`).onClick(async () => {
+  $item(`#roomRateSelectionButton${slotNumber}`).onClick(async () => {
     try {
       const purchaseSelection = buildPurchaseSelection({
-        mappedRoomOfferItem,
         room,
-        roomOffer
+        roomType,
+        rate
       });
 
-      await handleOfferSelection(purchaseSelection);
+      await handleRoomRateSelection(purchaseSelection);
     } catch (error) {
-      console.error("HOTEL PAGE offer selection failed", {
+      console.error("HOTEL PAGE room rate selection failed", {
         name: error?.name,
         message: error?.message,
         stack: error?.stack
@@ -546,40 +563,42 @@ function bindRoomOfferSlot($item, slotNumber, roomOffer, mappedRoomOfferItem, ro
   });
 }
 
-function buildPurchaseSelection({ mappedRoomOfferItem, room, roomOffer }) {
-  return {
-    offerId: normalizeText(roomOffer?.offerId),
-    mappedRoomId: normalizeText(mappedRoomOfferItem?.mappedRoomId),
+function buildPurchaseSelection({ room, roomType, rate }) {
+  const normalizedHotelMappedRoomRates =
+    getNormalizedHotelMappedRoomRatesOrThrow();
 
-    hotelId: normalizeText(hotelPageState?.normalizedHotelDetails?.hotelId),
-    hotelName: normalizeText(hotelPageState?.normalizedHotelDetails?.hotelName),
-    hotelAddress: normalizeText(
-      hotelPageState?.normalizedHotelDetails?.hotelAddress
-    ),
-    hotelMainImage: normalizeText(
-      hotelPageState?.normalizedHotelDetails?.hotelMainImage
-    ),
-    hotelStarRating:
-      hotelPageState?.normalizedHotelDetails?.hotelStarRating ?? null,
+  return {
+    offerId: normalizeText(rate?.offerId),
+    mappedRoomId: normalizeText(rate?.mappedRoomId),
+    rateId: normalizeText(rate?.rateId),
+    roomTypeId: normalizeText(rate?.roomTypeId || roomType?.roomTypeId),
+
+    hotelId: normalizeText(normalizedHotelMappedRoomRates?.hotelId),
+    hotelName: normalizeText(normalizedHotelMappedRoomRates?.hotelName),
+    hotelAddress: normalizeText(normalizedHotelMappedRoomRates?.hotelAddress),
+    hotelMainImage: normalizeText(normalizedHotelMappedRoomRates?.hotelMainImage),
+    hotelStarRating: normalizedHotelMappedRoomRates?.hotelStarRating ?? null,
     hotelStarRatingText: normalizeText(
-      hotelPageState?.normalizedHotelDetails?.hotelStarRatingText
+      normalizedHotelMappedRoomRates?.hotelStarRatingText
     ),
     hotelReviewText: normalizeText(
-      hotelPageState?.normalizedHotelDetails?.hotelReviewText
+      normalizedHotelMappedRoomRates?.hotelReviewText
     ),
 
     roomId: normalizeText(room?.roomId),
     roomName: normalizeText(room?.roomName),
     roomImage: normalizeText(room?.roomMainImage),
 
-    roomOfferName: normalizeText(roomOffer?.roomOfferName),
-    roomOfferBoardName: normalizeText(roomOffer?.roomOfferBoardName),
-    currentPrice: normalizeNumberOrNull(roomOffer?.currentPrice),
-    beforeCurrentPrice: normalizeNumberOrNull(roomOffer?.beforeCurrentPrice),
-    roomOfferCurrency: normalizeText(roomOffer?.roomOfferCurrency),
-    currentPriceText: normalizeText(roomOffer?.currentPriceText),
-    beforeCurrentPriceText: normalizeText(roomOffer?.beforeCurrentPriceText),
-    currentPriceNoteText: normalizeText(roomOffer?.currentPriceNoteText)
+    rateName: normalizeText(rate?.rateName),
+    rateBoardName: normalizeText(rate?.rateBoardName),
+
+    currentPrice: normalizeNumberOrNull(rate?.currentPrice),
+    currentPriceCurrency: normalizeText(rate?.currentPriceCurrency),
+    currentPriceText: normalizeText(rate?.currentPriceText),
+
+    beforeCurrentPrice: normalizeNumberOrNull(rate?.beforeCurrentPrice),
+    beforeCurrentPriceText: normalizeText(rate?.beforeCurrentPriceText),
+    currentPriceNoteText: normalizeText(rate?.currentPriceNoteText)
   };
 }
 
@@ -623,12 +642,30 @@ function bindHeroGallery(hotelImageUrls) {
     : [
         {
           type: "image",
-          src: FALLBACK_IMAGE_URL,
+          src: HOTEL_IMAGE_PLACEHOLDER_URL,
           title: "Hotel image"
         }
       ];
 
   $w("#hotelHeroGallery").expand();
+}
+
+function countRoomRates(hotelRooms) {
+  return (Array.isArray(hotelRooms) ? hotelRooms : []).reduce(
+    (ratesCount, roomItem) =>
+      ratesCount +
+      (Array.isArray(roomItem?.roomTypes)
+        ? roomItem.roomTypes.reduce(
+            (roomTypeRatesCount, roomTypeItem) =>
+              roomTypeRatesCount +
+              (Array.isArray(roomTypeItem?.rates)
+                ? roomTypeItem.rates.length
+                : 0),
+            0
+          )
+        : 0),
+    0
+  );
 }
 
 function buildRepeaterId(value) {
