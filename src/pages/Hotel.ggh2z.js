@@ -589,8 +589,8 @@ function buildPurchaseSelection({ room, roomType, rate }) {
     roomName: normalizeText(room?.roomName),
     roomImage: normalizeText(room?.roomMainImage),
 
-    rateName: normalizeText(rate?.rateName),
-    rateBoardName: normalizeText(rate?.rateBoardName),
+    roomRateName: normalizeText(rate?.rateName),
+    roomRateBoardName: normalizeText(rate?.rateBoardName),
 
     currentPrice: normalizeNumberOrNull(rate?.currentPrice),
     currentPriceCurrency: normalizeText(rate?.currentPriceCurrency),
