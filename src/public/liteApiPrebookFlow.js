@@ -20,46 +20,75 @@ const LITEAPI_CATALOG_APP_ID = "e7f94f4b-7e6a-41c6-8ee1-52c1d5f31cf4";
 const CART_PAGE_PATH = "/cart-page";
 const CHECKOUT_PAGE_PATH = "/checkout";
 
-export async function handleOfferSelection(purchaseSelection) {
+export async function handleRoomRateSelection(purchaseSelection) {
   if (PURCHASE_FLOW_MODE === PURCHASE_FLOW_MODES.WIX_CART) {
-    await handleWixCartFlow(purchaseSelection);
+    await handleWixCartRoomRateFlow(purchaseSelection);
     return;
   }
 
   if (PURCHASE_FLOW_MODE === PURCHASE_FLOW_MODES.PAYMENT_SDK) {
-    await handlePaymentSdkFlow(purchaseSelection);
+    await handlePaymentSdkRoomRateFlow(purchaseSelection);
     return;
   }
 
   throw new Error(`Unsupported PURCHASE_FLOW_MODE: ${PURCHASE_FLOW_MODE}`);
 }
 
-async function handleWixCartFlow(purchaseSelection) {
-  const mappedRoomId = normalizeText(purchaseSelection?.mappedRoomId);
-  const offerId = normalizeText(purchaseSelection?.offerId);
-
-  if (!mappedRoomId) {
-    throw new Error("mappedRoomId is required for Wix cart flow.");
-  }
-
-  if (!offerId) {
-    throw new Error("offerId is required for Wix cart flow.");
-  }
+async function handleWixCartRoomRateFlow(purchaseSelection) {
+  const mappedRoomId = normalizeRequiredText(
+    purchaseSelection?.mappedRoomId,
+    "purchaseSelection.mappedRoomId"
+  );
+  const offerId = normalizeRequiredText(
+    purchaseSelection?.offerId,
+    "purchaseSelection.offerId"
+  );
+  const roomId = normalizeRequiredText(
+    purchaseSelection?.roomId,
+    "purchaseSelection.roomId"
+  );
+  const roomTypeId = normalizeRequiredText(
+    purchaseSelection?.roomTypeId,
+    "purchaseSelection.roomTypeId"
+  );
+  const rateId = normalizeRequiredText(
+    purchaseSelection?.rateId,
+    "purchaseSelection.rateId"
+  );
+  const currentPrice = normalizeRequiredNumber(
+    purchaseSelection?.currentPrice,
+    "purchaseSelection.currentPrice"
+  );
+  const currentPriceCurrency = normalizeRequiredText(
+    purchaseSelection?.currentPriceCurrency,
+    "purchaseSelection.currentPriceCurrency"
+  );
+  const beforeCurrentPrice = normalizeNumberOrNull(
+    purchaseSelection?.beforeCurrentPrice
+  );
 
   const liteApiPrebookFlowId = `liteapi-prebook-${Date.now()}`;
 
-  console.log("HOTEL PAGE prebookFlow start", {
+  console.log("HOTEL PAGE roomRatePrebookFlow start", {
     liteApiPrebookFlowId,
     hasMappedRoomId: Boolean(mappedRoomId),
     hasOfferId: Boolean(offerId),
+    hasRoomId: Boolean(roomId),
+    hasRoomTypeId: Boolean(roomTypeId),
+    hasRateId: Boolean(rateId),
+    hasCurrentPrice: Number.isFinite(currentPrice),
+    hasCurrentPriceCurrency: Boolean(currentPriceCurrency),
     hasHotelId: Boolean(normalizeText(purchaseSelection?.hotelId)),
     hasHotelName: Boolean(normalizeText(purchaseSelection?.hotelName)),
     hasHotelMainImage: Boolean(
       normalizeText(purchaseSelection?.hotelMainImage)
     ),
-    hasRoomId: Boolean(normalizeText(purchaseSelection?.roomId)),
     hasRoomName: Boolean(normalizeText(purchaseSelection?.roomName)),
-    hasRoomMainImage: Boolean(normalizeText(purchaseSelection?.roomImage))
+    hasRoomMainImage: Boolean(normalizeText(purchaseSelection?.roomImage)),
+    hasRoomRateName: Boolean(normalizeText(purchaseSelection?.roomRateName)),
+    hasRoomRateBoardName: Boolean(
+      normalizeText(purchaseSelection?.roomRateBoardName)
+    )
   });
 
   const cartCleanupPromise = removePrebookItemsIfCartExists()
@@ -118,7 +147,7 @@ async function handleWixCartFlow(purchaseSelection) {
     hotelName: purchaseSelection.hotelName,
     hotelMainImage: purchaseSelection.hotelMainImage,
 
-    roomId: purchaseSelection.roomId,
+    roomId,
     roomName: purchaseSelection.roomName,
     roomMainImage: purchaseSelection.roomImage
   })
@@ -173,11 +202,15 @@ async function handleWixCartFlow(purchaseSelection) {
     throw new Error("normalizedPrebook.prebookId is required.");
   }
 
-  console.log("HOTEL PAGE prebookFlow preparation ok", {
+  console.log("HOTEL PAGE roomRatePrebookFlow preparation ok", {
     liteApiPrebookFlowId,
     hasPrebookSnapshot: Boolean(prebookSnapshot),
     hasNormalizedPrebook: Boolean(normalizedPrebook),
     hasPrebookId: Boolean(prebookId),
+    hasMappedRoomId: Boolean(mappedRoomId),
+    hasRoomId: Boolean(roomId),
+    hasRoomTypeId: Boolean(roomTypeId),
+    hasRateId: Boolean(rateId),
     hasWixHotelMainImageRef: Boolean(
       normalizeText(importedImageRefs?.wixHotelMainImageRef)
     ),
@@ -188,8 +221,13 @@ async function handleWixCartFlow(purchaseSelection) {
 
   const prebookShell = buildPrebookShell({
     mappedRoomId,
+    roomId,
+    roomTypeId,
+    rateId,
+
     prebookSnapshot,
     normalizedPrebook,
+
     hotelName: purchaseSelection.hotelName,
     hotelMainImage: purchaseSelection.hotelMainImage,
     roomMainImage: purchaseSelection.roomImage,
@@ -198,9 +236,13 @@ async function handleWixCartFlow(purchaseSelection) {
     starRating: purchaseSelection.hotelStarRatingText,
     hotelReview: purchaseSelection.hotelReviewText,
     hotelAddress: purchaseSelection.hotelAddress,
-    currency: purchaseSelection.roomOfferCurrency,
-    currentPrice: purchaseSelection.currentPrice,
-    beforeCurrentPrice: purchaseSelection.beforeCurrentPrice
+
+    roomRateName: purchaseSelection.roomRateName,
+    roomRateBoardName: purchaseSelection.roomRateBoardName,
+
+    currency: currentPriceCurrency,
+    currentPrice,
+    beforeCurrentPrice
   });
 
   console.log("HOTEL PAGE buildPrebookShell success", {
@@ -208,7 +250,11 @@ async function handleWixCartFlow(purchaseSelection) {
     hasPrebookShell: Boolean(prebookShell),
     hasPrebookId: Boolean(prebookShell?.prebookId),
     hasMappedRoomId: Boolean(prebookShell?.mappedRoomId),
+    hasRoomId: Boolean(prebookShell?.roomId),
+    hasRoomTypeId: Boolean(prebookShell?.roomTypeId),
+    hasRateId: Boolean(prebookShell?.rateId),
     hasCurrentPrice: Number.isFinite(Number(prebookShell?.currentPrice)),
+    hasCurrency: Boolean(normalizeText(prebookShell?.currency)),
     hasWixHotelMainImageRef: Boolean(
       normalizeText(prebookShell?.wixHotelMainImageRef)
     ),
@@ -254,25 +300,23 @@ async function handleWixCartFlow(purchaseSelection) {
   });
 
   wixLocationFrontend.to(`${CART_PAGE_PATH}?${new URLSearchParams({
+    ...wixLocationFrontend.query,
     ...JSON.parse(
       session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
     ),
-    ...wixLocationFrontend.query,
     ...runtimeSearchFlowContextQuery
-  })}`);
+  }).toString()}`);
 }
 
-async function handlePaymentSdkFlow(purchaseSelection) {
-  const offerId = normalizeText(purchaseSelection?.offerId);
-  const hotelId = normalizeText(purchaseSelection?.hotelId);
-
-  if (!offerId) {
-    throw new Error("offerId is required for payment SDK flow.");
-  }
-
-  if (!hotelId) {
-    throw new Error("hotelId is required for payment SDK flow.");
-  }
+async function handlePaymentSdkRoomRateFlow(purchaseSelection) {
+  const offerId = normalizeRequiredText(
+    purchaseSelection?.offerId,
+    "purchaseSelection.offerId"
+  );
+  const hotelId = normalizeRequiredText(
+    purchaseSelection?.hotelId,
+    "purchaseSelection.hotelId"
+  );
 
   const prebookResult = await createPrebookSession({
     offerId,
@@ -297,7 +341,8 @@ async function handlePaymentSdkFlow(purchaseSelection) {
 
   console.log("HOTEL PAGE createPaymentSdkPrebookSession success", {
     hasNormalizedPrebook: Boolean(normalizedPrebook),
-    hasPrebookId: Boolean(prebookId)
+    hasPrebookId: Boolean(prebookId),
+    hasHotelId: Boolean(hotelId)
   });
 
   const runtimeSearchFlowContextQuery = {
@@ -305,12 +350,12 @@ async function handlePaymentSdkFlow(purchaseSelection) {
   };
 
   wixLocationFrontend.to(`${CHECKOUT_PAGE_PATH}?${new URLSearchParams({
+    ...wixLocationFrontend.query,
     ...JSON.parse(
       session.getItem(SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY) || "{}"
     ),
-    ...wixLocationFrontend.query,
     ...runtimeSearchFlowContextQuery
-  })}`);
+  }).toString()}`);
 }
 
 async function removePrebookItemsIfCartExists() {
@@ -391,6 +436,9 @@ function isMissingCurrentCartError(error) {
 
 function buildPrebookShell({
   mappedRoomId,
+  roomId,
+  roomTypeId,
+  rateId,
   prebookSnapshot,
   normalizedPrebook,
   hotelName,
@@ -401,12 +449,18 @@ function buildPrebookShell({
   starRating,
   hotelReview,
   hotelAddress,
+  roomRateName,
+  roomRateBoardName,
   currency,
   currentPrice,
   beforeCurrentPrice
 }) {
   return {
     mappedRoomId: normalizeText(mappedRoomId),
+    roomId: normalizeText(roomId),
+    roomTypeId: normalizeText(roomTypeId),
+    rateId: normalizeText(rateId),
+
     prebookId: normalizeText(normalizedPrebook?.prebookId),
     prebookSnapshot: normalizeText(prebookSnapshot),
 
@@ -419,6 +473,9 @@ function buildPrebookShell({
     hotelReview: normalizeText(hotelReview),
     hotelAddress: normalizeText(hotelAddress),
 
+    roomRateName: normalizeText(roomRateName),
+    roomRateBoardName: normalizeText(roomRateBoardName),
+
     checkInDate: normalizeText(normalizedPrebook?.checkInDate),
     checkOutDate: normalizeText(normalizedPrebook?.checkOutDate),
     rateName: normalizeText(normalizedPrebook?.rateName),
@@ -430,6 +487,7 @@ function buildPrebookShell({
       : [],
     occupancyNumber: normalizedPrebook?.occupancyNumber,
     refundableTag: normalizeText(normalizedPrebook?.refundableTag),
+
     currency: normalizeText(currency),
     currentPrice,
     beforeCurrentPrice:
@@ -486,6 +544,36 @@ async function resolveCatalogImageRefs({
     wixHotelMainImageRef: normalizeText(result?.wixHotelMainImageRef),
     wixRoomMainImageRef: normalizeText(result?.wixRoomMainImageRef)
   };
+}
+
+function normalizeRequiredText(value, fieldPath) {
+  const text = normalizeText(value);
+
+  if (!text) {
+    throw new Error(`${fieldPath} is required.`);
+  }
+
+  return text;
+}
+
+function normalizeRequiredNumber(value, fieldPath) {
+  const numberValue = normalizeNumberOrNull(value);
+
+  if (!Number.isFinite(numberValue)) {
+    throw new Error(`${fieldPath} is required.`);
+  }
+
+  return numberValue;
+}
+
+function normalizeNumberOrNull(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const numberValue = Number(value);
+
+  return Number.isFinite(numberValue) ? numberValue : null;
 }
 
 function normalizeText(value) {
