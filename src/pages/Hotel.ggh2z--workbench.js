@@ -180,11 +180,13 @@ function bindHotelDescriptionSections(normalizedHotelDetails) {
   );
 
   if (hotelDescription) {
-    $w("#hotelDescriptionBodyText").text = hotelDescription;
-    $w("#hotelDescriptionBodyText").expand();
+    $w("#hotelDescriptionText").text = hotelDescription;
+    $w("#hotelDescriptionTitleText").expand();
+    $w("#hotelDescriptionText").expand();
   } else {
-    $w("#hotelDescriptionBodyText").text = "";
-    $w("#hotelDescriptionBodyText").collapse();
+    $w("#hotelDescriptionText").text = "";
+    $w("#hotelDescriptionTitleText").collapse();
+    $w("#hotelDescriptionText").collapse();
   }
 
   const hotelImportantInformation = normalizeText(
@@ -192,12 +194,68 @@ function bindHotelDescriptionSections(normalizedHotelDetails) {
   );
 
   if (hotelImportantInformation) {
-    $w("#hotelImportantInformationBodyText").text = hotelImportantInformation;
-    $w("#hotelImportantInformationBodyText").expand();
+    $w("#hotelImportantInformationText").text = hotelImportantInformation;
+    $w("#hotelImportantInformationTitleText").expand();
+    $w("#hotelImportantInformationText").expand();
   } else {
-    $w("#hotelImportantInformationBodyText").text = "";
-    $w("#hotelImportantInformationBodyText").collapse();
+    $w("#hotelImportantInformationText").text = "";
+    $w("#hotelImportantInformationTitleText").collapse();
+    $w("#hotelImportantInformationText").collapse();
   }
+
+  const hotelCheckinCheckoutTimesText = buildHotelCheckinCheckoutTimesText(
+    normalizedHotelDetails?.hotelCheckinCheckoutTimes
+  );
+
+  if (hotelCheckinCheckoutTimesText) {
+    $w("#hotelCheckinCheckoutTimesText").text = hotelCheckinCheckoutTimesText;
+    $w("#hotelCheckinCheckoutTimesTitleText").expand();
+    $w("#hotelCheckinCheckoutTimesText").expand();
+  } else {
+    $w("#hotelCheckinCheckoutTimesText").text = "";
+    $w("#hotelCheckinCheckoutTimesTitleText").collapse();
+    $w("#hotelCheckinCheckoutTimesText").collapse();
+  }
+}
+
+function buildHotelCheckinCheckoutTimesText(hotelCheckinCheckoutTimes) {
+  const checkinStart = normalizeText(hotelCheckinCheckoutTimes?.checkin_start);
+  const checkinEnd = normalizeText(hotelCheckinCheckoutTimes?.checkin_end);
+  const checkout = normalizeText(hotelCheckinCheckoutTimes?.checkout);
+
+  const instructions = Array.isArray(hotelCheckinCheckoutTimes?.instructions)
+    ? hotelCheckinCheckoutTimes.instructions
+        .map((instruction) => normalizeText(instruction))
+        .filter(Boolean)
+    : [];
+
+  const specialInstructions = normalizeText(
+    hotelCheckinCheckoutTimes?.special_instructions
+  );
+
+  const lines = [];
+
+  if (checkinStart) {
+    lines.push(`Check-in starts: ${checkinStart}`);
+  }
+
+  if (checkinEnd) {
+    lines.push(`Check-in ends: ${checkinEnd}`);
+  }
+
+  if (checkout) {
+    lines.push(`Check-out: ${checkout}`);
+  }
+
+  if (instructions.length) {
+    lines.push(`Instructions: ${instructions.join(" ")}`);
+  }
+
+  if (specialInstructions) {
+    lines.push(`Special instructions: ${specialInstructions}`);
+  }
+
+  return lines.join("\n");
 }
 
 function bindHotelPopupButtons(normalizedHotelDetails) {
