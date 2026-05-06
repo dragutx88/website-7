@@ -23,7 +23,8 @@ export async function getHotelMappedRoomRatesHandler(searchFlowContextQuery) {
 
   const [
     getHotelDetailsResponse,
-    getHotelMappedRoomRatesResponse
+    getHotelMappedRoomRatesResponse,
+    normalizedMarkupRate
   ] = await Promise.all([
     liteApiRequest(
       `${LITE_API_BASE_URL}/data/hotel?${getHotelDetailsQuery.toString()}`,
@@ -34,7 +35,8 @@ export async function getHotelMappedRoomRatesHandler(searchFlowContextQuery) {
     liteApiRequest(`${LITE_API_BASE_URL}/hotels/rates`, {
       method: "POST",
       body: getHotelMappedRoomRatesRequest
-    })
+    }),
+     getMarkupRate()
   ]);
 
   const [
@@ -62,10 +64,6 @@ export async function getHotelMappedRoomRatesHandler(searchFlowContextQuery) {
   if (!Array.isArray(getHotelMappedRoomRatesJson?.data)) {
     throw new Error("Hotel mapped room rates response data must be an array.");
   }
-
-  const normalizedMarkupRate = getHotelMappedRoomRatesJson.data.length
-    ? await getMarkupRate()
-    : null;
 
   const ratesExpiresInSeconds =
     normalizeIntegerOrNull(getHotelMappedRoomRatesJson?.data?.[0]?.et) || null;
