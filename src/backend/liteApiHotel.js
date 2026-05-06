@@ -36,7 +36,7 @@ export async function getHotelMappedRoomRatesHandler(searchFlowContextQuery) {
       method: "POST",
       body: getHotelMappedRoomRatesRequest
     }),
-     getMarkupRate()
+    getMarkupRate()
   ]);
 
   const [
@@ -77,12 +77,14 @@ export async function getHotelMappedRoomRatesHandler(searchFlowContextQuery) {
     hotelMappedRoomRates,
     checkin: getHotelMappedRoomRatesRequest.checkin,
     checkout: getHotelMappedRoomRatesRequest.checkout,
-    normalizedMarkupRate
+    normalizedMarkupRate,
+    ratesExpiresInSeconds
   });
 
   console.log("LITEAPI_HOTEL getHotelMappedRoomRates summary", {
     hotelId: getHotelMappedRoomRatesRequest.hotelIds[0],
-    ratesExpiresInSeconds,
+    ratesExpiresInSeconds:
+      normalizedHotelMappedRoomRates?.ratesExpiresInSeconds ?? null,
     hasNormalizedHotelMappedRoomRates: Boolean(normalizedHotelMappedRoomRates),
     normalizedHotelRoomsCount: normalizedHotelMappedRoomRates?.rooms?.length ?? 0,
     hasMinCurrentPrice: Number.isFinite(
@@ -92,7 +94,6 @@ export async function getHotelMappedRoomRatesHandler(searchFlowContextQuery) {
 
   return {
     hotelId: getHotelMappedRoomRatesRequest.hotelIds[0],
-    ratesExpiresInSeconds,
     normalizedHotelMappedRoomRates
   };
 }
@@ -333,7 +334,8 @@ function normalizeHotelMappedRoomRates({
   hotelMappedRoomRates,
   checkin,
   checkout,
-  normalizedMarkupRate
+  normalizedMarkupRate,
+  ratesExpiresInSeconds
 }) {
   if (!hotelMappedRoomRates || typeof hotelMappedRoomRates !== "object") {
     throw new Error("hotelMappedRoomRates is required.");
@@ -854,6 +856,7 @@ function normalizeHotelMappedRoomRates({
     hotelMapUrl,
     minCurrentPrice,
     minCurrentPriceText,
+    ratesExpiresInSeconds,
     rooms
   };
 
