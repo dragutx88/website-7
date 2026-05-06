@@ -719,6 +719,7 @@ function normalizeHotelMappedRoomRates({
                   : [],
 
                 currentPrice,
+                currentPriceCurrency: retailRateTotalCurrency,
                 currentPriceText,
                 beforeCurrentPrice: Number.isFinite(beforeCurrentPrice)
                   ? beforeCurrentPrice
