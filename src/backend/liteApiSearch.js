@@ -357,10 +357,7 @@ function getMappedHotelsRates(getHotelsRatesJson) {
 
           return {
             ...roomType,
-
-            rates: normalizedRates.map((rate) => ({
-              ...rate
-            }))
+            rates: normalizedRates
           };
         })
       };
