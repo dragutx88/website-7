@@ -49,6 +49,8 @@ export async function getHotelsRatesHandler(searchFlowContextQuery) {
     throw buildLiteApiError(getHotelsRatesJson, "Hotel rates request failed.");
   }
 
+  const mappedHotelsRates = getMappedHotelsRates(getHotelsRatesJson);
+
   const otaSearchMinCurrentPriceIndex =
     await resolveOtaSearchMinCurrentPriceIndex({
       getHotelsRatesJson,
@@ -57,7 +59,7 @@ export async function getHotelsRatesHandler(searchFlowContextQuery) {
 
   return {
     normalizedHotelsRates: normalizeHotelsRates(
-      getHotelsRatesJson,
+      mappedHotelsRates,
       validatedHotelsRatesSearchFlowContextQuery,
       normalizedMarkupRate,
       normalizedMarkupMarginRatio,
@@ -315,307 +317,405 @@ function buildHotelsRatesRequestOccupancies(
   return getHotelsRatesOccupancies;
 }
 
+function getMappedHotelsRates(getHotelsRatesJson) {
+  const hotelsByHotelId = new Map();
+
+  const getHotelsRatesHotels = Array.isArray(getHotelsRatesJson?.hotels)
+    ? getHotelsRatesJson.hotels
+    : [];
+
+  for (const hotel of getHotelsRatesHotels) {
+    const hotelId = normalizeText(hotel?.id);
+
+    if (!hotelId) {
+      continue;
+    }
+
+    hotelsByHotelId.set(hotelId, hotel);
+  }
+
+  const getHotelsRatesData = Array.isArray(getHotelsRatesJson?.data)
+    ? getHotelsRatesJson.data
+    : [];
+
+  const mappedHotelsRates = {
+    ...getHotelsRatesJson,
+
+    data: getHotelsRatesData.map((hotelRateDataItem) => {
+      const { roomTypes = [], ...hotelRateData } = hotelRateDataItem || {};
+      const hotelId = normalizeText(hotelRateData?.hotelId);
+      const normalizedRoomTypes = Array.isArray(roomTypes) ? roomTypes : [];
+
+      return {
+        ...hotelRateData,
+        _id: hotelId,
+        hotel: hotelsByHotelId.get(hotelId) || null,
+
+        roomTypes: normalizedRoomTypes.map((roomTypeItem) => {
+          const { rates = [], ...roomType } = roomTypeItem || {};
+          const normalizedRates = Array.isArray(rates) ? rates : [];
+
+          return {
+            ...roomType,
+
+            rates: normalizedRates.map((rate) => ({
+              ...rate
+            }))
+          };
+        })
+      };
+    })
+  };
+
+  return mappedHotelsRates;
+}
+
 function normalizeHotelsRates(
-  getHotelsRatesResponse,
+  mappedHotelsRates,
   validatedHotelsRatesSearchFlowContextQuery,
   normalizedMarkupRate,
   normalizedMarkupMarginRatio,
   otaSearchMinCurrentPriceIndex
 ) {
-  if (!Array.isArray(getHotelsRatesResponse?.data)) {
-    throw new Error("Hotel rates response data must be an array.");
+  if (!Array.isArray(mappedHotelsRates?.data)) {
+    throw new Error("Mapped hotel rates data must be an array.");
   }
 
-  const getHotelsRatesData = getHotelsRatesResponse.data;
+  const mappedHotelsRatesData = mappedHotelsRates.data;
 
-  if (!getHotelsRatesData.length) {
+  if (!mappedHotelsRatesData.length) {
     console.log("LITEAPI_SEARCH normalizeHotelsRates empty result", {
-      getHotelsRatesDataCount: getHotelsRatesData.length,
-      hasGetHotelsRatesHotelsArray: Array.isArray(getHotelsRatesResponse?.hotels)
+      mappedHotelsRatesDataCount: mappedHotelsRatesData.length
     });
 
     return [];
   }
-
-  if (!Array.isArray(getHotelsRatesResponse?.hotels)) {
-    throw new Error("Hotel rates response hotels must be an array.");
-  }
-
-  const getHotelsRatesHotels = getHotelsRatesResponse.hotels;
 
   const normalizedNightCount = calculateNightCount(
     validatedHotelsRatesSearchFlowContextQuery.checkin,
     validatedHotelsRatesSearchFlowContextQuery.checkout
   );
 
-  let skippedMissingHotelIdCount = 0;
-  let skippedMissingMatchingHotelCount = 0;
-  let skippedMissingHotelNameCount = 0;
-  let skippedMissingRateCount = 0;
-  let skippedMissingCurrentPriceAmountCount = 0;
-  let skippedMissingCurrentPriceCurrencyCount = 0;
-  let skippedMissingOccupancyNumberCount = 0;
-  let refundableTagRFNCount = 0;
-  let refundableTagNRFNCount = 0;
-  let refundableTagOtherCount = 0;
-  let otaSearchMinCurrentPriceFoundCount = 0;
-  let otaSearchMinCurrentPriceMissingCount = 0;
-  let otaSearchMinCurrentPriceUsedCount = 0;
-  let otaSearchMinCurrentPriceRejectedCount = 0;
-  let currentPriceOtaSearchPathCount = 0;
-  let currentPriceHotelOffersPathCount = 0;
-  let beforeCurrentPriceOtaSearchPathCount = 0;
-  let beforeCurrentPriceHotelOffersPathCount = 0;
-  let itemGreenPointEarningRateAndPointAppliedCount = 0;
-  let itemGreenPointEarningRateAndPointSkippedCount = 0;
+  const skipped = {
+    missingHotelId: 0,
+    missingAttachedHotel: 0,
+    missingHotelName: 0,
+    missingRoomTypes: 0,
+    missingRates: 0,
+    missingRateId: 0,
+    missingMappedRoomId: 0,
+    missingCurrentPriceAmount: 0,
+    missingCurrentPriceCurrency: 0,
+    missingOccupancyNumber: 0,
+    missingDisplayRate: 0
+  };
+
+  const otaSearch = {
+    minCurrentPriceFound: 0,
+    minCurrentPriceMissing: 0,
+    minCurrentPriceUsed: 0,
+    minCurrentPriceRejected: 0
+  };
+
+  const pricePath = {
+    currentPriceOtaSearch: 0,
+    currentPriceRetailRate: 0,
+    beforeCurrentPriceOtaSearch: 0,
+    beforeCurrentPriceRetailRate: 0
+  };
+
+  const itemGreenPoint = {
+    applied: 0,
+    skipped: 0
+  };
+
+  const refundableTag = {
+    RFN: 0,
+    NRFN: 0,
+    other: 0
+  };
 
   const normalizedHotelsRates = [];
 
-  for (const dataItem of getHotelsRatesData) {
-    const dataItemHotelId = normalizeText(dataItem?.hotelId);
+  for (const mappedHotelsRatesItem of mappedHotelsRatesData) {
+    const hotelId = normalizeText(mappedHotelsRatesItem?.hotelId);
 
-    if (!dataItemHotelId) {
-      skippedMissingHotelIdCount += 1;
+    if (!hotelId) {
+      skipped.missingHotelId += 1;
       continue;
     }
 
-    const getHotelsRatesHotel =
-      getHotelsRatesHotels.find(
-        (hotelItem) => normalizeText(hotelItem?.id) === dataItemHotelId
-      ) || null;
-
-    if (!getHotelsRatesHotel) {
-      skippedMissingMatchingHotelCount += 1;
+    if (!mappedHotelsRatesItem?.hotel) {
+      skipped.missingAttachedHotel += 1;
       continue;
     }
 
-    const getHotelsRatesHotelName =
-      normalizeText(getHotelsRatesHotel?.name) || null;
+    const hotelName =
+      normalizeText(mappedHotelsRatesItem?.hotel?.name) || null;
 
-    if (!getHotelsRatesHotelName) {
-      skippedMissingHotelNameCount += 1;
+    if (!hotelName) {
+      skipped.missingHotelName += 1;
       continue;
     }
 
-    if (!dataItem?.roomTypes?.[0]?.rates?.[0]) {
-      skippedMissingRateCount += 1;
+    const roomTypes = Array.isArray(mappedHotelsRatesItem?.roomTypes)
+      ? mappedHotelsRatesItem.roomTypes
+      : [];
+
+    if (!roomTypes.length) {
+      skipped.missingRoomTypes += 1;
       continue;
     }
 
-    const hotelOffersMinCurrentPrice = normalizeNumberOrNull(
-      dataItem?.roomTypes?.[0]?.rates?.[0]?.retailRate?.total?.[0]?.amount
+    const hotelAddress =
+      normalizeText(mappedHotelsRatesItem?.hotel?.address) || null;
+
+    const hotelRating = normalizeNumberOrNull(
+      mappedHotelsRatesItem?.hotel?.rating
     );
 
-    if (!Number.isFinite(hotelOffersMinCurrentPrice)) {
-      skippedMissingCurrentPriceAmountCount += 1;
-      continue;
-    }
+    const hotelMainImage =
+      normalizeText(mappedHotelsRatesItem?.hotel?.main_photo) || null;
 
-    const hotelOffersMinCurrentPriceCurrency =
-      normalizeText(
-        dataItem?.roomTypes?.[0]?.rates?.[0]?.retailRate?.total?.[0]?.currency
-      ).toUpperCase() || null;
+    let displayRate = null;
 
-    if (!hotelOffersMinCurrentPriceCurrency) {
-      skippedMissingCurrentPriceCurrencyCount += 1;
-      continue;
-    }
+    for (const roomTypeItem of roomTypes) {
+      if (displayRate) {
+        break;
+      }
 
-    const hotelOffersMinCurrentPriceOccupancyNumber =
-      normalizePositiveIntegerOrNull(
-        dataItem?.roomTypes?.[0]?.rates?.[0]?.occupancyNumber
-      );
+      const rates = Array.isArray(roomTypeItem?.rates)
+        ? roomTypeItem.rates
+        : [];
 
-    if (!Number.isFinite(hotelOffersMinCurrentPriceOccupancyNumber)) {
-      skippedMissingOccupancyNumberCount += 1;
-      continue;
-    }
+      if (!rates.length) {
+        skipped.missingRates += 1;
+        continue;
+      }
 
-    const getHotelsRatesHotelAddress =
-      normalizeText(getHotelsRatesHotel?.address) || null;
-    const getHotelsRatesHotelRating = normalizeNumberOrNull(
-      getHotelsRatesHotel?.rating
-    );
-    const getHotelsRatesHotelMainImage =
-      normalizeText(getHotelsRatesHotel?.main_photo) || null;
+      for (const rateItem of rates) {
+        const rateId = normalizeText(rateItem?.rateId);
 
-    const hotelRoomOfferBoardName =
-      normalizeText(dataItem?.roomTypes?.[0]?.rates?.[0]?.boardName) || null;
+        if (!rateId) {
+          skipped.missingRateId += 1;
+          continue;
+        }
 
-    const hotelOffersBeforeMinCurrentPrice = normalizeNumberOrNull(
-      dataItem?.roomTypes?.[0]?.rates?.[0]?.retailRate
-        ?.suggestedSellingPrice?.[0]?.amount
-    );
+        const mappedRoomId = normalizeIntegerOrNull(rateItem?.mappedRoomId);
 
-    const hotelOffersMinCurrentPriceTaxesAndFees = Array.isArray(
-      dataItem?.roomTypes?.[0]?.rates?.[0]?.retailRate?.taxesAndFees
-    )
-      ? dataItem.roomTypes[0].rates[0].retailRate.taxesAndFees
-      : null;
+        if (!Number.isFinite(mappedRoomId)) {
+          skipped.missingMappedRoomId += 1;
+          continue;
+        }
 
-    const hotelOffersMinCurrentPriceTaxesAndFeesText = Array.isArray(
-      hotelOffersMinCurrentPriceTaxesAndFees
-    )
-      ? hotelOffersMinCurrentPriceTaxesAndFees.some(
-          (hotelOffersMinCurrentPriceTaxesAndFeesItem) =>
-            hotelOffersMinCurrentPriceTaxesAndFeesItem?.included === false
+        const retailRateTotalAmount = normalizeNumberOrNull(
+          rateItem?.retailRate?.total?.[0]?.amount
+        );
+
+        if (!Number.isFinite(retailRateTotalAmount)) {
+          skipped.missingCurrentPriceAmount += 1;
+          continue;
+        }
+
+        const retailRateTotalCurrency =
+          normalizeText(
+            rateItem?.retailRate?.total?.[0]?.currency
+          ).toUpperCase() || null;
+
+        if (!retailRateTotalCurrency) {
+          skipped.missingCurrentPriceCurrency += 1;
+          continue;
+        }
+
+        const occupancyNumber = normalizePositiveIntegerOrNull(
+          rateItem?.occupancyNumber
+        );
+
+        if (!Number.isFinite(occupancyNumber)) {
+          skipped.missingOccupancyNumber += 1;
+          continue;
+        }
+
+        const rateName = normalizeText(rateItem?.name) || null;
+        const rateBoardName = normalizeText(rateItem?.boardName) || null;
+
+        const retailRateSuggestedSellingPriceAmount = normalizeNumberOrNull(
+          rateItem?.retailRate?.suggestedSellingPrice?.[0]?.amount
+        );
+
+        const retailRateTaxesAndFees = Array.isArray(
+          rateItem?.retailRate?.taxesAndFees
         )
-        ? "excl."
-        : "incl."
-      : null;
+          ? rateItem.retailRate.taxesAndFees
+          : null;
 
-    const otaSearchMinCurrentPrice = normalizeNumberOrNull(
-      otaSearchMinCurrentPriceIndex?.[dataItemHotelId]
-    );
+        const retailRateTaxesAndFeesText = Array.isArray(
+          retailRateTaxesAndFees
+        )
+          ? retailRateTaxesAndFees.some(
+              (retailRateTaxesAndFeesItem) =>
+                retailRateTaxesAndFeesItem?.included === false
+            )
+            ? "excl."
+            : "incl."
+          : null;
 
-    if (Number.isFinite(otaSearchMinCurrentPrice)) {
-      otaSearchMinCurrentPriceFoundCount += 1;
-    } else {
-      otaSearchMinCurrentPriceMissingCount += 1;
-    }
+        const otaSearchMinCurrentPrice = normalizeNumberOrNull(
+          otaSearchMinCurrentPriceIndex?.[hotelId]
+        );
 
-    const resolvedCurrentPrice = resolveCurrentPrice({
-      hotelOffersMinCurrentPrice,
-      otaSearchMinCurrentPrice,
-      normalizedMarkupRate,
-      normalizedMarkupMarginRatio
-    });
+        if (Number.isFinite(otaSearchMinCurrentPrice)) {
+          otaSearch.minCurrentPriceFound += 1;
+        } else {
+          otaSearch.minCurrentPriceMissing += 1;
+        }
 
-    const currentPrice = resolvedCurrentPrice.currentPrice;
+        const resolvedCurrentPrice = resolveCurrentPrice({
+          retailRateTotalAmount,
+          otaSearchMinCurrentPrice,
+          normalizedMarkupRate,
+          normalizedMarkupMarginRatio
+        });
 
-    if (resolvedCurrentPrice.shouldUseOtaSearchMinCurrentPrice) {
-      otaSearchMinCurrentPriceUsedCount += 1;
-      currentPriceOtaSearchPathCount += 1;
-    } else {
-      currentPriceHotelOffersPathCount += 1;
+        const currentPrice = resolvedCurrentPrice.currentPrice;
 
-      if (Number.isFinite(otaSearchMinCurrentPrice)) {
-        otaSearchMinCurrentPriceRejectedCount += 1;
+        if (resolvedCurrentPrice.shouldUseOtaSearchMinCurrentPrice) {
+          otaSearch.minCurrentPriceUsed += 1;
+          pricePath.currentPriceOtaSearch += 1;
+        } else {
+          pricePath.currentPriceRetailRate += 1;
+
+          if (Number.isFinite(otaSearchMinCurrentPrice)) {
+            otaSearch.minCurrentPriceRejected += 1;
+          }
+        }
+
+        const resolvedBeforeCurrentPrice = resolveBeforeCurrentPrice({
+          currentPrice,
+          retailRateSuggestedSellingPriceAmount,
+          normalizedMarkupRate,
+          shouldUseOtaSearchMinCurrentPrice:
+            resolvedCurrentPrice.shouldUseOtaSearchMinCurrentPrice
+        });
+
+        const beforeCurrentPrice = resolvedBeforeCurrentPrice.beforeCurrentPrice;
+
+        if (resolvedBeforeCurrentPrice.shouldUseOtaSearchMinCurrentPrice) {
+          pricePath.beforeCurrentPriceOtaSearch += 1;
+        } else {
+          pricePath.beforeCurrentPriceRetailRate += 1;
+        }
+
+        const resolvedItemGreenPointEarningRateAndPoint =
+          resolveItemGreenPointEarningRateAndPoint({
+            currentPrice,
+            retailRateTotalAmount,
+            normalizedMarkupMarginRatio
+          });
+
+        const itemPoint =
+          resolvedItemGreenPointEarningRateAndPoint.itemPoint;
+        const itemGreenPointEarningRate =
+          resolvedItemGreenPointEarningRateAndPoint.itemGreenPointEarningRate;
+
+        if (
+          Number.isFinite(itemPoint) &&
+          Number.isFinite(itemGreenPointEarningRate)
+        ) {
+          itemGreenPoint.applied += 1;
+        } else {
+          itemGreenPoint.skipped += 1;
+        }
+
+        const currentPriceText = formatCurrencyText(
+          currentPrice,
+          retailRateTotalCurrency,
+          validatedHotelsRatesSearchFlowContextQuery.language
+        );
+
+        const beforeCurrentPriceText = formatCurrencyText(
+          beforeCurrentPrice,
+          retailRateTotalCurrency,
+          validatedHotelsRatesSearchFlowContextQuery.language
+        );
+
+        const currentPriceNoteText = buildCurrentPriceNoteText(
+          normalizedNightCount,
+          occupancyNumber,
+          retailRateTaxesAndFeesText
+        );
+
+        const cancellationPoliciesRefundableTag =
+          normalizeText(
+            rateItem?.cancellationPolicies?.refundableTag
+          ).toUpperCase() || null;
+
+        if (cancellationPoliciesRefundableTag === "RFN") {
+          refundableTag.RFN += 1;
+        } else if (cancellationPoliciesRefundableTag === "NRFN") {
+          refundableTag.NRFN += 1;
+        } else {
+          refundableTag.other += 1;
+        }
+
+        displayRate = {
+          rateName,
+          rateBoardName,
+          beforeCurrentPriceText,
+          currentPriceText,
+          currentPriceNoteText,
+          itemPoint,
+          itemGreenPointEarningRate
+        };
+
+        break;
       }
     }
 
-    const resolvedBeforeCurrentPrice = resolveBeforeCurrentPrice({
-      currentPrice,
-      hotelOffersBeforeMinCurrentPrice,
-      normalizedMarkupRate,
-      shouldUseOtaSearchMinCurrentPrice:
-        resolvedCurrentPrice.shouldUseOtaSearchMinCurrentPrice
-    });
-
-    const beforeCurrentPrice = resolvedBeforeCurrentPrice.beforeCurrentPrice;
-
-    if (resolvedBeforeCurrentPrice.shouldUseOtaSearchMinCurrentPrice) {
-      beforeCurrentPriceOtaSearchPathCount += 1;
-    } else {
-      beforeCurrentPriceHotelOffersPathCount += 1;
-    }
-
-    const resolvedItemGreenPointEarningRateAndPoint =
-      resolveItemGreenPointEarningRateAndPoint({
-        currentPrice,
-        hotelOffersMinCurrentPrice,
-        normalizedMarkupMarginRatio
-      });
-
-    const itemPoint =
-      resolvedItemGreenPointEarningRateAndPoint.itemPoint;
-    const itemGreenPointEarningRate =
-      resolvedItemGreenPointEarningRateAndPoint.itemGreenPointEarningRate;
-
-    if (
-      Number.isFinite(itemPoint) &&
-      Number.isFinite(itemGreenPointEarningRate)
-    ) {
-      itemGreenPointEarningRateAndPointAppliedCount += 1;
-    } else {
-      itemGreenPointEarningRateAndPointSkippedCount += 1;
-    }
-
-    const currentPriceText = formatCurrencyText(
-      currentPrice,
-      hotelOffersMinCurrentPriceCurrency,
-      validatedHotelsRatesSearchFlowContextQuery.language
-    );
-
-    const beforeCurrentPriceText = formatCurrencyText(
-      beforeCurrentPrice,
-      hotelOffersMinCurrentPriceCurrency,
-      validatedHotelsRatesSearchFlowContextQuery.language
-    );
-
-    const currentPriceNoteText = buildCurrentPriceNoteText(
-      normalizedNightCount,
-      hotelOffersMinCurrentPriceOccupancyNumber,
-      hotelOffersMinCurrentPriceTaxesAndFeesText
-    );
-
-    const refundableTag =
-      normalizeText(
-        dataItem?.roomTypes?.[0]?.rates?.[0]?.cancellationPolicies
-          ?.refundableTag
-      ).toUpperCase() || null;
-
-    if (refundableTag === "RFN") {
-      refundableTagRFNCount += 1;
-    } else if (refundableTag === "NRFN") {
-      refundableTagNRFNCount += 1;
-    } else {
-      refundableTagOtherCount += 1;
+    if (!displayRate) {
+      skipped.missingDisplayRate += 1;
+      continue;
     }
 
     normalizedHotelsRates.push({
-      hotelId: dataItemHotelId,
-      hotelName: getHotelsRatesHotelName,
-      hotelAddress: getHotelsRatesHotelAddress,
-      hotelRating: getHotelsRatesHotelRating,
-      hotelMainImage: getHotelsRatesHotelMainImage,
-      beforeCurrentPriceText,
-      currentPriceText,
-      currentPriceNoteText,
-      itemPoint,
-      itemGreenPointEarningRate,
-      hotelRoomOfferBoardName
+      _id: hotelId,
+      hotelId,
+      hotelName,
+      hotelAddress,
+      hotelRating,
+      hotelMainImage,
+      beforeCurrentPriceText: displayRate.beforeCurrentPriceText,
+      currentPriceText: displayRate.currentPriceText,
+      currentPriceNoteText: displayRate.currentPriceNoteText,
+      itemPoint: displayRate.itemPoint,
+      itemGreenPointEarningRate: displayRate.itemGreenPointEarningRate,
+      rateName: displayRate.rateName,
+      rateBoardName: displayRate.rateBoardName
     });
   }
 
   console.log("LITEAPI_SEARCH normalizeHotelsRates summary", {
-    getHotelsRatesDataCount: getHotelsRatesData.length,
-    getHotelsRatesHotelsCount: getHotelsRatesHotels.length,
+    mappedHotelsRatesDataCount: mappedHotelsRatesData.length,
     normalizedHotelsRatesCount: normalizedHotelsRates.length,
-    skippedMissingHotelIdCount,
-    skippedMissingMatchingHotelCount,
-    skippedMissingHotelNameCount,
-    skippedMissingRateCount,
-    skippedMissingCurrentPriceAmountCount,
-    skippedMissingCurrentPriceCurrencyCount,
-    skippedMissingOccupancyNumberCount,
-    otaSearchMinCurrentPriceFoundCount,
-    otaSearchMinCurrentPriceMissingCount,
-    otaSearchMinCurrentPriceUsedCount,
-    otaSearchMinCurrentPriceRejectedCount,
-    currentPriceOtaSearchPathCount,
-    currentPriceHotelOffersPathCount,
-    beforeCurrentPriceOtaSearchPathCount,
-    beforeCurrentPriceHotelOffersPathCount,
-    itemGreenPointEarningRateAndPointAppliedCount,
-    itemGreenPointEarningRateAndPointSkippedCount,
-    refundableTagRFNCount,
-    refundableTagNRFNCount,
-    refundableTagOtherCount
+    skipped,
+    otaSearch,
+    pricePath,
+    itemGreenPoint,
+    refundableTag
   });
 
   return normalizedHotelsRates;
 }
 
 function resolveCurrentPrice({
-  hotelOffersMinCurrentPrice,
+  retailRateTotalAmount,
   otaSearchMinCurrentPrice,
   normalizedMarkupRate,
   normalizedMarkupMarginRatio
 }) {
   const markupMarginRatio = calculateMarkupMarginRatio(
     otaSearchMinCurrentPrice,
-    hotelOffersMinCurrentPrice
+    retailRateTotalAmount
   );
 
   const shouldUseOtaSearchMinCurrentPrice =
@@ -628,13 +728,13 @@ function resolveCurrentPrice({
     shouldUseOtaSearchMinCurrentPrice,
     currentPrice: shouldUseOtaSearchMinCurrentPrice
       ? applyMarkupRate(otaSearchMinCurrentPrice, DEFAULT_MARKUP_RATE)
-      : applyMarkupRate(hotelOffersMinCurrentPrice, normalizedMarkupRate)
+      : applyMarkupRate(retailRateTotalAmount, normalizedMarkupRate)
   };
 }
 
 function resolveBeforeCurrentPrice({
   currentPrice,
-  hotelOffersBeforeMinCurrentPrice,
+  retailRateSuggestedSellingPriceAmount,
   normalizedMarkupRate,
   shouldUseOtaSearchMinCurrentPrice
 }) {
@@ -651,7 +751,7 @@ function resolveBeforeCurrentPrice({
   return {
     shouldUseOtaSearchMinCurrentPrice,
     beforeCurrentPrice: applyMarkupRate(
-      hotelOffersBeforeMinCurrentPrice,
+      retailRateSuggestedSellingPriceAmount,
       normalizedMarkupRate
     )
   };
@@ -659,12 +759,12 @@ function resolveBeforeCurrentPrice({
 
 function resolveItemGreenPointEarningRateAndPoint({
   currentPrice,
-  hotelOffersMinCurrentPrice,
+  retailRateTotalAmount,
   normalizedMarkupMarginRatio
 }) {
   const markupMarginRatio = calculateMarkupMarginRatio(
     currentPrice,
-    hotelOffersMinCurrentPrice
+    retailRateTotalAmount
   );
 
   const shouldApplyItemGreenPointEarningRateAndPoint =
@@ -716,7 +816,8 @@ function calculateMarkupMarginRatio(price, basePrice) {
   if (
     !Number.isFinite(normalizedPrice) ||
     !Number.isFinite(normalizedBasePrice) ||
-    normalizedPrice <= 0
+    normalizedPrice <= 0 ||
+    normalizedBasePrice <= 0
   ) {
     return null;
   }
@@ -726,17 +827,17 @@ function calculateMarkupMarginRatio(price, basePrice) {
 
 function buildCurrentPriceNoteText(
   normalizedNightCount,
-  hotelOffersMinCurrentPriceOccupancyNumber,
-  hotelOffersMinCurrentPriceTaxesAndFeesText
+  occupancyNumber,
+  retailRateTaxesAndFeesText
 ) {
   const currentPriceNoteTextItems = [
     `${normalizedNightCount} night`,
-    `${hotelOffersMinCurrentPriceOccupancyNumber} room`
+    `${occupancyNumber} room`
   ];
 
-  if (hotelOffersMinCurrentPriceTaxesAndFeesText) {
+  if (retailRateTaxesAndFeesText) {
     currentPriceNoteTextItems.push(
-      `${hotelOffersMinCurrentPriceTaxesAndFeesText} taxes & fees`
+      `${retailRateTaxesAndFeesText} taxes & fees`
     );
   }
 
