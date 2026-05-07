@@ -32,16 +32,18 @@ export async function getHotelsRatesHandler(searchFlowContextQuery) {
     validatedHotelsRatesSearchFlowContextQuery
   );
 
-  const [normalizedMarkupRate, normalizedMarkupMarginRatio] =
-    await Promise.all([getMarkupRate(), getMarkupMarginRatio()]);
-
-  const getHotelsRatesResponse = await liteApiRequest(
-    `${LITE_API_BASE_URL}/hotels/rates`,
-    {
+  const [
+    normalizedMarkupRate,
+    normalizedMarkupMarginRatio,
+    getHotelsRatesResponse
+  ] = await Promise.all([
+    getMarkupRate(),
+    getMarkupMarginRatio(),
+    liteApiRequest(`${LITE_API_BASE_URL}/hotels/rates`, {
       method: "POST",
       body: getHotelsRatesRequest
-    }
-  );
+    })
+  ]);
 
   const getHotelsRatesJson = await parseJson(getHotelsRatesResponse);
 
@@ -334,14 +336,11 @@ function getMappedHotelsRates(getHotelsRatesJson) {
     hotelsByHotelId.set(hotelId, hotel);
   }
 
-  const getHotelsRatesData = Array.isArray(getHotelsRatesJson?.data)
-    ? getHotelsRatesJson.data
-    : [];
-
   return {
-    ...getHotelsRatesJson,
-
-    data: getHotelsRatesData.map((hotelRateDataItem) => {
+    data: (Array.isArray(getHotelsRatesJson?.data)
+      ? getHotelsRatesJson.data
+      : []
+    ).map((hotelRateDataItem) => {
       const hotelRateData = hotelRateDataItem || {};
       const hotelId = normalizeText(hotelRateData?.hotelId);
       const hotel = hotelsByHotelId.get(hotelId) || null;
@@ -354,47 +353,83 @@ function getMappedHotelsRates(getHotelsRatesJson) {
 
         hotel: hotel
           ? {
-              hotelName: normalizeText(hotel?.name) || null,
-              hotelAddress: normalizeText(hotel?.address) || null,
-              hotelRating: normalizeNumberOrNull(hotel?.rating),
-              hotelMainImage: normalizeText(hotel?.main_photo) || null
+              id: normalizeText(hotel?.id) || null,
+              name: normalizeText(hotel?.name) || null,
+              address: normalizeText(hotel?.address) || null,
+              rating: normalizeNumberOrNull(hotel?.rating),
+              main_photo: normalizeText(hotel?.main_photo) || null
             }
           : null,
 
         roomTypes: roomTypes.map((roomTypeItem) => {
-          const rates = Array.isArray(roomTypeItem?.rates)
-            ? roomTypeItem.rates
+          const roomType = roomTypeItem || {};
+          const rates = Array.isArray(roomType?.rates)
+            ? roomType.rates
             : [];
 
           return {
-            rates: rates.map((rate) => ({
-              rateId: normalizeText(rate?.rateId),
-              mappedRoomId: normalizeIntegerOrNull(rate?.mappedRoomId),
-              occupancyNumber: normalizePositiveIntegerOrNull(
-                rate?.occupancyNumber
-              ),
-              rateName: normalizeText(rate?.name) || null,
-              rateBoardName: normalizeText(rate?.boardName) || null,
-              retailRateTotalAmount: normalizeNumberOrNull(
-                rate?.retailRate?.total?.[0]?.amount
-              ),
-              retailRateTotalCurrency:
-                normalizeText(
-                  rate?.retailRate?.total?.[0]?.currency
-                ).toUpperCase() || null,
-              retailRateSuggestedSellingPriceAmount: normalizeNumberOrNull(
-                rate?.retailRate?.suggestedSellingPrice?.[0]?.amount
-              ),
-              retailRateTaxesAndFees: Array.isArray(
-                rate?.retailRate?.taxesAndFees
+            roomTypeId: normalizeText(roomType?.roomTypeId) || null,
+            offerId: normalizeText(roomType?.offerId) || null,
+
+            rates: rates.map((rateItem) => {
+              const rate = rateItem || {};
+              const retailRate = rate?.retailRate || {};
+              const cancellationPolicies = rate?.cancellationPolicies || {};
+
+              const retailRateTotal = Array.isArray(retailRate?.total)
+                ? retailRate.total
+                : [];
+
+              const retailRateSuggestedSellingPrice = Array.isArray(
+                retailRate?.suggestedSellingPrice
               )
-                ? rate.retailRate.taxesAndFees
-                : null,
-              refundableTag:
-                normalizeText(
-                  rate?.cancellationPolicies?.refundableTag
-                ).toUpperCase() || null
-            }))
+                ? retailRate.suggestedSellingPrice
+                : [];
+
+              const retailRateTaxesAndFees = Array.isArray(
+                retailRate?.taxesAndFees
+              )
+                ? retailRate.taxesAndFees
+                : [];
+
+              return {
+                rateId: normalizeText(rate?.rateId) || null,
+                mappedRoomId: normalizeIntegerOrNull(rate?.mappedRoomId),
+                occupancyNumber: normalizePositiveIntegerOrNull(
+                  rate?.occupancyNumber
+                ),
+                name: normalizeText(rate?.name) || null,
+                boardName: normalizeText(rate?.boardName) || null,
+
+                retailRate: {
+                  total: retailRateTotal.map((item) => ({
+                    amount: normalizeNumberOrNull(item?.amount),
+                    currency:
+                      normalizeText(item?.currency).toUpperCase() || null
+                  })),
+
+                  suggestedSellingPrice: retailRateSuggestedSellingPrice.map(
+                    (item) => ({
+                      amount: normalizeNumberOrNull(item?.amount)
+                    })
+                  ),
+
+                  taxesAndFees: retailRateTaxesAndFees.map((item) => ({
+                    included: item?.included === true,
+                    amount: normalizeNumberOrNull(item?.amount),
+                    currency:
+                      normalizeText(item?.currency).toUpperCase() || null
+                  }))
+                },
+
+                cancellationPolicies: {
+                  refundableTag:
+                    normalizeText(
+                      cancellationPolicies?.refundableTag
+                    ).toUpperCase() || null
+                }
+              };
+            })
           };
         })
       };
@@ -470,7 +505,7 @@ function normalizeHotelsRates(
   const normalizedHotelsRates = [];
 
   for (const mappedHotelsRatesItem of mappedHotelsRatesData) {
-    const { hotelId, hotel, roomTypes: mappedRoomTypes } = mappedHotelsRatesItem;
+    const { hotelId, hotel, roomTypes } = mappedHotelsRatesItem;
 
     if (!hotelId) {
       skipped.missingHotelId += 1;
@@ -482,30 +517,31 @@ function normalizeHotelsRates(
       continue;
     }
 
-    const { hotelName, hotelAddress, hotelRating, hotelMainImage } = hotel;
+    const {
+      name: hotelName,
+      address: hotelAddress,
+      rating: hotelRating,
+      main_photo: hotelMainImage
+    } = hotel;
 
     if (!hotelName) {
       skipped.missingHotelName += 1;
       continue;
     }
 
-    const roomTypes = Array.isArray(mappedRoomTypes) ? mappedRoomTypes : [];
-
     if (!roomTypes.length) {
       skipped.missingRoomTypes += 1;
       continue;
     }
 
-    let displayRate = null;
+    let hasDisplayRate = false;
 
     for (const roomTypeItem of roomTypes) {
-      if (displayRate) {
+      if (hasDisplayRate) {
         break;
       }
 
-      const rates = Array.isArray(roomTypeItem?.rates)
-        ? roomTypeItem.rates
-        : [];
+      const { roomTypeId, offerId, rates } = roomTypeItem;
 
       if (!rates.length) {
         skipped.missingRates += 1;
@@ -517,13 +553,10 @@ function normalizeHotelsRates(
           rateId,
           mappedRoomId,
           occupancyNumber,
-          rateName,
-          rateBoardName,
-          retailRateTotalAmount,
-          retailRateTotalCurrency,
-          retailRateSuggestedSellingPriceAmount,
-          retailRateTaxesAndFees,
-          refundableTag: rateRefundableTag
+          name: rateName,
+          boardName: rateBoardName,
+          retailRate,
+          cancellationPolicies
         } = rateItem;
 
         if (!rateId) {
@@ -535,6 +568,9 @@ function normalizeHotelsRates(
           skipped.missingMappedRoomId += 1;
           continue;
         }
+
+        const retailRateTotalAmount = retailRate.total[0]?.amount ?? null;
+        const retailRateTotalCurrency = retailRate.total[0]?.currency ?? null;
 
         if (!Number.isFinite(retailRateTotalAmount)) {
           skipped.missingCurrentPriceAmount += 1;
@@ -551,11 +587,25 @@ function normalizeHotelsRates(
           continue;
         }
 
-        const retailRateTaxesAndFeesText = Array.isArray(retailRateTaxesAndFees)
-          ? retailRateTaxesAndFees.some((t) => t?.included === false)
+        const retailRateSuggestedSellingPriceAmount =
+          retailRate.suggestedSellingPrice[0]?.amount ?? null;
+
+        const retailRateTaxesAndFeesText = retailRate.taxesAndFees.length
+          ? retailRate.taxesAndFees.some((item) => item.included === false)
             ? "excl."
             : "incl."
           : null;
+
+        const cancellationPoliciesRefundableTag =
+          cancellationPolicies.refundableTag;
+
+        if (cancellationPoliciesRefundableTag === "RFN") {
+          refundableTag.RFN += 1;
+        } else if (cancellationPoliciesRefundableTag === "NRFN") {
+          refundableTag.NRFN += 1;
+        } else {
+          refundableTag.other += 1;
+        }
 
         const otaSearchMinCurrentPrice = normalizeNumberOrNull(
           otaSearchMinCurrentPriceIndex?.[hotelId]
@@ -643,48 +693,41 @@ function normalizeHotelsRates(
           retailRateTaxesAndFeesText
         );
 
-        if (rateRefundableTag === "RFN") {
-          refundableTag.RFN += 1;
-        } else if (rateRefundableTag === "NRFN") {
-          refundableTag.NRFN += 1;
-        } else {
-          refundableTag.other += 1;
-        }
+        normalizedHotelsRates.push({
+          _id: hotelId,
 
-        displayRate = {
+          hotelId,
+          hotelName,
+          hotelAddress,
+          hotelRating,
+          hotelMainImage,
+
+          roomTypeId,
+          offerId,
+
+          rateId,
+          mappedRoomId,
+          occupancyNumber,
           rateName,
           rateBoardName,
-          beforeCurrentPriceText,
+
+          currentPriceCurrency: retailRateTotalCurrency,
           currentPriceText,
+          beforeCurrentPriceText,
           currentPriceNoteText,
           itemPoint,
           itemGreenPointEarningRate
-        };
+        });
 
+        hasDisplayRate = true;
         break;
       }
     }
 
-    if (!displayRate) {
+    if (!hasDisplayRate) {
       skipped.missingDisplayRate += 1;
       continue;
     }
-
-    normalizedHotelsRates.push({
-      _id: hotelId,
-      hotelId,
-      hotelName,
-      hotelAddress,
-      hotelRating,
-      hotelMainImage,
-      beforeCurrentPriceText: displayRate.beforeCurrentPriceText,
-      currentPriceText: displayRate.currentPriceText,
-      currentPriceNoteText: displayRate.currentPriceNoteText,
-      itemPoint: displayRate.itemPoint,
-      itemGreenPointEarningRate: displayRate.itemGreenPointEarningRate,
-      rateName: displayRate.rateName,
-      rateBoardName: displayRate.rateBoardName
-    });
   }
 
   console.log("LITEAPI_SEARCH normalizeHotelsRates summary", {
@@ -937,22 +980,13 @@ function normalizeNumberOrNull(value) {
 }
 
 function normalizeIntegerOrNull(value) {
-  const normalizedText = normalizeText(value);
-
-  if (!normalizedText) {
-    return null;
-  }
-
-  const normalizedNumber = Number(normalizedText);
-  return Number.isInteger(normalizedNumber) ? normalizedNumber : null;
+  const parsed = normalizeNumberOrNull(value);
+  return Number.isInteger(parsed) ? parsed : null;
 }
 
 function normalizePositiveIntegerOrNull(value) {
   const normalizedInteger = normalizeIntegerOrNull(value);
-
-  if (!Number.isFinite(normalizedInteger) || normalizedInteger <= 0) {
-    return null;
-  }
-
-  return normalizedInteger;
+  return normalizedInteger !== null && normalizedInteger > 0
+    ? normalizedInteger
+    : null;
 }
