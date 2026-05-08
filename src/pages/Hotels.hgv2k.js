@@ -7,11 +7,11 @@ const SEARCH_FLOW_CONTEXT_QUERY_STRINGIFY_SESSION_KEY =
   "searchFlowContextQueryStringify";
 
 const INITIAL_RESULTS_COUNT = 40;
-const HOTEL_OFFER_RESULTS_RENDER_STEP = 40;
+const HOTEL_RATE_RESULTS_RENDER_STEP = 40;
 
-let allHotelOfferResults = [];
-let renderedHotelOfferResultsCount = 0;
-let isRenderingNextHotelOfferResults = false;
+let allHotelRateResults = [];
+let renderedHotelRateResultsCount = 0;
+let isRenderingNextHotelRateResults = false;
 
 $w.onReady(async function () {
   const renderingEnv = wixWindow.rendering.env;
@@ -56,8 +56,8 @@ async function initializeHotelsPage() {
       : "standardHotelsRates"
   });
 
-  configureRepeater();
-  configureHotelOfferResultsProgressiveLoadingButton();
+  configureHotelRateResultsRepeater();
+  configureHotelRateResultsProgressiveLoadingButton();
   hideNoResultsState();
 
   try {
@@ -79,7 +79,7 @@ async function initializeHotelsPage() {
         : "standardHotelsRates",
       normalizedHotelsRatesCount: normalizedHotelsRates.length,
       initialResultsCount: INITIAL_RESULTS_COUNT,
-      hotelOfferResultsRenderStep: HOTEL_OFFER_RESULTS_RENDER_STEP
+      hotelRateResultsRenderStep: HOTEL_RATE_RESULTS_RENDER_STEP
     });
 
     if (!normalizedHotelsRates.length) {
@@ -87,25 +87,25 @@ async function initializeHotelsPage() {
       return;
     }
 
-    allHotelOfferResults = normalizedHotelsRates.map((normalizedHotelItem) => ({
+    allHotelRateResults = normalizedHotelsRates.map((normalizedHotelItem) => ({
       ...normalizedHotelItem,
       _id: buildRepeaterId(normalizedHotelItem?.hotelId)
     }));
 
-    renderedHotelOfferResultsCount = Math.min(
+    renderedHotelRateResultsCount = Math.min(
       INITIAL_RESULTS_COUNT,
-      allHotelOfferResults.length
+      allHotelRateResults.length
     );
 
-    console.log("HOTELS prepared hotel offer results", {
+    console.log("HOTELS prepared hotel rate results", {
       searchBackendMode: isOzviaClubOffersMode
         ? "ozviaClubOffers"
         : "standardHotelsRates",
-      allHotelOfferResultsCount: allHotelOfferResults.length,
-      renderedHotelOfferResultsCount
+      allHotelRateResultsCount: allHotelRateResults.length,
+      renderedHotelRateResultsCount
     });
 
-    renderHotelOfferResults("initial");
+    renderHotelRateResults("initial");
   } catch (initializeHotelsPageError) {
     console.error("HOTELS initialization failed", {
       searchBackendMode: isOzviaClubOffersMode
@@ -125,107 +125,112 @@ async function initializeHotelsPage() {
   }
 }
 
-function configureRepeater() {
-  const hotelOfferResultsRepeater = $w("#hotelOfferResultsRepeater");
+function configureHotelRateResultsRepeater() {
+  const hotelRateResultsRepeater = $w("#hotelRateResultsRepeater");
 
-  hotelOfferResultsRepeater.onItemReady(($item, itemData) => {
-    bindHotelRepeaterItem($item, itemData);
+  hotelRateResultsRepeater.onItemReady(($item, itemData) => {
+    bindHotelRateResultItem($item, itemData);
   });
 }
 
-function configureHotelOfferResultsProgressiveLoadingButton() {
-  const loadMoreHotelOffersButton = $w("#loadMoreHotelOffersButton");
+function configureHotelRateResultsProgressiveLoadingButton() {
+  const loadMoreHotelRateResultsButton = $w("#loadMoreHotelRateResultsButton");
 
-  loadMoreHotelOffersButton.onClick(() => {
-    renderNextHotelOfferResults("loadMoreButtonClick");
+  loadMoreHotelRateResultsButton.onClick(() => {
+    renderNextHotelRateResults("loadMoreButtonClick");
   });
 
-  loadMoreHotelOffersButton.onViewportEnter(() => {
-    renderNextHotelOfferResults("loadMoreButtonViewportEnter");
+  loadMoreHotelRateResultsButton.onViewportEnter(() => {
+    renderNextHotelRateResults("loadMoreButtonViewportEnter");
   });
 }
 
-function renderHotelOfferResults(renderHotelOfferResultsSource) {
-  const hotelOfferResultsRepeater = $w("#hotelOfferResultsRepeater");
+function renderHotelRateResults(renderHotelRateResultsSource) {
+  const hotelRateResultsRepeater = $w("#hotelRateResultsRepeater");
 
-  hotelOfferResultsRepeater.data = allHotelOfferResults.slice(
+  hotelRateResultsRepeater.data = allHotelRateResults.slice(
     0,
-    renderedHotelOfferResultsCount
+    renderedHotelRateResultsCount
   );
-  hotelOfferResultsRepeater.expand();
+  hotelRateResultsRepeater.expand();
 
   hideNoResultsState();
-  syncHotelOfferResultsProgressiveLoadingButton();
+  syncHotelRateResultsProgressiveLoadingButton();
 
-  console.log("HOTELS renderHotelOfferResults", {
-    renderHotelOfferResultsSource,
-    renderedHotelOfferResultsCount,
-    allHotelOfferResultsCount: allHotelOfferResults.length,
-    remainingHotelOfferResultsCount: Math.max(
+  console.log("HOTELS renderHotelRateResults", {
+    renderHotelRateResultsSource,
+    renderedHotelRateResultsCount,
+    allHotelRateResultsCount: allHotelRateResults.length,
+    remainingHotelRateResultsCount: Math.max(
       0,
-      allHotelOfferResults.length - renderedHotelOfferResultsCount
+      allHotelRateResults.length - renderedHotelRateResultsCount
     )
   });
 }
 
-function renderNextHotelOfferResults(renderNextHotelOfferResultsSource) {
-  if (isRenderingNextHotelOfferResults) {
-    console.log("HOTELS renderNextHotelOfferResults skipped", {
-      renderNextHotelOfferResultsSource,
+function renderNextHotelRateResults(renderNextHotelRateResultsSource) {
+  if (isRenderingNextHotelRateResults) {
+    console.log("HOTELS renderNextHotelRateResults skipped", {
+      renderNextHotelRateResultsSource,
       reason: "alreadyRendering",
-      renderedHotelOfferResultsCount,
-      allHotelOfferResultsCount: allHotelOfferResults.length
+      renderedHotelRateResultsCount,
+      allHotelRateResultsCount: allHotelRateResults.length
     });
     return;
   }
 
-  if (renderedHotelOfferResultsCount >= allHotelOfferResults.length) {
-    syncHotelOfferResultsProgressiveLoadingButton();
+  if (renderedHotelRateResultsCount >= allHotelRateResults.length) {
+    syncHotelRateResultsProgressiveLoadingButton();
 
-    console.log("HOTELS renderNextHotelOfferResults skipped", {
-      renderNextHotelOfferResultsSource,
+    console.log("HOTELS renderNextHotelRateResults skipped", {
+      renderNextHotelRateResultsSource,
       reason: "allResultsRendered",
-      renderedHotelOfferResultsCount,
-      allHotelOfferResultsCount: allHotelOfferResults.length
+      renderedHotelRateResultsCount,
+      allHotelRateResultsCount: allHotelRateResults.length
     });
     return;
   }
 
-  isRenderingNextHotelOfferResults = true;
+  isRenderingNextHotelRateResults = true;
 
   try {
-    const previousRenderedHotelOfferResultsCount =
-      renderedHotelOfferResultsCount;
+    const previousRenderedHotelRateResultsCount =
+      renderedHotelRateResultsCount;
 
-    renderedHotelOfferResultsCount = Math.min(
-      renderedHotelOfferResultsCount + HOTEL_OFFER_RESULTS_RENDER_STEP,
-      allHotelOfferResults.length
+    renderedHotelRateResultsCount = Math.min(
+      renderedHotelRateResultsCount + HOTEL_RATE_RESULTS_RENDER_STEP,
+      allHotelRateResults.length
     );
 
-    console.log("HOTELS renderNextHotelOfferResults", {
-      renderNextHotelOfferResultsSource,
-      previousRenderedHotelOfferResultsCount,
-      nextRenderedHotelOfferResultsCount: renderedHotelOfferResultsCount,
-      allHotelOfferResultsCount: allHotelOfferResults.length
+    console.log("HOTELS renderNextHotelRateResults", {
+      renderNextHotelRateResultsSource,
+      previousRenderedHotelRateResultsCount,
+      nextRenderedHotelRateResultsCount: renderedHotelRateResultsCount,
+      allHotelRateResultsCount: allHotelRateResults.length
     });
 
-    renderHotelOfferResults(renderNextHotelOfferResultsSource);
+    renderHotelRateResults(renderNextHotelRateResultsSource);
   } finally {
-    isRenderingNextHotelOfferResults = false;
+    isRenderingNextHotelRateResults = false;
   }
 }
 
-function bindHotelRepeaterItem($item, itemData) {
+function bindHotelRateResultItem($item, itemData) {
   const hotelNameText = $item("#hotelNameText");
   const hotelAddressText = $item("#hotelAddressText");
   const hotelRatingText = $item("#hotelRatingText");
   const beforeCurrentPriceText = $item("#beforeCurrentPriceText");
   const currentPriceText = $item("#currentPriceText");
   const currentPriceNoteText = $item("#currentPriceNoteText");
-  const hotelRoomOfferBoardNameText = $item("#hotelRoomOfferBoardNameText");
+  const rateNameText = $item("#rateNameText");
+  const rateBoardNameText = $item("#rateBoardNameText");
+  const itemPointText = $item("#itemPointText");
+  const itemGreenPointEarningRateText = $item(
+    "#itemGreenPointEarningRateText"
+  );
   const hotelMainImage = $item("#hotelMainImage");
   const hotelAvailabilityButton = $item("#hotelAvailabilityButton");
-  const hotelOfferResultCard = $item("#hotelOfferResultCard");
+  const hotelRateResultCard = $item("#hotelRateResultCard");
 
   const normalizedHotelName = normalizeText(itemData?.hotelName);
   const normalizedHotelAddress = normalizeText(itemData?.hotelAddress);
@@ -237,8 +242,11 @@ function bindHotelRepeaterItem($item, itemData) {
   const normalizedCurrentPriceNoteText = normalizeText(
     itemData?.currentPriceNoteText
   );
-  const normalizedHotelRoomOfferBoardName = normalizeText(
-    itemData?.hotelRoomOfferBoardName
+  const normalizedRateName = normalizeText(itemData?.rateName);
+  const normalizedRateBoardName = normalizeText(itemData?.rateBoardName);
+  const normalizedItemPoint = Number(itemData?.itemPoint);
+  const normalizedItemGreenPointEarningRate = Number(
+    itemData?.itemGreenPointEarningRate
   );
   const normalizedHotelMainImage = normalizeText(itemData?.hotelMainImage);
 
@@ -284,11 +292,34 @@ function bindHotelRepeaterItem($item, itemData) {
     currentPriceNoteText.expand();
   }
 
-  if (!normalizedHotelRoomOfferBoardName) {
-    hotelRoomOfferBoardNameText.collapse();
+  if (!normalizedRateName) {
+    rateNameText.collapse();
   } else {
-    hotelRoomOfferBoardNameText.text = normalizedHotelRoomOfferBoardName;
-    hotelRoomOfferBoardNameText.expand();
+    rateNameText.text = normalizedRateName;
+    rateNameText.expand();
+  }
+
+  if (!normalizedRateBoardName) {
+    rateBoardNameText.collapse();
+  } else {
+    rateBoardNameText.text = normalizedRateBoardName;
+    rateBoardNameText.expand();
+  }
+
+  if (!Number.isFinite(normalizedItemPoint)) {
+    itemPointText.collapse();
+  } else {
+    itemPointText.text = String(normalizedItemPoint);
+    itemPointText.expand();
+  }
+
+  if (!Number.isFinite(normalizedItemGreenPointEarningRate)) {
+    itemGreenPointEarningRateText.collapse();
+  } else {
+    itemGreenPointEarningRateText.text = String(
+      normalizedItemGreenPointEarningRate
+    );
+    itemGreenPointEarningRateText.expand();
   }
 
   if (!normalizedHotelMainImage) {
@@ -301,8 +332,8 @@ function bindHotelRepeaterItem($item, itemData) {
   hotelAvailabilityButton.label = "See availability";
   hotelAvailabilityButton.expand();
 
-  hotelOfferResultCard.expand();
-  hotelOfferResultCard.onClick(() => {
+  hotelRateResultCard.expand();
+  hotelRateResultCard.onClick(() => {
     openHotelDetailsPage(itemData);
   });
 }
@@ -333,20 +364,22 @@ function openHotelDetailsPage(itemData) {
 }
 
 function renderNoResultsState() {
-  const hotelOfferResultsRepeater = $w("#hotelOfferResultsRepeater");
-  const loadMoreHotelOffersButton = $w("#loadMoreHotelOffersButton");
+  const hotelRateResultsRepeater = $w("#hotelRateResultsRepeater");
+  const loadMoreHotelRateResultsButton = $w(
+    "#loadMoreHotelRateResultsButton"
+  );
   const noResultsBox = $w("#noResultsBox");
 
-  hotelOfferResultsRepeater.data = [];
-  hotelOfferResultsRepeater.collapse();
+  hotelRateResultsRepeater.data = [];
+  hotelRateResultsRepeater.collapse();
 
-  loadMoreHotelOffersButton.collapse();
+  loadMoreHotelRateResultsButton.collapse();
 
   noResultsBox.expand();
 
   console.log("HOTELS renderNoResultsState", {
-    allHotelOfferResultsCount: allHotelOfferResults.length,
-    renderedHotelOfferResultsCount
+    allHotelRateResultsCount: allHotelRateResults.length,
+    renderedHotelRateResultsCount
   });
 }
 
@@ -356,19 +389,21 @@ function hideNoResultsState() {
   noResultsBox.collapse();
 }
 
-function syncHotelOfferResultsProgressiveLoadingButton() {
-  const loadMoreHotelOffersButton = $w("#loadMoreHotelOffersButton");
+function syncHotelRateResultsProgressiveLoadingButton() {
+  const loadMoreHotelRateResultsButton = $w(
+    "#loadMoreHotelRateResultsButton"
+  );
 
-  if (renderedHotelOfferResultsCount >= allHotelOfferResults.length) {
-    loadMoreHotelOffersButton.collapse();
+  if (renderedHotelRateResultsCount >= allHotelRateResults.length) {
+    loadMoreHotelRateResultsButton.collapse();
     return;
   }
 
-  loadMoreHotelOffersButton.label = `Load More (${
-    allHotelOfferResults.length - renderedHotelOfferResultsCount
+  loadMoreHotelRateResultsButton.label = `Load More (${
+    allHotelRateResults.length - renderedHotelRateResultsCount
   } left)`;
 
-  loadMoreHotelOffersButton.expand();
+  loadMoreHotelRateResultsButton.expand();
 }
 
 function buildRepeaterId(hotelId) {
@@ -377,12 +412,12 @@ function buildRepeaterId(hotelId) {
     .slice(0, 40);
 
   if (!safeHotelId) {
-    throw new Error("hotelId is required to build hotel offer repeater item id.");
+    throw new Error("hotelId is required to build hotel rate repeater item id.");
   }
 
   return safeHotelId;
 }
 
 function normalizeText(value) {
-  return String(value || "").trim();
+  return String(value ?? "").trim();
 }
