@@ -225,9 +225,7 @@ function bindHotelRateResultItem($item, itemData) {
   const rateNameText = $item("#rateNameText");
   const rateBoardNameText = $item("#rateBoardNameText");
   const itemPointText = $item("#itemPointText");
-  const itemGreenPointEarningRateText = $item(
-    "#itemGreenPointEarningRateText"
-  );
+  const itemGreenPointEarningRateText = $item("#itemGreenPointEarningRateText");
   const hotelMainImage = $item("#hotelMainImage");
   const hotelAvailabilityButton = $item("#hotelAvailabilityButton");
   const hotelRateResultCard = $item("#hotelRateResultCard");
@@ -264,7 +262,7 @@ function bindHotelRateResultItem($item, itemData) {
     hotelAddressText.expand();
   }
 
-  if (!Number.isFinite(normalizedHotelRating)) {
+  if (!Number.isFinite(normalizedHotelRating) || normalizedHotelRating <= 0) {
     hotelRatingText.collapse();
   } else {
     hotelRatingText.text = String(normalizedHotelRating);
@@ -306,14 +304,17 @@ function bindHotelRateResultItem($item, itemData) {
     rateBoardNameText.expand();
   }
 
-  if (!Number.isFinite(normalizedItemPoint)) {
+  if (!Number.isFinite(normalizedItemPoint) || normalizedItemPoint <= 0) {
     itemPointText.collapse();
   } else {
     itemPointText.text = String(normalizedItemPoint);
     itemPointText.expand();
   }
 
-  if (!Number.isFinite(normalizedItemGreenPointEarningRate)) {
+  if (
+    !Number.isFinite(normalizedItemGreenPointEarningRate) ||
+    normalizedItemGreenPointEarningRate <= 0
+  ) {
     itemGreenPointEarningRateText.collapse();
   } else {
     itemGreenPointEarningRateText.text = String(
@@ -365,9 +366,7 @@ function openHotelDetailsPage(itemData) {
 
 function renderNoResultsState() {
   const hotelRateResultsRepeater = $w("#hotelRateResultsRepeater");
-  const loadMoreHotelRateResultsButton = $w(
-    "#loadMoreHotelRateResultsButton"
-  );
+  const loadMoreHotelRateResultsButton = $w("#loadMoreHotelRateResultsButton");
   const noResultsBox = $w("#noResultsBox");
 
   hotelRateResultsRepeater.data = [];
@@ -390,9 +389,7 @@ function hideNoResultsState() {
 }
 
 function syncHotelRateResultsProgressiveLoadingButton() {
-  const loadMoreHotelRateResultsButton = $w(
-    "#loadMoreHotelRateResultsButton"
-  );
+  const loadMoreHotelRateResultsButton = $w("#loadMoreHotelRateResultsButton");
 
   if (renderedHotelRateResultsCount >= allHotelRateResults.length) {
     loadMoreHotelRateResultsButton.collapse();
